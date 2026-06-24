@@ -19,6 +19,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
+from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
 from app.services.memory_service import MemoryService
 
@@ -55,6 +56,13 @@ def get_interview_question_service(
 ) -> InterviewQuestionService:
     """Provide an :class:`InterviewQuestionService` bound to the session."""
     return InterviewQuestionService(session)
+
+
+def get_interview_answer_service(
+    session: SessionDep,
+) -> InterviewAnswerService:
+    """Provide an :class:`InterviewAnswerService` bound to the session."""
+    return InterviewAnswerService(session)
 
 
 def get_current_user(
@@ -101,5 +109,8 @@ MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
+]
+InterviewAnswerServiceDep = Annotated[
+    InterviewAnswerService, Depends(get_interview_answer_service)
 ]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

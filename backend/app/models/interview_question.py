@@ -5,7 +5,7 @@ Storage only — no AI generation, interview execution, or answer collection.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,6 +14,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.blueprint import Blueprint
+    from app.models.interview_answer import InterviewAnswer
 
 
 class InterviewQuestion(Base):
@@ -40,6 +41,13 @@ class InterviewQuestion(Base):
     # Each question belongs to exactly one blueprint.
     blueprint: Mapped["Blueprint"] = relationship(
         back_populates="interview_questions"
+    )
+
+    # Each question has at most one answer.
+    answer: Mapped[Optional["InterviewAnswer"]] = relationship(
+        back_populates="question",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
