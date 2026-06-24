@@ -1,0 +1,60 @@
+# Python
+
+**pycache**/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Environment Variables
+
+.env
+.env.local
+
+# Node.js
+
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React Native / Expo
+
+.expo/
+dist/
+build/
+
+# VS Code
+
+.vscode/
+
+# Logs
+
+*.log
+
+# Database
+
+*.db
+*.sqlite3
+
+# OS Files
+
+.DS_Store
+Thumbs.db
+
+# Coverage
+
+.coverage
+htmlcov/
+
+# Cache
+
+.pytest_cache/
+.mypy_cache/
+
+# Temporary Files
+
+*.tmp
+*.temp
