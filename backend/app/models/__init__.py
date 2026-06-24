@@ -6,7 +6,14 @@ and that relationship string references resolve.
 
 from app.models.blueprint import Blueprint
 from app.models.employee import Employee
+from app.models.interview_question import InterviewQuestion
 from app.models.memory import Memory
 from app.models.user import User
 
-__all__ = ["User", "Employee", "Memory", "Blueprint"]
+__all__ = [
+    "User",
+    "Employee",
+    "Memory",
+    "Blueprint",
+    "InterviewQuestion",
+]

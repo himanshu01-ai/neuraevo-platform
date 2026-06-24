@@ -7,7 +7,7 @@ has at most one blueprint (enforced by a unique constraint on
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -16,6 +16,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.interview_question import InterviewQuestion
 
 
 class Blueprint(Base):
@@ -47,6 +48,13 @@ class Blueprint(Base):
 
     # One-to-one: each blueprint belongs to exactly one employee.
     employee: Mapped["Employee"] = relationship(back_populates="blueprint")
+
+    # One blueprint owns many interview questions, ordered by question_order.
+    interview_questions: Mapped[List["InterviewQuestion"]] = relationship(
+        back_populates="blueprint",
+        cascade="all, delete-orphan",
+        order_by="InterviewQuestion.question_order",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<Blueprint id={self.id} employee_id={self.employee_id}>"

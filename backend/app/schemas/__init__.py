@@ -14,6 +14,10 @@ from app.schemas.blueprint import (
     BlueprintUpdate,
 )
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
+from app.schemas.interview_question import (
+    InterviewQuestionCreate,
+    InterviewQuestionResponse,
+)
 from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
 from app.schemas.memory_stats import MemoryStatsResponse
 
@@ -33,4 +37,6 @@ __all__ = [
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",
+    "InterviewQuestionCreate",
+    "InterviewQuestionResponse",
 ]

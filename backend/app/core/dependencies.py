@@ -19,6 +19,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
+from app.services.interview_question_service import InterviewQuestionService
 from app.services.memory_service import MemoryService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
@@ -47,6 +48,13 @@ def get_memory_service(session: SessionDep) -> MemoryService:
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
     """Provide a :class:`BlueprintService` bound to the request-scoped session."""
     return BlueprintService(session)
+
+
+def get_interview_question_service(
+    session: SessionDep,
+) -> InterviewQuestionService:
+    """Provide an :class:`InterviewQuestionService` bound to the session."""
+    return InterviewQuestionService(session)
 
 
 def get_current_user(
@@ -91,4 +99,7 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
+InterviewQuestionServiceDep = Annotated[
+    InterviewQuestionService, Depends(get_interview_question_service)
+]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
