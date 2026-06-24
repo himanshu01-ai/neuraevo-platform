@@ -36,6 +36,14 @@ class Settings(BaseSettings):
     # boot without a live database (see app.core.database).
     DATABASE_URL: str | None = Field(default=None)
 
+    # --- Authentication / JWT -------------------------------------------
+    # IMPORTANT: override JWT_SECRET_KEY via the environment in any non-local
+    # deployment. The default below is for local development only.
+    JWT_SECRET_KEY: str = Field(default="dev-insecure-change-me")
+    JWT_ALGORITHM: str = Field(default="HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
+
     # --- CORS ------------------------------------------------------------
     # Comma-separated list of allowed origins, e.g.
     # "http://localhost:3000,https://app.neuraevo.com"
