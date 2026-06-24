@@ -13,6 +13,7 @@ from app.models.memory import Memory
 from app.models.user import User
 from app.repositories.memory_repository import MemoryRepository
 from app.schemas.memory import MemoryCreate, MemoryUpdate
+from app.schemas.memory_stats import MemoryStatsResponse
 from app.services.employee_service import EmployeeService
 from app.utils.constants import MemoryType
 from app.utils.logger import get_logger
@@ -116,6 +117,29 @@ class MemoryService:
             )
             raise MemoryAccessDeniedError(str(memory_id))
         return memory
+
+    def get_memory_stats(
+        self, owner: User, employee_id: uuid.UUID
+    ) -> MemoryStatsResponse:
+        """Return aggregated memory statistics for an employee.
+
+        Reuses :meth:`EmployeeService.get_employee` for ownership validation
+        (raising ``EmployeeNotFoundError`` / ``EmployeeAccessDeniedError``).
+        Missing per-type counts default to 0 and the average defaults to 0.0
+        when the employee has no memories.
+        """
+        employee = self.employees.get_employee(owner, employee_id)
+        stats = self.memories.get_memory_stats(employee.id)
+
+        counts = stats["counts_by_type"]
+        average = stats["average_importance_score"]
+        return MemoryStatsResponse(
+            total_memories=stats["total_memories"],
+            permanent_count=counts.get(MemoryType.PERMANENT.value, 0),
+            working_count=counts.get(MemoryType.WORKING.value, 0),
+            learned_count=counts.get(MemoryType.LEARNED.value, 0),
+            average_importance_score=round(average, 2) if average is not None else 0.0,
+        )
 
     def update_memory(
         self,

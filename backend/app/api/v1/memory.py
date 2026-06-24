@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.dependencies import CurrentUserDep, MemoryServiceDep
 from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
+from app.schemas.memory_stats import MemoryStatsResponse
 from app.utils.constants import MemoryType
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
@@ -169,6 +170,31 @@ def list_memories(
             detail="You do not have access to this employee.",
         )
     return [MemoryResponse.model_validate(m) for m in memories]
+
+
+@router.get(
+    "/stats",
+    response_model=MemoryStatsResponse,
+    summary="Get aggregated memory statistics for one of the user's employees",
+    responses=_LIST_RESPONSES,
+)
+def get_memory_stats(
+    employee_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: MemoryServiceDep,
+) -> MemoryStatsResponse:
+    """Return aggregated memory statistics for the given employee.
+
+    Counts per memory type, the total, and the average importance score. The
+    employee must belong to the authenticated user (``404``/``403``). An
+    employee with no memories yields all-zero counts and a ``0.0`` average.
+    """
+    # Declared before ``/{memory_id}`` so the literal "stats" path is not
+    # captured as a memory UUID.
+    try:
+        return service.get_memory_stats(current_user, employee_id)
+    except (EmployeeError, MemoryError) as exc:
+        raise _to_http_exception(exc)
 
 
 @router.get(

@@ -8,7 +8,7 @@ populated.
 import uuid
 from typing import Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.memory import Memory
@@ -89,3 +89,33 @@ class MemoryRepository:
     def delete_memory(self, memory: Memory) -> None:
         self.session.delete(memory)
         self.session.flush()
+
+    def get_memory_stats(self, employee_id: uuid.UUID) -> dict:
+        """Return raw aggregate stats for an employee's memories.
+
+        Returns a dict with the total count, per-``memory_type`` counts, and
+        the average ``importance_score`` (``None`` when there are no
+        memories). No defaulting, rounding, or business rules are applied
+        here.
+        """
+        totals_stmt = select(
+            func.count(Memory.id),
+            func.avg(Memory.importance_score),
+        ).where(Memory.employee_id == employee_id)
+        total, average = self.session.execute(totals_stmt).one()
+
+        per_type_stmt = (
+            select(Memory.memory_type, func.count(Memory.id))
+            .where(Memory.employee_id == employee_id)
+            .group_by(Memory.memory_type)
+        )
+        counts_by_type = {
+            memory_type: count
+            for memory_type, count in self.session.execute(per_type_stmt).all()
+        }
+
+        return {
+            "total_memories": total,
+            "counts_by_type": counts_by_type,
+            "average_importance_score": average,
+        }
