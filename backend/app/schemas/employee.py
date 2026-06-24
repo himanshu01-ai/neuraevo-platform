@@ -16,7 +16,9 @@ class EmployeeCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=255)
     role: str = Field(min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: Optional[str] = Field(default=None, max_length=2000)
+    language: str = Field(default="en", min_length=2, max_length=50)
+    personality: Optional[str] = Field(default=None, max_length=2000)
 
 
 class EmployeeResponse(BaseModel):
@@ -29,5 +31,7 @@ class EmployeeResponse(BaseModel):
     name: str
     role: str
     description: Optional[str] = None
+    language: str
+    personality: Optional[str] = None
     status: str
     created_at: datetime

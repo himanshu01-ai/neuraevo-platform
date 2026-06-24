@@ -17,9 +17,11 @@ from app.core.security import decode_token
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.employee_service import EmployeeService
 
-# ``auto_error=True`` => a missing/blank Authorization header yields 403 before
-# our handler runs; we still raise 401 for malformed/expired tokens below.
+# ``auto_error=True`` => a missing/blank Authorization header is rejected by the
+# scheme (401) before our handler runs; we also raise 401 for malformed/expired
+# tokens below, so unauthenticated requests consistently receive 401.
 _bearer_scheme = HTTPBearer(auto_error=True)
 
 SessionDep = Annotated[Session, Depends(get_db)]
@@ -28,6 +30,11 @@ SessionDep = Annotated[Session, Depends(get_db)]
 def get_auth_service(session: SessionDep) -> AuthService:
     """Provide an :class:`AuthService` bound to the request-scoped session."""
     return AuthService(session)
+
+
+def get_employee_service(session: SessionDep) -> EmployeeService:
+    """Provide an :class:`EmployeeService` bound to the request-scoped session."""
+    return EmployeeService(session)
 
 
 def get_current_user(
@@ -69,4 +76,5 @@ def get_current_user(
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

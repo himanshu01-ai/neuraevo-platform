@@ -42,6 +42,8 @@ class EmployeeRepository:
             name=data.name,
             role=data.role,
             description=data.description,
+            language=data.language,
+            personality=data.personality,
         )
         self.session.add(employee)
         self.session.flush()
