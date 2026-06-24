@@ -18,6 +18,7 @@ from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
 from app.services.employee_service import EmployeeService
+from app.services.memory_service import MemoryService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
 # scheme (401) before our handler runs; we also raise 401 for malformed/expired
@@ -35,6 +36,11 @@ def get_auth_service(session: SessionDep) -> AuthService:
 def get_employee_service(session: SessionDep) -> EmployeeService:
     """Provide an :class:`EmployeeService` bound to the request-scoped session."""
     return EmployeeService(session)
+
+
+def get_memory_service(session: SessionDep) -> MemoryService:
+    """Provide a :class:`MemoryService` bound to the request-scoped session."""
+    return MemoryService(session)
 
 
 def get_current_user(
@@ -77,4 +83,5 @@ def get_current_user(
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
+MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

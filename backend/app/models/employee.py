@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.memory import Memory
     from app.models.user import User
 
 
@@ -50,6 +51,12 @@ class Employee(Base):
 
     # Each employee belongs to exactly one owning user.
     owner: Mapped["User"] = relationship(back_populates="employees")
+
+    # One employee accumulates many memories.
+    memories: Mapped[List["Memory"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+    )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper
         return f"<Employee id={self.id} name={self.name!r} user_id={self.user_id}>"
