@@ -40,15 +40,26 @@ class MemoryRepository:
         return self.session.get(Memory, memory_id)
 
     def list_memories(
-        self, employee_id: uuid.UUID, *, skip: int = 0, limit: int = 100
+        self,
+        employee_id: uuid.UUID,
+        *,
+        memory_type: Optional[str] = None,
+        min_importance: Optional[float] = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> Sequence[Memory]:
-        stmt = (
-            select(Memory)
-            .where(Memory.employee_id == employee_id)
-            .offset(skip)
-            .limit(limit)
-            .order_by(Memory.created_at)
-        )
+        """Return an employee's memories, optionally filtered and paginated.
+
+        Filters are applied only when provided. Results are ordered by
+        ``created_at`` ascending (oldest first). This method performs no
+        validation; callers are responsible for value/range checks.
+        """
+        stmt = select(Memory).where(Memory.employee_id == employee_id)
+        if memory_type is not None:
+            stmt = stmt.where(Memory.memory_type == memory_type)
+        if min_importance is not None:
+            stmt = stmt.where(Memory.importance_score >= min_importance)
+        stmt = stmt.order_by(Memory.created_at).offset(offset).limit(limit)
         return self.session.scalars(stmt).all()
 
     def delete_memory(self, memory: Memory) -> None:

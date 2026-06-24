@@ -7,13 +7,14 @@ search, embeddings, or retrieval ranking is performed here.
 """
 
 import uuid
-from typing import Sequence
+from typing import Optional, Sequence
 
 from app.models.memory import Memory
 from app.models.user import User
 from app.repositories.memory_repository import MemoryRepository
 from app.schemas.memory import MemoryCreate
 from app.services.employee_service import EmployeeService
+from app.utils.constants import MemoryType
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -61,12 +62,33 @@ class MemoryService:
         )
         return memory
 
+    # Hard ceiling on how many memories a single request may return.
+    MAX_LIMIT = 100
+
     def list_memories(
-        self, owner: User, employee_id: uuid.UUID
+        self,
+        owner: User,
+        employee_id: uuid.UUID,
+        memory_type: Optional[MemoryType] = None,
+        min_importance: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0,
     ) -> Sequence[Memory]:
-        """List memories for an employee the ``owner`` is allowed to access."""
+        """List memories for an employee the ``owner`` is allowed to access.
+
+        Optional ``memory_type`` and ``min_importance`` filters are applied
+        when provided. Results are oldest-first. ``limit`` is capped at
+        :attr:`MAX_LIMIT` as a defensive safeguard regardless of the caller.
+        """
         employee = self.employees.get_employee(owner, employee_id)
-        return self.memories.list_memories(employee.id)
+        capped_limit = min(limit, self.MAX_LIMIT)
+        return self.memories.list_memories(
+            employee.id,
+            memory_type=memory_type.value if memory_type is not None else None,
+            min_importance=min_importance,
+            limit=capped_limit,
+            offset=offset,
+        )
 
     def get_memory(
         self, owner: User, employee_id: uuid.UUID, memory_id: uuid.UUID

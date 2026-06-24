@@ -1,12 +1,13 @@
 """Memory API endpoints (nested under an employee)."""
 
 import uuid
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.dependencies import CurrentUserDep, MemoryServiceDep
 from app.schemas.memory import MemoryCreate, MemoryResponse
+from app.utils.constants import MemoryType
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
     EmployeeError,
@@ -23,6 +24,16 @@ router = APIRouter(
 )
 
 _OWNERSHIP_RESPONSES = {
+    status.HTTP_403_FORBIDDEN: {
+        "description": "The employee belongs to another user."
+    },
+    status.HTTP_404_NOT_FOUND: {"description": "The employee does not exist."},
+}
+
+# Documented responses for the list endpoint. 422 (invalid query params) is
+# added automatically by FastAPI.
+_LIST_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"description": "Missing or invalid credentials."},
     status.HTTP_403_FORBIDDEN: {
         "description": "The employee belongs to another user."
     },
@@ -104,20 +115,50 @@ def create_memory(
     "",
     response_model=List[MemoryResponse],
     summary="List memories for one of the authenticated user's employees",
-    responses=_OWNERSHIP_RESPONSES,
+    responses=_LIST_RESPONSES,
 )
 def list_memories(
     employee_id: uuid.UUID,
     current_user: CurrentUserDep,
     service: MemoryServiceDep,
+    memory_type: Optional[MemoryType] = Query(
+        default=None,
+        description="Filter by memory type (permanent, working, learned).",
+    ),
+    min_importance: Optional[float] = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Only return memories with importance_score >= this value.",
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+        description="Maximum number of memories to return (1-100, default 50).",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of memories to skip for pagination (default 0).",
+    ),
 ) -> List[MemoryResponse]:
-    """List all memories for the given employee, oldest first.
+    """List memories for the given employee, oldest first.
 
-    The employee must belong to the authenticated user (``404``/``403`` as
-    above). Returns an empty list if the employee has no memories.
+    The employee must belong to the authenticated user (``404``/``403``).
+    Optional ``memory_type`` and ``min_importance`` filters narrow the result;
+    ``limit``/``offset`` paginate it. Returns an empty list when nothing
+    matches. Invalid query values yield ``422``.
     """
     try:
-        memories = service.list_memories(current_user, employee_id)
+        memories = service.list_memories(
+            current_user,
+            employee_id,
+            memory_type=memory_type,
+            min_importance=min_importance,
+            limit=limit,
+            offset=offset,
+        )
     except EmployeeNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found."
