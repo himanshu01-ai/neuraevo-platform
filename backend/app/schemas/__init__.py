@@ -9,7 +9,7 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
-from app.schemas.memory import MemoryCreate, MemoryResponse
+from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
 
 __all__ = [
     "UserCreate",
@@ -22,4 +22,5 @@ __all__ = [
     "EmployeeResponse",
     "MemoryCreate",
     "MemoryResponse",
+    "MemoryUpdate",
 ]

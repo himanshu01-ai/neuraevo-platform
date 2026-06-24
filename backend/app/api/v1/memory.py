@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.core.dependencies import CurrentUserDep, MemoryServiceDep
-from app.schemas.memory import MemoryCreate, MemoryResponse
+from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
 from app.utils.constants import MemoryType
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
@@ -217,3 +217,31 @@ def delete_memory(
         service.delete_memory(current_user, employee_id, memory_id)
     except (EmployeeError, MemoryError) as exc:
         raise _to_http_exception(exc)
+
+
+@router.patch(
+    "/{memory_id}",
+    response_model=MemoryResponse,
+    summary="Update a single memory for one of the user's employees",
+    responses=_MEMORY_ITEM_RESPONSES,
+)
+def update_memory(
+    employee_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    data: MemoryUpdate,
+    current_user: CurrentUserDep,
+    service: MemoryServiceDep,
+) -> MemoryResponse:
+    """Partially update a memory by id, scoped to the employee and user.
+
+    Only the fields supplied in the body are changed; at least one field is
+    required (an empty update yields ``422``). Same ``404``/``403``/``422``
+    ownership and validation rules as the other single-memory endpoints.
+    """
+    try:
+        memory = service.update_memory(
+            current_user, employee_id, memory_id, data
+        )
+    except (EmployeeError, MemoryError) as exc:
+        raise _to_http_exception(exc)
+    return MemoryResponse.model_validate(memory)

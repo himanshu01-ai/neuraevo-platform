@@ -12,7 +12,7 @@ from typing import Optional, Sequence
 from app.models.memory import Memory
 from app.models.user import User
 from app.repositories.memory_repository import MemoryRepository
-from app.schemas.memory import MemoryCreate
+from app.schemas.memory import MemoryCreate, MemoryUpdate
 from app.services.employee_service import EmployeeService
 from app.utils.constants import MemoryType
 from app.utils.logger import get_logger
@@ -115,6 +115,37 @@ class MemoryService:
                 memory.employee_id,
             )
             raise MemoryAccessDeniedError(str(memory_id))
+        return memory
+
+    def update_memory(
+        self,
+        owner: User,
+        employee_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        data: MemoryUpdate,
+    ) -> Memory:
+        """Apply a partial update to a memory the owner is allowed to access.
+
+        Resolves and authorizes the memory via :meth:`get_memory` (raising the
+        same domain exceptions). Only fields set on ``data`` are written.
+        """
+        memory = self.get_memory(owner, employee_id, memory_id)
+        self.memories.update_memory(
+            memory,
+            memory_type=(
+                data.memory_type.value if data.memory_type is not None else None
+            ),
+            content=data.content,
+            importance_score=data.importance_score,
+        )
+        self.session.commit()
+        self.session.refresh(memory)
+        logger.info(
+            "User %s updated memory %s on employee %s",
+            owner.id,
+            memory_id,
+            employee_id,
+        )
         return memory
 
     def delete_memory(

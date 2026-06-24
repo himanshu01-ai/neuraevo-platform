@@ -62,6 +62,30 @@ class MemoryRepository:
         stmt = stmt.order_by(Memory.created_at).offset(offset).limit(limit)
         return self.session.scalars(stmt).all()
 
+    def update_memory(
+        self,
+        memory: Memory,
+        *,
+        memory_type: Optional[str] = None,
+        content: Optional[str] = None,
+        importance_score: Optional[float] = None,
+    ) -> Memory:
+        """Apply a partial update to an existing ``memory`` instance.
+
+        Only arguments that are not ``None`` are written; unspecified fields
+        are left untouched. The ``memory`` is assumed to already be loaded and
+        authorized by the caller.
+        """
+        if memory_type is not None:
+            memory.memory_type = memory_type
+        if content is not None:
+            memory.content = content
+        if importance_score is not None:
+            memory.importance_score = importance_score
+        self.session.flush()
+        self.session.refresh(memory)
+        return memory
+
     def delete_memory(self, memory: Memory) -> None:
         self.session.delete(memory)
         self.session.flush()
