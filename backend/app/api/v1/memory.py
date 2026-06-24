@@ -9,7 +9,13 @@ from app.core.dependencies import CurrentUserDep, MemoryServiceDep
 from app.schemas.memory import MemoryCreate, MemoryResponse
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
+    EmployeeError,
     EmployeeNotFoundError,
+)
+from app.services.memory_service import (
+    MemoryAccessDeniedError,
+    MemoryError,
+    MemoryNotFoundError,
 )
 
 router = APIRouter(
@@ -22,6 +28,43 @@ _OWNERSHIP_RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: {"description": "The employee does not exist."},
 }
+
+# Documented responses for the single-memory endpoints. 422 (invalid UUID) is
+# added automatically by FastAPI from the path parameters.
+_MEMORY_ITEM_RESPONSES = {
+    status.HTTP_401_UNAUTHORIZED: {"description": "Missing or invalid credentials."},
+    status.HTTP_403_FORBIDDEN: {
+        "description": "The employee or memory belongs to another user."
+    },
+    status.HTTP_404_NOT_FOUND: {
+        "description": "The employee or memory does not exist."
+    },
+}
+
+# Maps domain exceptions to the (status code, detail) used in HTTP responses.
+_DOMAIN_HTTP_MAP: list[tuple[type[Exception], int, str]] = [
+    (EmployeeNotFoundError, status.HTTP_404_NOT_FOUND, "Employee not found."),
+    (
+        EmployeeAccessDeniedError,
+        status.HTTP_403_FORBIDDEN,
+        "You do not have access to this employee.",
+    ),
+    (MemoryNotFoundError, status.HTTP_404_NOT_FOUND, "Memory not found."),
+    (
+        MemoryAccessDeniedError,
+        status.HTTP_403_FORBIDDEN,
+        "This memory does not belong to the specified employee.",
+    ),
+]
+
+
+def _to_http_exception(exc: EmployeeError | MemoryError) -> HTTPException:
+    """Translate an ownership/lookup domain error into an HTTPException."""
+    for exc_type, code, detail in _DOMAIN_HTTP_MAP:
+        if isinstance(exc, exc_type):
+            return HTTPException(status_code=code, detail=detail)
+    # Defensive: an unmapped domain error should not be swallowed.
+    raise exc
 
 
 @router.post(
@@ -85,3 +128,51 @@ def list_memories(
             detail="You do not have access to this employee.",
         )
     return [MemoryResponse.model_validate(m) for m in memories]
+
+
+@router.get(
+    "/{memory_id}",
+    response_model=MemoryResponse,
+    summary="Get a single memory for one of the user's employees",
+    responses=_MEMORY_ITEM_RESPONSES,
+)
+def get_memory(
+    employee_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: MemoryServiceDep,
+) -> MemoryResponse:
+    """Return a single memory by id, scoped to the employee and user.
+
+    Returns ``404`` if the employee or memory does not exist, and ``403`` if
+    either belongs to another owner (or the memory belongs to a different
+    employee). Invalid path UUIDs yield ``422``.
+    """
+    try:
+        memory = service.get_memory(current_user, employee_id, memory_id)
+    except (EmployeeError, MemoryError) as exc:
+        raise _to_http_exception(exc)
+    return MemoryResponse.model_validate(memory)
+
+
+@router.delete(
+    "/{memory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a single memory for one of the user's employees",
+    responses=_MEMORY_ITEM_RESPONSES,
+)
+def delete_memory(
+    employee_id: uuid.UUID,
+    memory_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: MemoryServiceDep,
+) -> None:
+    """Delete a single memory by id, scoped to the employee and user.
+
+    Returns ``204 No Content`` on success. Same ``404``/``403``/``422`` rules
+    as the GET endpoint.
+    """
+    try:
+        service.delete_memory(current_user, employee_id, memory_id)
+    except (EmployeeError, MemoryError) as exc:
+        raise _to_http_exception(exc)

@@ -19,6 +19,18 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class MemoryError(Exception):
+    """Base class for memory-related domain errors."""
+
+
+class MemoryNotFoundError(MemoryError):
+    """Raised when no memory exists for the given identifier."""
+
+
+class MemoryAccessDeniedError(MemoryError):
+    """Raised when a memory exists but does not belong to the given employee."""
+
+
 class MemoryService:
     """Coordinates memory operations using the repository layer.
 
@@ -55,3 +67,48 @@ class MemoryService:
         """List memories for an employee the ``owner`` is allowed to access."""
         employee = self.employees.get_employee(owner, employee_id)
         return self.memories.list_memories(employee.id)
+
+    def get_memory(
+        self, owner: User, employee_id: uuid.UUID, memory_id: uuid.UUID
+    ) -> Memory:
+        """Return a single memory scoped to an employee the owner can access.
+
+        Raises :class:`EmployeeNotFoundError` / :class:`EmployeeAccessDeniedError`
+        if the employee is missing or not owned by ``owner``;
+        :class:`MemoryNotFoundError` if the memory does not exist; and
+        :class:`MemoryAccessDeniedError` if it exists but belongs to a
+        different employee.
+        """
+        employee = self.employees.get_employee(owner, employee_id)
+        memory = self.memories.get_memory(memory_id)
+        if memory is None:
+            raise MemoryNotFoundError(str(memory_id))
+        if memory.employee_id != employee.id:
+            logger.warning(
+                "User %s attempted to access memory %s via employee %s, "
+                "but it belongs to employee %s",
+                owner.id,
+                memory_id,
+                employee.id,
+                memory.employee_id,
+            )
+            raise MemoryAccessDeniedError(str(memory_id))
+        return memory
+
+    def delete_memory(
+        self, owner: User, employee_id: uuid.UUID, memory_id: uuid.UUID
+    ) -> None:
+        """Delete a memory the owner is allowed to access.
+
+        Resolves and authorizes the memory via :meth:`get_memory` (raising the
+        same domain exceptions) before deleting and committing.
+        """
+        memory = self.get_memory(owner, employee_id, memory_id)
+        self.memories.delete_memory(memory)
+        self.session.commit()
+        logger.info(
+            "User %s deleted memory %s from employee %s",
+            owner.id,
+            memory_id,
+            employee_id,
+        )
