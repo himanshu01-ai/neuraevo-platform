@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.blueprint import Blueprint
     from app.models.memory import Memory
     from app.models.user import User
 
@@ -55,6 +56,13 @@ class Employee(Base):
     # One employee accumulates many memories.
     memories: Mapped[List["Memory"]] = relationship(
         back_populates="employee",
+        cascade="all, delete-orphan",
+    )
+
+    # One employee has at most one blueprint.
+    blueprint: Mapped[Optional["Blueprint"]] = relationship(
+        back_populates="employee",
+        uselist=False,
         cascade="all, delete-orphan",
     )
 

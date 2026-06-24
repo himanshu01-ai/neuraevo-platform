@@ -8,6 +8,11 @@ from app.schemas.auth import (
     UserCreate,
     UserResponse,
 )
+from app.schemas.blueprint import (
+    BlueprintCreate,
+    BlueprintResponse,
+    BlueprintUpdate,
+)
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
 from app.schemas.memory_stats import MemoryStatsResponse
@@ -25,4 +30,7 @@ __all__ = [
     "MemoryResponse",
     "MemoryUpdate",
     "MemoryStatsResponse",
+    "BlueprintCreate",
+    "BlueprintResponse",
+    "BlueprintUpdate",
 ]
