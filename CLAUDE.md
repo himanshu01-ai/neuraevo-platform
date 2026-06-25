@@ -32,7 +32,7 @@ Completed:
 
 *  Sprint 3D - Interview Session Foundation
 
-Current Sprint: 3E
+Current Sprint: 4A
 
 Important:
 

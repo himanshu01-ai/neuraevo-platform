@@ -27,3 +27,14 @@ class SessionStatus(str, Enum):
     CREATED = "created"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class SessionQuestionStatus(str, Enum):
+    """Completion status of a question within an interview session.
+
+    - ``pending``: the question has been added but not yet answered.
+    - ``answered``: the question has been answered in this session.
+    """
+
+    PENDING = "pending"
+    ANSWERED = "answered"

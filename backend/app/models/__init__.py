@@ -9,6 +9,7 @@ from app.models.employee import Employee
 from app.models.interview_answer import InterviewAnswer
 from app.models.interview_question import InterviewQuestion
 from app.models.interview_session import InterviewSession
+from app.models.interview_session_question import InterviewSessionQuestion
 from app.models.memory import Memory
 from app.models.user import User
 
@@ -20,4 +21,5 @@ __all__ = [
     "InterviewQuestion",
     "InterviewAnswer",
     "InterviewSession",
+    "InterviewSessionQuestion",
 ]

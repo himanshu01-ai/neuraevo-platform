@@ -10,7 +10,7 @@ service layers.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,6 +20,7 @@ from app.utils.constants import SessionStatus
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.interview_session_question import InterviewSessionQuestion
 
 
 class InterviewSession(Base):
@@ -50,6 +51,12 @@ class InterviewSession(Base):
     # Each session belongs to exactly one employee.
     employee: Mapped["Employee"] = relationship(
         back_populates="interview_sessions"
+    )
+
+    # A session tracks many question-progress rows.
+    session_questions: Mapped[List["InterviewSessionQuestion"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

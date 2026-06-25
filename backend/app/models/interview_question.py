@@ -5,7 +5,7 @@ Storage only — no AI generation, interview execution, or answer collection.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,6 +15,7 @@ from app.core.database import Base
 if TYPE_CHECKING:
     from app.models.blueprint import Blueprint
     from app.models.interview_answer import InterviewAnswer
+    from app.models.interview_session_question import InterviewSessionQuestion
 
 
 class InterviewQuestion(Base):
@@ -47,6 +48,12 @@ class InterviewQuestion(Base):
     answer: Mapped[Optional["InterviewAnswer"]] = relationship(
         back_populates="question",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    # A question may be referenced by many session-progress rows.
+    session_questions: Mapped[List["InterviewSessionQuestion"]] = relationship(
+        back_populates="question",
         cascade="all, delete-orphan",
     )
 

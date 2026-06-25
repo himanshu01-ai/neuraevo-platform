@@ -14,6 +14,7 @@ from app.api.v1 import (
     health,
     interview_answers,
     interview_questions,
+    interview_session_questions,
     interview_sessions,
     memory,
 )
@@ -28,3 +29,4 @@ api_router.include_router(blueprints.router)
 api_router.include_router(interview_questions.router)
 api_router.include_router(interview_answers.router)
 api_router.include_router(interview_sessions.router)
+api_router.include_router(interview_session_questions.router)
