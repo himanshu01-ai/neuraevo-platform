@@ -14,3 +14,16 @@ class MemoryType(str, Enum):
     PERMANENT = "permanent"
     WORKING = "working"
     LEARNED = "learned"
+
+
+class SessionStatus(str, Enum):
+    """Lifecycle status of an interview session.
+
+    - ``created``: session created but not yet started.
+    - ``in_progress``: session underway.
+    - ``completed``: session finished.
+    """
+
+    CREATED = "created"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"

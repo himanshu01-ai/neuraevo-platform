@@ -23,6 +23,11 @@ from app.schemas.interview_question import (
     InterviewQuestionCreate,
     InterviewQuestionResponse,
 )
+from app.schemas.interview_session import (
+    InterviewSessionCreate,
+    InterviewSessionResponse,
+    InterviewSessionUpdate,
+)
 from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
 from app.schemas.memory_stats import MemoryStatsResponse
 
@@ -47,4 +52,7 @@ __all__ = [
     "InterviewAnswerCreate",
     "InterviewAnswerUpdate",
     "InterviewAnswerResponse",
+    "InterviewSessionCreate",
+    "InterviewSessionUpdate",
+    "InterviewSessionResponse",
 ]

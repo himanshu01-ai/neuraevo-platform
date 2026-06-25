@@ -11,6 +11,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.blueprint import Blueprint
+    from app.models.interview_session import InterviewSession
     from app.models.memory import Memory
     from app.models.user import User
 
@@ -64,6 +65,13 @@ class Employee(Base):
         back_populates="employee",
         uselist=False,
         cascade="all, delete-orphan",
+    )
+
+    # One employee can have many interview sessions.
+    interview_sessions: Mapped[List["InterviewSession"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        order_by="InterviewSession.started_at",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

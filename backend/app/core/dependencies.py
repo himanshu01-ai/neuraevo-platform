@@ -21,6 +21,7 @@ from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
+from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
@@ -63,6 +64,13 @@ def get_interview_answer_service(
 ) -> InterviewAnswerService:
     """Provide an :class:`InterviewAnswerService` bound to the session."""
     return InterviewAnswerService(session)
+
+
+def get_interview_session_service(
+    session: SessionDep,
+) -> InterviewSessionService:
+    """Provide an :class:`InterviewSessionService` bound to the session."""
+    return InterviewSessionService(session)
 
 
 def get_current_user(
@@ -112,5 +120,8 @@ InterviewQuestionServiceDep = Annotated[
 ]
 InterviewAnswerServiceDep = Annotated[
     InterviewAnswerService, Depends(get_interview_answer_service)
+]
+InterviewSessionServiceDep = Annotated[
+    InterviewSessionService, Depends(get_interview_session_service)
 ]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
