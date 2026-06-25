@@ -13,6 +13,11 @@ from app.schemas.blueprint import (
     BlueprintResponse,
     BlueprintUpdate,
 )
+from app.schemas.blueprint_generation import (
+    BlueprintGenerationContext,
+    BlueprintGenerationPreviewResponse,
+    GeneratedBlueprintDraft,
+)
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.schemas.interview_answer import (
     InterviewAnswerCreate,
@@ -63,4 +68,7 @@ __all__ = [
     "SessionQuestionCreate",
     "SessionQuestionUpdate",
     "SessionQuestionResponse",
+    "BlueprintGenerationContext",
+    "GeneratedBlueprintDraft",
+    "BlueprintGenerationPreviewResponse",
 ]

@@ -1,6 +1,7 @@
 """Service layer package."""
 
 from app.services.auth_service import AuthService
+from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -13,6 +14,7 @@ from app.services.memory_service import MemoryService
 
 __all__ = [
     "AuthService",
+    "BlueprintGenerationService",
     "BlueprintService",
     "EmployeeService",
     "InterviewAnswerService",

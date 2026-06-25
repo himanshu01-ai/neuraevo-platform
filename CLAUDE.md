@@ -25,18 +25,17 @@
 * Sprint 3C: Interview Answers Foundation
 * Sprint 3D: Interview Sessions Foundation
 * Sprint 3E: Session Question Execution Foundation
+* Sprint 4A: Blueprint Generation Foundation
 
 ---
 
 ## Current Sprint
 
-### Sprint 4A — Blueprint Generation Engine
+ * Current Sprint: 4B
 
-Current focus:
-
-Generate employee blueprints from completed interview data.
-
-This is the first AI-enabled sprint.
+ Blueprint Generation System
+AI Blueprint Generation
+Interview Synthesis
 
 ---
 

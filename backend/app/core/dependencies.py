@@ -17,6 +17,7 @@ from app.core.security import decode_token
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -53,6 +54,13 @@ def get_memory_service(session: SessionDep) -> MemoryService:
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
     """Provide a :class:`BlueprintService` bound to the request-scoped session."""
     return BlueprintService(session)
+
+
+def get_blueprint_generation_service(
+    session: SessionDep,
+) -> BlueprintGenerationService:
+    """Provide a :class:`BlueprintGenerationService` bound to the session."""
+    return BlueprintGenerationService(session)
 
 
 def get_interview_question_service(
@@ -125,6 +133,9 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
+BlueprintGenerationServiceDep = Annotated[
+    BlueprintGenerationService, Depends(get_blueprint_generation_service)
+]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
 ]
