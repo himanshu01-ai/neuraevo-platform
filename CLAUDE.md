@@ -30,7 +30,9 @@ Completed:
 
 *  Sprint 3C - Interview Answer Foundation
 
-Current Sprint: 3D
+*  Sprint 3D - Interview Session Foundation
+
+Current Sprint: 3E
 
 Important:
 
