@@ -2,118 +2,163 @@
 
 ## Current Project Status
 
-Completed:
+### Sprint 1 — Core Backend Foundation ✅
 
 * Sprint 1A: Backend Foundation
-
 * Sprint 1B: Models & Repositories
-
 * Sprint 1C: Authentication System
-
 * Sprint 1D: Employee Creation API
-
 * Sprint 1E: Employee Management API
 
+### Sprint 2 — Memory Engine ✅
+
 * Sprint 2A: Memory Engine Foundation
-
 * Sprint 2B: Memory Retrieval & Deletion
-
 * Sprint 2C: Memory Filtering & Pagination
-
 * Sprint 2D: Memory Updates
-
 * Sprint 2E: Memory Statistics
 
+### Sprint 3 — Employee Builder Foundation ✅
+
 * Sprint 3A: Blueprint Foundation
+* Sprint 3B: Interview Questions Foundation
+* Sprint 3C: Interview Answers Foundation
+* Sprint 3D: Interview Sessions Foundation
+* Sprint 3E: Session Question Execution Foundation
 
-*  Sprint 3B: Blueprint Interview Questions Foundation
+---
 
-*  Sprint 3C - Interview Answer Foundation
+## Current Sprint
 
-*  Sprint 3D - Interview Session Foundation
+### Sprint 4A — Blueprint Generation Engine
 
-Current Sprint: 4A
+Current focus:
 
-Important:
+Generate employee blueprints from completed interview data.
 
-* Do not modify completed Sprint 1 functionality unless explicitly requested.
-* Do not modify completed Sprint 2 functionality unless explicitly requested.
-* Follow existing architecture and coding patterns.
-* Keep business logic inside services.
-* Keep repositories persistence-only.
-* Maintain clean separation between API, Service, Repository, and Database layers.
+This is the first AI-enabled sprint.
 
-## Project Overview
+---
+
+## Important Rules
+
+Do not modify completed Sprint 1 functionality unless explicitly requested.
+
+Do not modify completed Sprint 2 functionality unless explicitly requested.
+
+Do not modify completed Sprint 3 functionality unless explicitly requested.
+
+Follow existing architecture and patterns.
+
+Reuse existing services whenever possible.
+
+Maintain strict layer separation.
+
+---
+
+# Project Overview
 
 NeuraEvo is a Voice-First Personal AI Employee Platform.
 
-Users create personalized AI employees through a guided interview process.
+Users create personalized AI employees through an interview-driven onboarding process.
 
-The platform creates AI employees that can learn preferences, execute tasks, remember important information, and improve through feedback.
+The platform stores:
 
-Current development phase is Sprint 3.
+* Employee profile
+* Memories
+* Blueprint
+* Interview questions
+* Interview answers
+* Interview sessions
+
+Sprint 4 introduces AI-assisted blueprint generation from collected interview data.
 
 ---
 
-## Architecture Rules
+# Architecture Rules
 
-Do not modify project architecture without explicit approval.
+Architecture is locked.
 
-Follow the existing folder structure exactly.
+Do not:
 
-Do not create new top-level folders.
+* Create new top-level folders
+* Rename existing folders
+* Move completed modules
+* Bypass service layer
 
-Do not rename existing folders.
+---
 
-Repositories:
+## Repository Layer
 
-* Database access only
-* No authorization
-* No validation
-* No business rules
+Repositories are persistence-only.
 
-Services:
+Allowed:
+
+* Database queries
+* CRUD operations
+
+Not allowed:
+
+* Authorization
+* Business rules
+* AI logic
+* Validation
+
+---
+
+## Service Layer
+
+Services own:
 
 * Ownership validation
-* Business logic
-* Domain orchestration
-* Transaction boundaries
+* Business rules
+* AI orchestration
+* Transactions
+* Domain workflows
 
-API:
+All generation logic belongs here.
+
+---
+
+## API Layer
+
+API owns:
 
 * Request validation
 * Dependency injection
-* HTTP translation only
+* HTTP translation
+
+API must never contain business logic.
 
 ---
 
-## Technology Stack
+# Technology Stack
 
-Frontend:
+## Frontend
 
 * React Native
 * TypeScript
 
-Backend:
+## Backend
 
 * FastAPI
 * Python 3.11+
 
-Database:
+## Database
 
 * PostgreSQL
 * pgvector
 
-Storage:
+## Storage
 
 * Supabase Storage
 
-AI:
+## AI
 
 * Claude
-* OpenAI Realtime
+* OpenAI
 
-Infrastructure:
+## Infrastructure
 
 * Docker
 * Nginx
@@ -121,120 +166,160 @@ Infrastructure:
 
 ---
 
-## Development Rules
+# Completed Data Model
 
-Implement only the task requested.
+User
+└── Employee
+├── Memories
+├── Blueprint
+│ ├── Interview Questions
+│ └── Interview Answers
+└── Interview Sessions
+└── Session Questions
 
-Do not implement future features.
-
-Do not add unnecessary dependencies.
-
-Keep code modular and production-ready.
-
-Write clean, typed, maintainable code.
-
-Do not introduce shortcuts that bypass the service layer.
-
-Reuse existing ownership validation chains whenever possible.
+All CRUD and ownership validation are complete.
 
 ---
 
-## Current Scope
+# Sprint 4 Scope
 
-Completed Foundation:
+## Blueprint Generation
 
+Allowed:
 
-* Authentication
-* Employee Management
-* Memory Engine
+* Interview aggregation
+* Blueprint generation workflows
+* Prompt construction
+* AI provider abstraction
+* Generation services
+* Blueprint regeneration
 
-Current Objective:
+Not allowed:
 
-* Employee Blueprint System
-* Interview Foundation
-* Blueprint Generation Foundation
-
-Do not implement:
-
-* Voice calls
+* Voice systems
 * Realtime conversations
+* Autonomous agents
 * Task execution
-* AI autonomy
-* Agent orchestration
-* Workflow execution
-* Embedding generation
-* Semantic search
-* Memory retrieval AI
-* LLM decision making
-
-These belong to future phases.
+* Scheduling
+* Workflow engines
+* Tool calling
+* Agent-to-agent communication
 
 ---
 
-## Blueprint Rules
+# AI Rules
 
-Blueprints are structured employee profiles.
+All AI integrations must be isolated behind services.
 
-Each employee may have only one blueprint.
+Never call AI providers directly from:
 
-Blueprint ownership is inherited through employee ownership.
+* Routers
+* Repositories
+* Database models
 
-Do not implement blueprint generation logic unless explicitly requested.
+Generation should be deterministic where possible.
 
-Do not implement AI-written blueprints unless explicitly requested.
+Prompt construction must be centralized.
+
+Provider-specific code should remain replaceable.
 
 ---
 
-## Memory Rules
+# Ownership Rules
 
-Memory system is complete for current phase.
+Every operation must validate ownership through existing chains.
 
-Existing functionality:
+Reuse:
+
+* EmployeeService
+* BlueprintService
+* InterviewQuestionService
+* InterviewAnswerService
+* InterviewSessionService
+* InterviewSessionQuestionService
+
+Never duplicate ownership logic.
+
+---
+
+# Memory Rules
+
+Memory Engine is complete.
+
+Current capabilities:
 
 * Create memory
-* List memories
-* Filter memories
-* Pagination
 * Retrieve memory
 * Update memory
 * Delete memory
-* Memory statistics
+* Search/filter memory
+* Pagination
+* Statistics
 
-Do not redesign memory architecture without approval.
-
----
-
-## Code Quality
-
-Use clear naming.
-
-Add docstrings where useful.
-
-Follow SOLID principles.
-
-Keep files focused and small.
-
-Prefer composition over large classes.
-
-Favor reuse over duplication.
+Do not redesign memory architecture.
 
 ---
 
-## Before Finishing Any Task
+# Blueprint Rules
 
-Check imports.
+Each employee owns exactly one blueprint.
 
-Check typing.
+Blueprint ownership is inherited from employee ownership.
 
-Check project structure.
+Sprint 4 may update blueprint content through generation services.
 
-Check ownership validation.
+Generated content must be persisted through existing blueprint services.
 
-Check HTTP response codes.
+---
 
-Check Swagger documentation.
+# Development Rules
 
-Do not leave TODO code unless requested.
+Implement only the requested sprint objective.
+
+Do not implement future roadmap items.
+
+Do not introduce unnecessary dependencies.
+
+Keep code typed and production-ready.
+
+Prefer reuse over duplication.
+
+Follow existing naming conventions.
+
+Maintain consistency with previous sprints.
+
+---
+
+# Code Quality
+
+Use:
+
+* Type hints
+* Clear naming
+* Small focused classes
+* Dependency injection
+* Composition over inheritance
+
+Avoid:
+
+* God classes
+* Duplicate ownership checks
+* Business logic in routers
+* Direct database access outside repositories
+
+---
+
+# Before Finishing Any Task
+
+Verify:
+
+* Imports
+* Typing
+* Ownership validation
+* Service boundaries
+* HTTP status codes
+* Swagger documentation
+* AI workflow correctness
 
 Provide:
 
