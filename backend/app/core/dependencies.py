@@ -20,6 +20,7 @@ from app.employee_builder.providers import ClaudeBlueprintProvider
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
+from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_service import BlueprintService
 from app.services.employee_service import EmployeeService
@@ -84,6 +85,14 @@ def get_blueprint_generation_service(
 ) -> BlueprintGenerationService:
     """Provide a :class:`BlueprintGenerationService` bound to the session."""
     return BlueprintGenerationService(session, provider)
+
+
+def get_blueprint_apply_service(
+    session: SessionDep,
+    provider: BlueprintGenerationProviderDep,
+) -> BlueprintApplyService:
+    """Provide a :class:`BlueprintApplyService` bound to the session."""
+    return BlueprintApplyService(session, provider)
 
 
 def get_interview_question_service(
@@ -158,6 +167,9 @@ MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
 BlueprintGenerationServiceDep = Annotated[
     BlueprintGenerationService, Depends(get_blueprint_generation_service)
+]
+BlueprintApplyServiceDep = Annotated[
+    BlueprintApplyService, Depends(get_blueprint_apply_service)
 ]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)

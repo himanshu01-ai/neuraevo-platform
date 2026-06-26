@@ -1,6 +1,7 @@
-"""Blueprint generation API (preview/foundation).
+"""Blueprint generation API.
 
-A non-persisting preview of blueprint generation. Kept in its own router so the
+Hosts the non-persisting ``/preview`` (Sprint 4A/4B) and the persisting
+``/apply`` (Sprint 4C) generation endpoints. Kept in its own router so the
 completed Sprint 3A blueprint CRUD endpoints are not modified.
 """
 
@@ -9,6 +10,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.dependencies import (
+    BlueprintApplyServiceDep,
     BlueprintGenerationServiceDep,
     CurrentUserDep,
 )
@@ -16,6 +18,7 @@ from app.employee_builder.blueprint import (
     BlueprintGenerationError,
     BlueprintGenerationTimeoutError,
 )
+from app.schemas.blueprint import BlueprintResponse
 from app.schemas.blueprint_generation import BlueprintGenerationPreviewResponse
 from app.services.blueprint_service import (
     BlueprintAccessDeniedError,
@@ -104,3 +107,39 @@ def preview_blueprint_generation(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Blueprint generation failed. Please try again later.",
         )
+
+
+@router.post(
+    "/apply",
+    response_model=BlueprintResponse,
+    summary="Generate a blueprint and persist it to the employee's blueprint",
+    responses=_RESPONSES,
+)
+def apply_blueprint_generation(
+    employee_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: BlueprintApplyServiceDep,
+) -> BlueprintResponse:
+    """Generate a draft and persist it, returning the updated blueprint.
+
+    Unlike ``/preview``, this commits the generated values to the blueprint.
+    Only non-null draft fields overwrite existing values; ``id``,
+    ``employee_id``, and ``created_at`` are never modified. Same ownership
+    (``404``/``403``), validation (``422``), and generation (``502``/``504``)
+    semantics as ``/preview``.
+    """
+    try:
+        blueprint = service.apply_generation(current_user, employee_id)
+    except (EmployeeError, BlueprintError) as exc:
+        raise _to_http_exception(exc)
+    except BlueprintGenerationTimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Blueprint generation timed out. Please try again.",
+        )
+    except BlueprintGenerationError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Blueprint generation failed. Please try again later.",
+        )
+    return BlueprintResponse.model_validate(blueprint)
