@@ -76,3 +76,30 @@ class BlueprintRepository:
         self.session.flush()
         self.session.refresh(blueprint)
         return blueprint
+
+    def replace_content(
+        self,
+        blueprint: Blueprint,
+        *,
+        vision: Optional[str],
+        communication_style: Optional[str],
+        personality_traits: Optional[str],
+        goals: Optional[str],
+        constraints: Optional[str],
+        preferences: Optional[str],
+    ) -> Blueprint:
+        """Overwrite all six content fields unconditionally (full replace).
+
+        Unlike :meth:`update_blueprint`, ``None`` values *are* written, so a
+        field can be cleared. Used by restore to make the blueprint exactly
+        equal to a stored version (including its nulls). Does not commit.
+        """
+        blueprint.vision = vision
+        blueprint.communication_style = communication_style
+        blueprint.personality_traits = personality_traits
+        blueprint.goals = goals
+        blueprint.constraints = constraints
+        blueprint.preferences = preferences
+        self.session.flush()
+        self.session.refresh(blueprint)
+        return blueprint

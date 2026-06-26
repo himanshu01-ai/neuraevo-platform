@@ -9,7 +9,12 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.dependencies import BlueprintVersionServiceDep, CurrentUserDep
+from app.core.dependencies import (
+    BlueprintRestoreServiceDep,
+    BlueprintVersionServiceDep,
+    CurrentUserDep,
+)
+from app.schemas.blueprint import BlueprintResponse
 from app.schemas.blueprint_version import BlueprintVersionResponse
 from app.services.blueprint_service import (
     BlueprintAccessDeniedError,
@@ -116,3 +121,32 @@ def get_blueprint_version(
     except (EmployeeError, BlueprintError, BlueprintVersionError) as exc:
         raise _to_http_exception(exc)
     return BlueprintVersionResponse.model_validate(version)
+
+
+@router.post(
+    "/{version_id}/restore",
+    response_model=BlueprintResponse,
+    summary="Restore a historical version as the current blueprint",
+    responses=_RESPONSES,
+)
+def restore_blueprint_version(
+    employee_id: uuid.UUID,
+    version_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: BlueprintRestoreServiceDep,
+) -> BlueprintResponse:
+    """Restore a version's values as the current blueprint.
+
+    Snapshots the current blueprint into history first (nothing is deleted),
+    then overwrites the blueprint with the requested version's six content
+    fields. ``id``/``employee_id``/``created_at`` are unchanged. Same ownership
+    (``404``/``403``) and validation (``422``) semantics as the read endpoints;
+    a version that does not belong to the resolved blueprint yields ``404``.
+    """
+    try:
+        blueprint = service.restore_version(
+            current_user, employee_id, version_id
+        )
+    except (EmployeeError, BlueprintError, BlueprintVersionError) as exc:
+        raise _to_http_exception(exc)
+    return BlueprintResponse.model_validate(blueprint)
