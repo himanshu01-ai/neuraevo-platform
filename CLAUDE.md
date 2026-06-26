@@ -10,6 +10,8 @@
 * Sprint 1D: Employee Creation API
 * Sprint 1E: Employee Management API
 
+---
+
 ### Sprint 2 — Memory Engine ✅
 
 * Sprint 2A: Memory Engine Foundation
@@ -17,6 +19,8 @@
 * Sprint 2C: Memory Filtering & Pagination
 * Sprint 2D: Memory Updates
 * Sprint 2E: Memory Statistics
+
+---
 
 ### Sprint 3 — Employee Builder Foundation ✅
 
@@ -26,23 +30,25 @@
 * Sprint 3D: Interview Sessions Foundation
 * Sprint 3E: Session Question Execution Foundation
 
-### completed  sprint 4 parts 
+---
+
+### Sprint 4 — AI Blueprint Generation System ✅
+
 * Sprint 4A: Blueprint Generation Foundation
 * Sprint 4B: Claude Blueprint Generation Provider
 * Sprint 4C: Blueprint Apply & Persistence
 * Sprint 4D: Blueprint Versioning & History
+* Sprint 4E: Blueprint Version Restore
 
 ---
 
 ## Current Sprint
 
- * Current Sprint = 4E
-
-
+Current Sprint = 5A
 
 ---
 
-## Important Rules
+# Important Rules
 
 Do not modify completed Sprint 1 functionality unless explicitly requested.
 
@@ -50,11 +56,13 @@ Do not modify completed Sprint 2 functionality unless explicitly requested.
 
 Do not modify completed Sprint 3 functionality unless explicitly requested.
 
-Follow existing architecture and patterns.
+Do not modify completed Sprint 4 functionality unless explicitly requested.
 
 Reuse existing services whenever possible.
 
-Maintain strict layer separation.
+Maintain strict architecture boundaries.
+
+Follow existing coding patterns.
 
 ---
 
@@ -64,16 +72,20 @@ NeuraEvo is a Voice-First Personal AI Employee Platform.
 
 Users create personalized AI employees through an interview-driven onboarding process.
 
-The platform stores:
+The platform currently supports:
 
-* Employee profile
-* Memories
-* Blueprint
-* Interview questions
-* Interview answers
-* Interview sessions
-
-Sprint 4 introduces AI-assisted blueprint generation from collected interview data.
+* Authentication
+* Employee Management
+* Memory Engine
+* Blueprint Management
+* Interview Questions
+* Interview Answers
+* Interview Sessions
+* Session Question Execution
+* AI Blueprint Generation
+* Blueprint Apply Workflow
+* Blueprint Version History
+* Blueprint Restore Workflow
 
 ---
 
@@ -87,50 +99,63 @@ Do not:
 * Rename existing folders
 * Move completed modules
 * Bypass service layer
+* Introduce parallel ownership systems
+
+All new functionality must integrate into the existing architecture.
 
 ---
 
-## Repository Layer
+# Repository Layer
 
 Repositories are persistence-only.
 
 Allowed:
 
-* Database queries
-* CRUD operations
+* Queries
+* CRUD
+* Flush operations
+* Persistence helpers
 
 Not allowed:
 
+* Ownership validation
 * Authorization
-* Business rules
-* AI logic
-* Validation
+* Business logic
+* AI orchestration
+* Workflow decisions
+* Transactions
+* HTTP concerns
+
+Repositories never decide behavior.
 
 ---
 
-## Service Layer
+# Service Layer
 
 Services own:
 
 * Ownership validation
 * Business rules
+* Workflow orchestration
 * AI orchestration
 * Transactions
-* Domain workflows
+* Version management
+* Domain coordination
 
-All generation logic belongs here.
+Services are the only location for business decisions.
 
 ---
 
-## API Layer
+# API Layer
 
-API owns:
+Routers own:
 
 * Request validation
 * Dependency injection
 * HTTP translation
+* Swagger documentation
 
-API must never contain business logic.
+Routers must never contain business logic.
 
 ---
 
@@ -157,7 +182,7 @@ API must never contain business logic.
 
 ## AI
 
-* Claude
+* Anthropic Claude
 * OpenAI
 
 ## Infrastructure
@@ -168,97 +193,53 @@ API must never contain business logic.
 
 ---
 
-# Completed Data Model
+# Completed Domain Model
 
 User
 └── Employee
 ├── Memories
 ├── Blueprint
+│ ├── Versions
 │ ├── Interview Questions
-│ └── Interview Answers
-└── Interview Sessions
-└── Session Questions
+│ ├── Interview Answers
+│ └── Blueprint Generation
+├── Interview Sessions
+│ └── Session Questions
 
-All CRUD and ownership validation are complete.
-
----
-
-# Sprint 4 Scope
-
-## Blueprint Generation
-
-Allowed:
-
-* Interview aggregation
-* Blueprint generation workflows
-* Prompt construction
-* AI provider abstraction
-* Generation services
-* Blueprint regeneration
-
-Not allowed:
-
-* Voice systems
-* Realtime conversations
-* Autonomous agents
-* Task execution
-* Scheduling
-* Workflow engines
-* Tool calling
-* Agent-to-agent communication
+All ownership chains are implemented and validated.
 
 ---
 
-# AI Rules
+# AI Blueprint Generation Rules
 
-All AI integrations must be isolated behind services.
+Completed in Sprint 4.
 
-Never call AI providers directly from:
+Current architecture:
 
-* Routers
-* Repositories
-* Database models
+Interview Data
+↓
+Aggregation
+↓
+Prompt Construction
+↓
+Claude Provider
+↓
+Draft Generation
+↓
+Apply
+↓
+Version Snapshot
+↓
+Restore Support
 
-Generation should be deterministic where possible.
+Rules:
 
-Prompt construction must be centralized.
-
-Provider-specific code should remain replaceable.
-
----
-
-# Ownership Rules
-
-Every operation must validate ownership through existing chains.
-
-Reuse:
-
-* EmployeeService
-* BlueprintService
-* InterviewQuestionService
-* InterviewAnswerService
-* InterviewSessionService
-* InterviewSessionQuestionService
-
-Never duplicate ownership logic.
-
----
-
-# Memory Rules
-
-Memory Engine is complete.
-
-Current capabilities:
-
-* Create memory
-* Retrieve memory
-* Update memory
-* Delete memory
-* Search/filter memory
-* Pagination
-* Statistics
-
-Do not redesign memory architecture.
+* Prompt construction remains centralized.
+* Provider-specific code remains isolated.
+* Claude integration remains replaceable.
+* Routers never call AI providers directly.
+* Repositories never call AI providers directly.
+* Models never call AI providers directly.
 
 ---
 
@@ -268,27 +249,151 @@ Each employee owns exactly one blueprint.
 
 Blueprint ownership is inherited from employee ownership.
 
-Sprint 4 may update blueprint content through generation services.
+Blueprint supports:
 
-Generated content must be persisted through existing blueprint services.
+* CRUD
+* AI Generation Preview
+* Apply Generated Content
+* Version History
+* Version Restore
+
+Blueprint versions represent immutable snapshots.
+
+Versions must never be overwritten.
+
+Versions must never be deleted manually.
+
+History integrity must be preserved.
+
+---
+
+# Versioning Rules
+
+Blueprint versions are immutable snapshots.
+
+Version numbering is sequential.
+
+Restore operations must:
+
+1. Create a snapshot of the current blueprint.
+2. Restore the selected version.
+3. Commit atomically.
+
+History must remain complete.
+
+Current blueprint always represents the latest state.
+
+Version history represents previous states.
+
+---
+
+# Ownership Rules
+
+All ownership validation must reuse existing chains.
+
+Reuse existing services whenever possible.
+
+Never duplicate ownership logic.
+
+Prefer:
+
+* EmployeeService
+* BlueprintService
+* BlueprintVersionService
+* InterviewQuestionService
+* InterviewAnswerService
+* InterviewSessionService
+* InterviewSessionQuestionService
+
+---
+
+# Memory Rules
+
+Memory Engine is complete.
+
+Capabilities:
+
+* Create
+* Retrieve
+* Update
+* Delete
+* Filter
+* Pagination
+* Statistics
+
+Do not redesign Memory architecture.
+
+Do not introduce AI memory behavior unless explicitly requested.
+
+---
+
+# AI Rules
+
+All AI integrations must remain isolated.
+
+Never call AI providers directly from:
+
+* Routers
+* Repositories
+* Models
+
+Provider-specific code belongs inside provider implementations only.
+
+Prompt construction should remain centralized.
+
+Provider replacement should require minimal changes.
+
+---
+
+# Current Platform Scope
+
+Completed:
+
+* Authentication
+* Employee Management
+* Memory Engine
+* Blueprint CRUD
+* Interview System
+* Session Execution
+* Blueprint Generation
+* Blueprint Versioning
+* Blueprint Restore
+
+Not Yet Implemented:
+
+* Voice Calling
+* Realtime Conversations
+* Task Execution
+* Autonomous Agents
+* Tool Calling
+* Scheduling Engine
+* Workflow Engine
+* Multi-Agent Systems
+* Agent Collaboration
+* Realtime Memory Learning
+* Voice Runtime
+
+Do not implement future systems unless explicitly requested.
 
 ---
 
 # Development Rules
 
-Implement only the requested sprint objective.
+Implement only the requested sprint.
 
 Do not implement future roadmap items.
 
 Do not introduce unnecessary dependencies.
 
-Keep code typed and production-ready.
+Keep code production-ready.
 
 Prefer reuse over duplication.
 
 Follow existing naming conventions.
 
 Maintain consistency with previous sprints.
+
+Avoid speculative abstractions.
 
 ---
 
@@ -297,17 +402,18 @@ Maintain consistency with previous sprints.
 Use:
 
 * Type hints
-* Clear naming
-* Small focused classes
 * Dependency injection
-* Composition over inheritance
+* Composition
+* Clear naming
+* Small focused services
 
 Avoid:
 
 * God classes
-* Duplicate ownership checks
 * Business logic in routers
+* Ownership duplication
 * Direct database access outside repositories
+* Hardcoded AI logic
 
 ---
 
@@ -319,9 +425,11 @@ Verify:
 * Typing
 * Ownership validation
 * Service boundaries
+* Transaction boundaries
 * HTTP status codes
 * Swagger documentation
-* AI workflow correctness
+* AI workflow integrity
+* Version history integrity
 
 Provide:
 
@@ -331,3 +439,8 @@ Provide:
 4. Verification results
 5. Architectural decisions
 6. Local testing instructions
+7. Confirmation that previous completed sprints remain unchanged
+
+Stop at the requested sprint.
+
+Do not implement future sprints.
