@@ -44,6 +44,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
 
+    # --- AI / Anthropic (Claude) ----------------------------------------
+    # Never hardcode credentials. ANTHROPIC_API_KEY is read from the
+    # environment; the model name is configurable so it is not embedded in
+    # business logic.
+    ANTHROPIC_API_KEY: str | None = Field(default=None)
+    ANTHROPIC_MODEL: str = Field(default="claude-sonnet-4-20250514")
+    ANTHROPIC_TIMEOUT_SECONDS: float = Field(default=30.0)
+    ANTHROPIC_MAX_TOKENS: int = Field(default=4096)
+
     # --- CORS ------------------------------------------------------------
     # Comma-separated list of allowed origins, e.g.
     # "http://localhost:3000,https://app.neuraevo.com"

@@ -10,7 +10,10 @@ returns a draft, and never writes to the database.
 import uuid
 
 from app.employee_builder.analyzer import BlueprintContextBuilder
-from app.employee_builder.blueprint import BlueprintGenerator
+from app.employee_builder.blueprint import (
+    BlueprintGenerationProvider,
+    BlueprintGenerator,
+)
 from app.models.user import User
 from app.repositories.interview_answer_repository import (
     InterviewAnswerRepository,
@@ -36,13 +39,16 @@ class BlueprintGenerationService:
     domain errors the API translates to 404/403.
     """
 
-    def __init__(self, session) -> None:
+    def __init__(
+        self, session, provider: BlueprintGenerationProvider
+    ) -> None:
         self.session = session
         self.blueprints = BlueprintService(session)
         self.questions = InterviewQuestionRepository(session)
         self.answers = InterviewAnswerRepository(session)
         self.context_builder = BlueprintContextBuilder()
-        self.generator = BlueprintGenerator()
+        # Provider is injected (DI) — no hardcoded provider selection here.
+        self.generator = BlueprintGenerator(provider)
 
     def preview_generation(
         self, owner: User, employee_id: uuid.UUID

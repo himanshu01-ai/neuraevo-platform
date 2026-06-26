@@ -12,6 +12,10 @@ from app.core.dependencies import (
     BlueprintGenerationServiceDep,
     CurrentUserDep,
 )
+from app.employee_builder.blueprint import (
+    BlueprintGenerationError,
+    BlueprintGenerationTimeoutError,
+)
 from app.schemas.blueprint_generation import BlueprintGenerationPreviewResponse
 from app.services.blueprint_service import (
     BlueprintAccessDeniedError,
@@ -36,6 +40,12 @@ _RESPONSES = {
     },
     status.HTTP_404_NOT_FOUND: {
         "description": "The employee or blueprint does not exist."
+    },
+    status.HTTP_502_BAD_GATEWAY: {
+        "description": "The AI provider failed to generate a blueprint."
+    },
+    status.HTTP_504_GATEWAY_TIMEOUT: {
+        "description": "The AI provider timed out."
     },
 }
 
@@ -83,3 +93,14 @@ def preview_blueprint_generation(
         return service.preview_generation(current_user, employee_id)
     except (EmployeeError, BlueprintError) as exc:
         raise _to_http_exception(exc)
+    except BlueprintGenerationTimeoutError:
+        # Do not leak Anthropic internals to the client.
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Blueprint generation timed out. Please try again.",
+        )
+    except BlueprintGenerationError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Blueprint generation failed. Please try again later.",
+        )

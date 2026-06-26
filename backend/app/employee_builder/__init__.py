@@ -2,7 +2,9 @@
 
 from app.employee_builder.analyzer import BlueprintContextBuilder
 from app.employee_builder.blueprint import (
+    BlueprintGenerationError,
     BlueprintGenerationProvider,
+    BlueprintGenerationTimeoutError,
     BlueprintGenerator,
     DeterministicBlueprintProvider,
     GenerationResult,
@@ -12,6 +14,8 @@ __all__ = [
     "BlueprintContextBuilder",
     "BlueprintGenerator",
     "BlueprintGenerationProvider",
+    "BlueprintGenerationError",
+    "BlueprintGenerationTimeoutError",
     "DeterministicBlueprintProvider",
     "GenerationResult",
 ]

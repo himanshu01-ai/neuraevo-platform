@@ -12,8 +12,11 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import decode_token
+from app.employee_builder.blueprint import BlueprintGenerationProvider
+from app.employee_builder.providers import ClaudeBlueprintProvider
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthService
@@ -56,11 +59,31 @@ def get_blueprint_service(session: SessionDep) -> BlueprintService:
     return BlueprintService(session)
 
 
+def get_blueprint_generation_provider() -> BlueprintGenerationProvider:
+    """Provide the default (Claude) blueprint generation provider.
+
+    Reads the API key/model from settings; swapping providers is a one-line
+    change here with no impact on services or routers.
+    """
+    return ClaudeBlueprintProvider(
+        api_key=settings.ANTHROPIC_API_KEY,
+        model=settings.ANTHROPIC_MODEL,
+        timeout=settings.ANTHROPIC_TIMEOUT_SECONDS,
+        max_tokens=settings.ANTHROPIC_MAX_TOKENS,
+    )
+
+
+BlueprintGenerationProviderDep = Annotated[
+    BlueprintGenerationProvider, Depends(get_blueprint_generation_provider)
+]
+
+
 def get_blueprint_generation_service(
     session: SessionDep,
+    provider: BlueprintGenerationProviderDep,
 ) -> BlueprintGenerationService:
     """Provide a :class:`BlueprintGenerationService` bound to the session."""
-    return BlueprintGenerationService(session)
+    return BlueprintGenerationService(session, provider)
 
 
 def get_interview_question_service(

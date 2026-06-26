@@ -17,6 +17,19 @@ from app.schemas.blueprint_generation import (
     GeneratedBlueprintDraft,
 )
 
+
+class BlueprintGenerationError(Exception):
+    """Raised when a provider fails to produce a valid blueprint draft.
+
+    Covers provider/API failures, empty responses, invalid JSON, and failed
+    validation. The API layer maps this to ``502 Bad Gateway``. Provider
+    internals (e.g. Anthropic exception details) must not be attached.
+    """
+
+
+class BlueprintGenerationTimeoutError(BlueprintGenerationError):
+    """Raised when a provider call times out. Mapped to ``504``."""
+
 # Human-readable labels for the blueprint fields, used in prompt construction
 # and the deterministic draft. Order is intentional and stable.
 _FIELD_LABELS: list[tuple[str, str]] = [
@@ -95,12 +108,14 @@ class DeterministicBlueprintProvider(BlueprintGenerationProvider):
 
 
 class BlueprintGenerator:
-    """Constructs the generation prompt and runs it through a provider."""
+    """Constructs the generation prompt and runs it through a provider.
 
-    def __init__(
-        self, provider: Optional[BlueprintGenerationProvider] = None
-    ) -> None:
-        self.provider = provider or DeterministicBlueprintProvider()
+    Provider-agnostic: the provider is injected (no hardcoded selection or
+    direct instantiation inside business logic).
+    """
+
+    def __init__(self, provider: BlueprintGenerationProvider) -> None:
+        self.provider = provider
 
     def build_prompt(self, context: BlueprintGenerationContext) -> str:
         """Centralized prompt construction (deterministic).
