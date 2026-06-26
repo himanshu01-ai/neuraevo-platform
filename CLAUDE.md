@@ -31,11 +31,9 @@
 
 ## Current Sprint
 
- * Current Sprint: 4B
+ * Current Sprint = 4C
 
- Blueprint Generation System
-AI Blueprint Generation
-Interview Synthesis
+ Blueprint Apply/Persist Generation
 
 ---
 
