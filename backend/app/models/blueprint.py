@@ -15,6 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.blueprint_version import BlueprintVersion
     from app.models.employee import Employee
     from app.models.interview_question import InterviewQuestion
 
@@ -54,6 +55,13 @@ class Blueprint(Base):
         back_populates="blueprint",
         cascade="all, delete-orphan",
         order_by="InterviewQuestion.question_order",
+    )
+
+    # One blueprint accumulates many historical version snapshots.
+    versions: Mapped[List["BlueprintVersion"]] = relationship(
+        back_populates="blueprint",
+        cascade="all, delete-orphan",
+        order_by="BlueprintVersion.version_number",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

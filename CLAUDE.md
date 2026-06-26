@@ -30,12 +30,13 @@
 * Sprint 4A: Blueprint Generation Foundation
 * Sprint 4B: Claude Blueprint Generation Provider
 * Sprint 4C: Blueprint Apply & Persistence
+* Sprint 4D: Blueprint Versioning & History
 
 ---
 
 ## Current Sprint
 
- * Current Sprint = 4D
+ * Current Sprint = 4E
 
 
 

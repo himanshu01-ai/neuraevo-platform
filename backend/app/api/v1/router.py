@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth,
     blueprint_generation,
+    blueprint_versions,
     blueprints,
     employees,
     health,
@@ -28,6 +29,7 @@ api_router.include_router(employees.router)
 api_router.include_router(memory.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(blueprint_generation.router)
+api_router.include_router(blueprint_versions.router)
 api_router.include_router(interview_questions.router)
 api_router.include_router(interview_answers.router)
 api_router.include_router(interview_sessions.router)

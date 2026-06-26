@@ -23,6 +23,7 @@ from app.services.auth_service import AuthService
 from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_service import BlueprintService
+from app.services.blueprint_version_service import BlueprintVersionService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -93,6 +94,13 @@ def get_blueprint_apply_service(
 ) -> BlueprintApplyService:
     """Provide a :class:`BlueprintApplyService` bound to the session."""
     return BlueprintApplyService(session, provider)
+
+
+def get_blueprint_version_service(
+    session: SessionDep,
+) -> BlueprintVersionService:
+    """Provide a :class:`BlueprintVersionService` bound to the session."""
+    return BlueprintVersionService(session)
 
 
 def get_interview_question_service(
@@ -170,6 +178,9 @@ BlueprintGenerationServiceDep = Annotated[
 ]
 BlueprintApplyServiceDep = Annotated[
     BlueprintApplyService, Depends(get_blueprint_apply_service)
+]
+BlueprintVersionServiceDep = Annotated[
+    BlueprintVersionService, Depends(get_blueprint_version_service)
 ]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
