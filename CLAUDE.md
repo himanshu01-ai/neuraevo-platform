@@ -45,10 +45,11 @@
 ### Sprint 5 — Conversation Engine
 
 * Sprint 5A: Conversation Foundation
+* Sprint 5B 
 
 ## Current Sprint
 
-Current Sprint = 5B
+Current Sprint = 5C
 
 ---
 
