@@ -25,6 +25,9 @@ from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_restore_service import BlueprintRestoreService
 from app.services.blueprint_service import BlueprintService
 from app.services.blueprint_version_service import BlueprintVersionService
+from app.services.conversation_context_service import (
+    ConversationContextService,
+)
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
 from app.services.employee_service import EmployeeService
@@ -123,6 +126,13 @@ def get_message_service(session: SessionDep) -> MessageService:
     return MessageService(session)
 
 
+def get_conversation_context_service(
+    session: SessionDep,
+) -> ConversationContextService:
+    """Provide a :class:`ConversationContextService` bound to the session."""
+    return ConversationContextService(session)
+
+
 def get_interview_question_service(
     session: SessionDep,
 ) -> InterviewQuestionService:
@@ -209,6 +219,9 @@ ConversationServiceDep = Annotated[
     ConversationService, Depends(get_conversation_service)
 ]
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
+ConversationContextServiceDep = Annotated[
+    ConversationContextService, Depends(get_conversation_context_service)
+]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
 ]

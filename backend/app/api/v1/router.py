@@ -12,6 +12,7 @@ from app.api.v1 import (
     blueprint_generation,
     blueprint_versions,
     blueprints,
+    conversation_context,
     conversations,
     employees,
     health,
@@ -31,6 +32,7 @@ api_router.include_router(employees.router)
 api_router.include_router(memory.router)
 api_router.include_router(conversations.router)
 api_router.include_router(messages.router)
+api_router.include_router(conversation_context.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(blueprint_generation.router)
 api_router.include_router(blueprint_versions.router)
