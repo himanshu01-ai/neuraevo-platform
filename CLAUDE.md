@@ -46,10 +46,12 @@
 
 * Sprint 5A: Conversation Foundation
 * Sprint 5B 
+* Sprint 5C
+* Sprint 5D: AI Conversation Generation Foundation S
 
 ## Current Sprint
 
-Current Sprint = 5C
+Current Sprint = 5E
 
 ---
 
