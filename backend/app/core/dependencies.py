@@ -26,6 +26,7 @@ from app.services.blueprint_restore_service import BlueprintRestoreService
 from app.services.blueprint_service import BlueprintService
 from app.services.blueprint_version_service import BlueprintVersionService
 from app.services.conversation_service import ConversationService
+from app.services.message_service import MessageService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -117,6 +118,11 @@ def get_conversation_service(session: SessionDep) -> ConversationService:
     return ConversationService(session)
 
 
+def get_message_service(session: SessionDep) -> MessageService:
+    """Provide a :class:`MessageService` bound to the session."""
+    return MessageService(session)
+
+
 def get_interview_question_service(
     session: SessionDep,
 ) -> InterviewQuestionService:
@@ -202,6 +208,7 @@ BlueprintRestoreServiceDep = Annotated[
 ConversationServiceDep = Annotated[
     ConversationService, Depends(get_conversation_service)
 ]
+MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
 ]

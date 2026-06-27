@@ -9,7 +9,7 @@ and service layers.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -19,6 +19,7 @@ from app.utils.constants import ConversationStatus
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.message import Message
 
 
 class Conversation(Base):
@@ -53,6 +54,13 @@ class Conversation(Base):
     # Each conversation belongs to exactly one employee.
     employee: Mapped["Employee"] = relationship(
         back_populates="conversations"
+    )
+
+    # One conversation owns many messages, ordered chronologically.
+    messages: Mapped[List["Message"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+        order_by="Message.created_at",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

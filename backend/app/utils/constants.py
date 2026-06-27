@@ -49,3 +49,16 @@ class ConversationStatus(str, Enum):
 
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+class MessageRole(str, Enum):
+    """Author role of a conversation message.
+
+    - ``user``: a message from the human user.
+    - ``assistant``: a message from the AI employee.
+    - ``system``: a system/instruction message.
+    """
+
+    USER = "user"
+    ASSISTANT = "assistant"
+    SYSTEM = "system"
