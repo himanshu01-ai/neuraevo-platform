@@ -19,6 +19,11 @@ from app.schemas.blueprint_generation import (
     GeneratedBlueprintDraft,
 )
 from app.schemas.blueprint_version import BlueprintVersionResponse
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationResponse,
+    ConversationUpdate,
+)
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.schemas.interview_answer import (
     InterviewAnswerCreate,
@@ -59,6 +64,9 @@ __all__ = [
     "BlueprintResponse",
     "BlueprintUpdate",
     "BlueprintVersionResponse",
+    "ConversationCreate",
+    "ConversationUpdate",
+    "ConversationResponse",
     "InterviewQuestionCreate",
     "InterviewQuestionResponse",
     "InterviewAnswerCreate",

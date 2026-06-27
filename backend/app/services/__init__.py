@@ -6,6 +6,7 @@ from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_restore_service import BlueprintRestoreService
 from app.services.blueprint_service import BlueprintService
 from app.services.blueprint_version_service import BlueprintVersionService
+from app.services.conversation_service import ConversationService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -22,6 +23,7 @@ __all__ = [
     "BlueprintRestoreService",
     "BlueprintService",
     "BlueprintVersionService",
+    "ConversationService",
     "EmployeeService",
     "InterviewAnswerService",
     "InterviewQuestionService",

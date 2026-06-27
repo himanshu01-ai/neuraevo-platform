@@ -38,3 +38,14 @@ class SessionQuestionStatus(str, Enum):
 
     PENDING = "pending"
     ANSWERED = "answered"
+
+
+class ConversationStatus(str, Enum):
+    """Lifecycle status of a conversation.
+
+    - ``active``: the conversation is in use.
+    - ``archived``: the conversation has been archived.
+    """
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
