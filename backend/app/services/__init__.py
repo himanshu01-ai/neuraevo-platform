@@ -9,6 +9,9 @@ from app.services.blueprint_version_service import BlueprintVersionService
 from app.services.conversation_context_service import (
     ConversationContextService,
 )
+from app.services.conversation_generation_service import (
+    ConversationGenerationService,
+)
 from app.services.conversation_service import ConversationService
 from app.services.employee_service import EmployeeService
 from app.services.message_service import MessageService
@@ -28,6 +31,7 @@ __all__ = [
     "BlueprintService",
     "BlueprintVersionService",
     "ConversationContextService",
+    "ConversationGenerationService",
     "ConversationService",
     "EmployeeService",
     "InterviewAnswerService",

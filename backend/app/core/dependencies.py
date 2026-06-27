@@ -28,8 +28,15 @@ from app.services.blueprint_version_service import BlueprintVersionService
 from app.services.conversation_context_service import (
     ConversationContextService,
 )
+from app.services.conversation_generation_service import (
+    ConversationGenerationService,
+)
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
+from app.services.providers import (
+    ClaudeConversationProvider,
+    ConversationProvider,
+)
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -133,6 +140,33 @@ def get_conversation_context_service(
     return ConversationContextService(session)
 
 
+def get_conversation_provider() -> ConversationProvider:
+    """Provide the default (Claude) conversation provider.
+
+    Reuses the Sprint 4B Anthropic configuration from settings; swapping
+    providers is a one-line change here with no impact on services or routers.
+    """
+    return ClaudeConversationProvider(
+        api_key=settings.ANTHROPIC_API_KEY,
+        model=settings.ANTHROPIC_MODEL,
+        timeout=settings.ANTHROPIC_TIMEOUT_SECONDS,
+        max_tokens=settings.ANTHROPIC_MAX_TOKENS,
+    )
+
+
+ConversationProviderDep = Annotated[
+    ConversationProvider, Depends(get_conversation_provider)
+]
+
+
+def get_conversation_generation_service(
+    session: SessionDep,
+    provider: ConversationProviderDep,
+) -> ConversationGenerationService:
+    """Provide a :class:`ConversationGenerationService` bound to the session."""
+    return ConversationGenerationService(session, provider)
+
+
 def get_interview_question_service(
     session: SessionDep,
 ) -> InterviewQuestionService:
@@ -221,6 +255,10 @@ ConversationServiceDep = Annotated[
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 ConversationContextServiceDep = Annotated[
     ConversationContextService, Depends(get_conversation_context_service)
+]
+ConversationGenerationServiceDep = Annotated[
+    ConversationGenerationService,
+    Depends(get_conversation_generation_service),
 ]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)
