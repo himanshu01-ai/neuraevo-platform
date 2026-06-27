@@ -1,7 +1,8 @@
-"""Conversation generation API (preview/foundation).
+"""Conversation generation API.
 
-A non-persisting generation of the next assistant reply. Kept in its own
-router so completed conversation/message endpoints are not modified.
+Generates the next assistant reply, persists it as a message (Sprint 5E), and
+returns the stored message. Kept in its own router so completed
+conversation/message endpoints are not modified.
 """
 
 import uuid
@@ -12,7 +13,7 @@ from app.core.dependencies import (
     ConversationGenerationServiceDep,
     CurrentUserDep,
 )
-from app.schemas.conversation_generation import ConversationGenerationResponse
+from app.schemas.message import MessageResponse
 from app.services.blueprint_service import (
     BlueprintAccessDeniedError,
     BlueprintError,
@@ -86,8 +87,9 @@ def _to_http_exception(
 
 @router.post(
     "",
-    response_model=ConversationGenerationResponse,
-    summary="Generate the next assistant reply for a conversation (no persistence)",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Generate the next assistant reply and store it as a message",
     responses=_RESPONSES,
 )
 def generate_conversation_reply(
@@ -95,15 +97,17 @@ def generate_conversation_reply(
     conversation_id: uuid.UUID,
     current_user: CurrentUserDep,
     service: ConversationGenerationServiceDep,
-) -> ConversationGenerationResponse:
-    """Generate the next assistant reply from the blueprint and history.
+) -> MessageResponse:
+    """Generate the next assistant reply, persist it, and return the message.
 
-    Read-only: nothing is written to the database. Requires the employee, its
-    blueprint, and the conversation to belong to the authenticated user
-    (``404``/``403``); invalid path UUIDs yield ``422``.
+    Generates from the blueprint and conversation history, then stores exactly
+    one assistant message and returns it. Requires the employee, its blueprint,
+    and the conversation to belong to the authenticated user (``404``/``403``);
+    invalid path UUIDs yield ``422``. A generation failure (``502``/``504``)
+    writes nothing.
     """
     try:
-        return service.generate_reply(
+        message = service.generate_reply(
             current_user, employee_id, conversation_id
         )
     except (EmployeeError, BlueprintError, ConversationError) as exc:
@@ -119,3 +123,4 @@ def generate_conversation_reply(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Conversation generation failed. Please try again later.",
         )
+    return MessageResponse.model_validate(message)
