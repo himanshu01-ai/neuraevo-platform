@@ -42,9 +42,13 @@
 
 ---
 
+### Sprint 5 — Conversation Engine
+
+* Sprint 5A: Conversation Foundation
+
 ## Current Sprint
 
-Current Sprint = 5A
+Current Sprint = 5B
 
 ---
 
