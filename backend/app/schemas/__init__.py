@@ -53,6 +53,10 @@ from app.schemas.interview_session_question import (
     SessionQuestionUpdate,
 )
 from app.schemas.memory import MemoryCreate, MemoryResponse, MemoryUpdate
+from app.schemas.memory_context import (
+    MemoryContextItem,
+    MemoryContextResponse,
+)
 from app.schemas.memory_stats import MemoryStatsResponse
 
 __all__ = [
@@ -68,6 +72,8 @@ __all__ = [
     "MemoryResponse",
     "MemoryUpdate",
     "MemoryStatsResponse",
+    "MemoryContextItem",
+    "MemoryContextResponse",
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",

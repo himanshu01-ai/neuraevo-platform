@@ -32,6 +32,7 @@ from app.services.conversation_generation_service import (
     ConversationGenerationService,
 )
 from app.services.conversation_service import ConversationService
+from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
 from app.services.providers import (
     ClaudeConversationProvider,
@@ -131,6 +132,13 @@ def get_conversation_service(session: SessionDep) -> ConversationService:
 def get_message_service(session: SessionDep) -> MessageService:
     """Provide a :class:`MessageService` bound to the session."""
     return MessageService(session)
+
+
+def get_memory_context_service(
+    session: SessionDep,
+) -> MemoryContextService:
+    """Provide a :class:`MemoryContextService` bound to the session."""
+    return MemoryContextService(session)
 
 
 def get_conversation_context_service(
@@ -253,6 +261,9 @@ ConversationServiceDep = Annotated[
     ConversationService, Depends(get_conversation_service)
 ]
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
+MemoryContextServiceDep = Annotated[
+    MemoryContextService, Depends(get_memory_context_service)
+]
 ConversationContextServiceDep = Annotated[
     ConversationContextService, Depends(get_conversation_context_service)
 ]

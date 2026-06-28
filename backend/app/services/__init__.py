@@ -21,6 +21,7 @@ from app.services.interview_session_question_service import (
     InterviewSessionQuestionService,
 )
 from app.services.interview_session_service import InterviewSessionService
+from app.services.memory_context_service import MemoryContextService
 from app.services.memory_service import MemoryService
 
 __all__ = [
@@ -38,6 +39,7 @@ __all__ = [
     "InterviewQuestionService",
     "InterviewSessionQuestionService",
     "InterviewSessionService",
+    "MemoryContextService",
     "MemoryService",
     "MessageService",
 ]

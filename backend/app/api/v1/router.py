@@ -22,6 +22,7 @@ from app.api.v1 import (
     interview_session_questions,
     interview_sessions,
     memory,
+    memory_context,
     messages,
 )
 
@@ -31,6 +32,7 @@ api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(employees.router)
 api_router.include_router(memory.router)
+api_router.include_router(memory_context.router)
 api_router.include_router(conversations.router)
 api_router.include_router(messages.router)
 api_router.include_router(conversation_context.router)
