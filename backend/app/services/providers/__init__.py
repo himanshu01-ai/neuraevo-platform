@@ -13,10 +13,14 @@ from app.services.providers.conversation_provider import (
     ConversationGenerationTimeoutError,
     ConversationProvider,
 )
+from app.services.providers.conversation_provider_factory import (
+    ConversationProviderFactory,
+)
 
 __all__ = [
     "ConversationProvider",
     "ConversationGenerationError",
     "ConversationGenerationTimeoutError",
     "ClaudeConversationProvider",
+    "ConversationProviderFactory",
 ]

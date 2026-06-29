@@ -36,10 +36,7 @@ from app.services.conversation_service import ConversationService
 from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
-from app.services.providers import (
-    ClaudeConversationProvider,
-    ConversationProvider,
-)
+from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -170,13 +167,15 @@ def get_conversation_context_service(
     return ConversationContextService(session)
 
 
-def get_conversation_provider() -> ConversationProvider:
-    """Provide the default (Claude) conversation provider.
+def get_conversation_provider_factory() -> ConversationProviderFactory:
+    """Provide the conversation provider factory (active-provider selector).
 
-    Reuses the Sprint 4B Anthropic configuration from settings; swapping
-    providers is a one-line change here with no impact on services or routers.
+    Reads the Anthropic configuration from settings and hands it to the
+    factory; the factory decides which concrete provider to return (currently
+    always Claude). Swapping providers is a change confined to the factory,
+    with no impact on services or routers.
     """
-    return ClaudeConversationProvider(
+    return ConversationProviderFactory(
         api_key=settings.ANTHROPIC_API_KEY,
         model=settings.ANTHROPIC_MODEL,
         timeout=settings.ANTHROPIC_TIMEOUT_SECONDS,
@@ -184,25 +183,25 @@ def get_conversation_provider() -> ConversationProvider:
     )
 
 
-ConversationProviderDep = Annotated[
-    ConversationProvider, Depends(get_conversation_provider)
+ConversationProviderFactoryDep = Annotated[
+    ConversationProviderFactory, Depends(get_conversation_provider_factory)
 ]
 
 
 def get_conversation_generation_service(
     session: SessionDep,
-    provider: ConversationProviderDep,
     ai_context: AIContextServiceDep,
     prompt_builder: PromptBuilderServiceDep,
+    provider_factory: ConversationProviderFactoryDep,
 ) -> ConversationGenerationService:
     """Provide a :class:`ConversationGenerationService` bound to the session.
 
-    The AI context and prompt builder are injected through DI; the AI context
-    service is built from the same request-scoped session, so the whole
-    generation flow shares one transaction.
+    The AI context, prompt builder, and provider factory are injected through
+    DI; the AI context service is built from the same request-scoped session,
+    so the whole generation flow shares one transaction.
     """
     return ConversationGenerationService(
-        session, provider, ai_context, prompt_builder
+        session, ai_context, prompt_builder, provider_factory
     )
 
 

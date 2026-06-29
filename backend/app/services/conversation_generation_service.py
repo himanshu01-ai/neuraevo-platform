@@ -3,12 +3,14 @@
 Orchestrates an assistant reply. As of Sprint 6D it no longer assembles
 blueprint, memory, or conversation data itself: it builds the unified AI
 context (:class:`AIContextService`, Sprint 6C), renders it into a prompt
-(:class:`PromptBuilderService`), hands that prompt to a
-:class:`ConversationProvider`, then (Sprint 5E) persists the reply as an
-assistant :class:`Message` and returns it. Generation remains read-only until a
-reply is produced; only after a successful generation is the message created
-and committed (atomically). This service orchestrates only — it knows nothing
-about how prompts are constructed.
+(:class:`PromptBuilderService`), then (Sprint 6E) asks a
+:class:`ConversationProviderFactory` for the active
+:class:`ConversationProvider` and hands it the prompt, and finally (Sprint 5E)
+persists the reply as an assistant :class:`Message` and returns it. Generation
+remains read-only until a reply is produced; only after a successful generation
+is the message created and committed (atomically). This service orchestrates
+only — it knows nothing about how prompts are constructed or which concrete
+provider answers.
 """
 
 import uuid
@@ -20,6 +22,9 @@ from app.schemas.message import MessageCreate
 from app.services.ai_context_service import AIContextService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.providers.conversation_provider import ConversationProvider
+from app.services.providers.conversation_provider_factory import (
+    ConversationProviderFactory,
+)
 from app.utils.constants import MessageRole
 from app.utils.logger import get_logger
 
@@ -38,16 +43,16 @@ class ConversationGenerationService:
     def __init__(
         self,
         session,
-        provider: ConversationProvider,
         ai_context: AIContextService,
         prompt_builder: PromptBuilderService,
+        provider_factory: ConversationProviderFactory,
     ) -> None:
         self.session = session
         self.ai_context = ai_context
         self.prompt_builder = prompt_builder
         # Reuse Sprint 5B message persistence (no second repository).
         self.messages = MessageRepository(session)
-        self.provider = provider
+        self.provider_factory = provider_factory
 
     def generate_reply(
         self,
@@ -75,9 +80,11 @@ class ConversationGenerationService:
         # 2. Render the context into a prompt (pure deterministic transform).
         prompt = self.prompt_builder.build_prompt(ai_context)
 
-        # 3. Generate the reply. The provider receives only the prompt string
-        #    (read-only; raises 502/504 -> nothing written).
-        reply = self.provider.generate_reply(prompt)
+        # 3. Resolve the active provider from the factory, then generate. The
+        #    provider receives only the prompt string (read-only; raises
+        #    502/504 -> nothing written).
+        provider: ConversationProvider = self.provider_factory.get_provider()
+        reply = provider.generate_reply(prompt)
 
         # 4. Persist the assistant message, then commit. Commit happens only
         #    after a successful generation; any failure rolls back so there is
@@ -100,6 +107,6 @@ class ConversationGenerationService:
             message.id,
             ai_context.conversation_id,
             ai_context.conversation.message_count,
-            self.provider.name,
+            provider.name,
         )
         return message
