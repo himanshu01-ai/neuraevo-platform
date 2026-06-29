@@ -52,7 +52,7 @@
 
 ## Current Sprint
 
-Current Sprint = 6B
+Current Sprint = 6D
 
 ---
 
