@@ -2,12 +2,14 @@
 
 Read-only orchestration. Reuses :class:`EmployeeService` for the
 User -> Employee ownership chain and the existing :class:`MemoryRepository` to
-load memories, then assembles a reusable, newest-first context structure. No
-AI generation, persistence, ranking, scoring, or search.
+load memories, then assembles a reusable, newest-first context structure,
+limited to ``MEMORY_CONTEXT_LIMIT`` (Sprint 6B). No AI generation, persistence,
+ranking, scoring, or search.
 """
 
 import uuid
 
+from app.core.config import settings
 from app.models.user import User
 from app.repositories.memory_repository import MemoryRepository
 from app.schemas.memory_context import MemoryContextItem, MemoryContextResponse
@@ -35,15 +37,16 @@ class MemoryContextService:
     ) -> MemoryContextResponse:
         """Assemble the employee's memories into context, newest first.
 
+        Returns at most ``MEMORY_CONTEXT_LIMIT`` memories (the newest ones).
         Raises ``EmployeeNotFoundError`` / ``EmployeeAccessDeniedError`` via the
         reused ownership chain. An employee with no memories yields
         ``memory_count = 0`` and an empty list.
         """
         employee = self.employees.get_employee(owner, employee_id)
 
-        # Load all of the employee's memories via the existing repository,
-        # then order newest-first in the service (the repository returns
-        # oldest-first and is left unchanged).
+        # Load the employee's memories via the existing repository, then order
+        # newest-first in the service (the repository returns oldest-first and
+        # is left unchanged).
         total = self.memories.get_memory_stats(employee.id)["total_memories"]
         rows = (
             self.memories.list_memories(employee.id, limit=total)
@@ -51,6 +54,9 @@ class MemoryContextService:
             else []
         )
         ordered = sorted(rows, key=lambda m: m.created_at, reverse=True)
+
+        # Selection is a service concern: keep only the newest N memories.
+        selected = ordered[: settings.MEMORY_CONTEXT_LIMIT]
 
         items = [
             MemoryContextItem(
@@ -60,7 +66,7 @@ class MemoryContextService:
                 memory_type=memory.memory_type,
                 created_at=memory.created_at,
             )
-            for memory in ordered
+            for memory in selected
         ]
 
         logger.info(

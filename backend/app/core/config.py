@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     ANTHROPIC_TIMEOUT_SECONDS: float = Field(default=30.0)
     ANTHROPIC_MAX_TOKENS: int = Field(default=4096)
 
+    # --- Memory ----------------------------------------------------------
+    # Maximum number of memories selected for context assembly (newest first).
+    MEMORY_CONTEXT_LIMIT: int = Field(default=10)
+
     # --- CORS ------------------------------------------------------------
     # Comma-separated list of allowed origins, e.g.
     # "http://localhost:3000,https://app.neuraevo.com"
