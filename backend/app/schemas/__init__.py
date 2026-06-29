@@ -1,5 +1,11 @@
 """Pydantic schemas package."""
 
+from app.schemas.ai_context import (
+    AIContextResponse,
+    BlueprintSection,
+    ConversationSection,
+    MemorySection,
+)
 from app.schemas.auth import (
     LoginRequest,
     RefreshRequest,
@@ -74,6 +80,10 @@ __all__ = [
     "MemoryStatsResponse",
     "MemoryContextItem",
     "MemoryContextResponse",
+    "AIContextResponse",
+    "BlueprintSection",
+    "MemorySection",
+    "ConversationSection",
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",

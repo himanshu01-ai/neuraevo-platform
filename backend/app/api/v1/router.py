@@ -8,6 +8,7 @@ are implemented.
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    ai_context,
     auth,
     blueprint_generation,
     blueprint_versions,
@@ -37,6 +38,7 @@ api_router.include_router(conversations.router)
 api_router.include_router(messages.router)
 api_router.include_router(conversation_context.router)
 api_router.include_router(conversation_generation.router)
+api_router.include_router(ai_context.router)
 api_router.include_router(blueprints.router)
 api_router.include_router(blueprint_generation.router)
 api_router.include_router(blueprint_versions.router)

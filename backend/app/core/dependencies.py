@@ -19,6 +19,7 @@ from app.employee_builder.blueprint import BlueprintGenerationProvider
 from app.employee_builder.providers import ClaudeBlueprintProvider
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.services.ai_context_service import AIContextService
 from app.services.auth_service import AuthService
 from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
@@ -139,6 +140,11 @@ def get_memory_context_service(
 ) -> MemoryContextService:
     """Provide a :class:`MemoryContextService` bound to the session."""
     return MemoryContextService(session)
+
+
+def get_ai_context_service(session: SessionDep) -> AIContextService:
+    """Provide an :class:`AIContextService` bound to the session."""
+    return AIContextService(session)
 
 
 def get_conversation_context_service(
@@ -263,6 +269,9 @@ ConversationServiceDep = Annotated[
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 MemoryContextServiceDep = Annotated[
     MemoryContextService, Depends(get_memory_context_service)
+]
+AIContextServiceDep = Annotated[
+    AIContextService, Depends(get_ai_context_service)
 ]
 ConversationContextServiceDep = Annotated[
     ConversationContextService, Depends(get_conversation_context_service)

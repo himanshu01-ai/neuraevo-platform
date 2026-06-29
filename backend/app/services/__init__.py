@@ -1,5 +1,6 @@
 """Service layer package."""
 
+from app.services.ai_context_service import AIContextService
 from app.services.auth_service import AuthService
 from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
@@ -25,6 +26,7 @@ from app.services.memory_context_service import MemoryContextService
 from app.services.memory_service import MemoryService
 
 __all__ = [
+    "AIContextService",
     "AuthService",
     "BlueprintApplyService",
     "BlueprintGenerationService",
