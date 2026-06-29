@@ -35,6 +35,7 @@ from app.services.conversation_generation_service import (
 from app.services.conversation_service import ConversationService
 from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
+from app.services.prompt_builder_service import PromptBuilderService
 from app.services.providers import (
     ClaudeConversationProvider,
     ConversationProvider,
@@ -147,6 +148,21 @@ def get_ai_context_service(session: SessionDep) -> AIContextService:
     return AIContextService(session)
 
 
+AIContextServiceDep = Annotated[
+    AIContextService, Depends(get_ai_context_service)
+]
+
+
+def get_prompt_builder_service() -> PromptBuilderService:
+    """Provide a :class:`PromptBuilderService` (stateless, pure transform)."""
+    return PromptBuilderService()
+
+
+PromptBuilderServiceDep = Annotated[
+    PromptBuilderService, Depends(get_prompt_builder_service)
+]
+
+
 def get_conversation_context_service(
     session: SessionDep,
 ) -> ConversationContextService:
@@ -176,9 +192,18 @@ ConversationProviderDep = Annotated[
 def get_conversation_generation_service(
     session: SessionDep,
     provider: ConversationProviderDep,
+    ai_context: AIContextServiceDep,
+    prompt_builder: PromptBuilderServiceDep,
 ) -> ConversationGenerationService:
-    """Provide a :class:`ConversationGenerationService` bound to the session."""
-    return ConversationGenerationService(session, provider)
+    """Provide a :class:`ConversationGenerationService` bound to the session.
+
+    The AI context and prompt builder are injected through DI; the AI context
+    service is built from the same request-scoped session, so the whole
+    generation flow shares one transaction.
+    """
+    return ConversationGenerationService(
+        session, provider, ai_context, prompt_builder
+    )
 
 
 def get_interview_question_service(
@@ -269,9 +294,6 @@ ConversationServiceDep = Annotated[
 MessageServiceDep = Annotated[MessageService, Depends(get_message_service)]
 MemoryContextServiceDep = Annotated[
     MemoryContextService, Depends(get_memory_context_service)
-]
-AIContextServiceDep = Annotated[
-    AIContextService, Depends(get_ai_context_service)
 ]
 ConversationContextServiceDep = Annotated[
     ConversationContextService, Depends(get_conversation_context_service)

@@ -24,6 +24,7 @@ from app.services.interview_session_question_service import (
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_context_service import MemoryContextService
 from app.services.memory_service import MemoryService
+from app.services.prompt_builder_service import PromptBuilderService
 
 __all__ = [
     "AIContextService",
@@ -44,4 +45,5 @@ __all__ = [
     "MemoryContextService",
     "MemoryService",
     "MessageService",
+    "PromptBuilderService",
 ]

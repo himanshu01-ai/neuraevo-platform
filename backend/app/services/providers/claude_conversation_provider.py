@@ -1,17 +1,16 @@
 """Claude (Anthropic) conversation generation provider.
 
-Implements :class:`ConversationProvider` by constructing a plain-text prompt
-from the blueprint and conversation context, calling the Anthropic Messages
-API, and returning the generated reply. All Claude-specific logic is contained
-here — no ownership logic, no repository access, no Anthropic code elsewhere.
+Implements :class:`ConversationProvider` by sending a fully built prompt
+(constructed upstream by ``PromptBuilderService``, Sprint 6D) to the Anthropic
+Messages API and returning the generated reply. All Claude-specific logic is
+contained here — no prompt construction, no ownership logic, no repository
+access, and no Anthropic code anywhere else.
 """
 
 from typing import Optional
 
 import anthropic
 
-from app.models.blueprint import Blueprint
-from app.schemas.conversation_context import ConversationContextResponse
 from app.services.providers.conversation_provider import (
     ConversationGenerationError,
     ConversationGenerationTimeoutError,
@@ -20,16 +19,6 @@ from app.services.providers.conversation_provider import (
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-# Blueprint fields included in the prompt, in a stable order.
-_BLUEPRINT_FIELDS: list[tuple[str, str]] = [
-    ("vision", "Vision"),
-    ("goals", "Goals"),
-    ("communication_style", "Communication style"),
-    ("personality_traits", "Personality traits"),
-    ("constraints", "Constraints"),
-    ("preferences", "Preferences"),
-]
 
 _SYSTEM_PROMPT = (
     "You are an AI employee responding within an ongoing conversation. Stay in "
@@ -69,45 +58,14 @@ class ClaudeConversationProvider(ConversationProvider):
             )
         return self._client
 
-    # --- Prompt construction --------------------------------------------
-
-    def build_prompt(
-        self,
-        blueprint: Blueprint,
-        context: ConversationContextResponse,
-    ) -> str:
-        """Construct the plain-text generation prompt."""
-        lines: list[str] = ["# Employee blueprint"]
-        for field_name, label in _BLUEPRINT_FIELDS:
-            value = getattr(blueprint, field_name)
-            lines.append(f"- {label}: {value if value else '(none)'}")
-        lines.append("")
-
-        lines.append("# Conversation so far (oldest to newest)")
-        if context.messages:
-            for message in context.messages:
-                lines.append(f"{message.role.value}: {message.content}")
-        else:
-            lines.append("(no messages yet)")
-        lines.append("")
-
-        lines.append("# Task")
-        lines.append(
-            "Generate the next assistant response. Return plain text only — no "
-            "JSON, no markdown."
-        )
-        return "\n".join(lines)
-
     # --- Provider interface ---------------------------------------------
 
-    def generate_reply(
-        self,
-        blueprint: Blueprint,
-        context: ConversationContextResponse,
-    ) -> str:
-        """Call Claude with the assembled prompt and return the reply text.
+    def generate_reply(self, prompt: str) -> str:
+        """Send the already-built ``prompt`` to Claude and return the reply.
 
-        Raises :class:`ConversationGenerationTimeoutError` on timeout and
+        The prompt is constructed upstream by ``PromptBuilderService``; this
+        method performs Claude API communication only. Raises
+        :class:`ConversationGenerationTimeoutError` on timeout and
         :class:`ConversationGenerationError` on any other failure (API error or
         empty response).
         """
@@ -119,7 +77,6 @@ class ClaudeConversationProvider(ConversationProvider):
                 "Claude client unavailable"
             ) from exc
 
-        prompt = self.build_prompt(blueprint, context)
         try:
             response = client.messages.create(
                 model=self.model,
@@ -128,10 +85,7 @@ class ClaudeConversationProvider(ConversationProvider):
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.APITimeoutError as exc:
-            logger.warning(
-                "Claude conversation request timed out for conversation %s",
-                context.conversation_id,
-            )
+            logger.warning("Claude conversation request timed out")
             raise ConversationGenerationTimeoutError(
                 "Conversation generation timed out"
             ) from exc
