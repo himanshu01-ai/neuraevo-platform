@@ -1,0 +1,191 @@
+"""Memory service: creation and listing of employee memories.
+
+Sits between the API layer and the repository layer. Ownership is enforced by
+delegating employee resolution to :class:`EmployeeService`, which raises
+``EmployeeNotFoundError`` / ``EmployeeAccessDeniedError``. No AI logic, vector
+search, embeddings, or retrieval ranking is performed here.
+"""
+
+import uuid
+from typing import Optional, Sequence
+
+from app.models.memory import Memory
+from app.models.user import User
+from app.repositories.memory_repository import MemoryRepository
+from app.schemas.memory import MemoryCreate, MemoryUpdate
+from app.schemas.memory_stats import MemoryStatsResponse
+from app.services.employee_service import EmployeeService
+from app.utils.constants import MemoryType
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+class MemoryError(Exception):
+    """Base class for memory-related domain errors."""
+
+
+class MemoryNotFoundError(MemoryError):
+    """Raised when no memory exists for the given identifier."""
+
+
+class MemoryAccessDeniedError(MemoryError):
+    """Raised when a memory exists but does not belong to the given employee."""
+
+
+class MemoryService:
+    """Coordinates memory operations using the repository layer.
+
+    The service owns the unit of work: the repository ``flush``es while the
+    service commits the transaction.
+    """
+
+    def __init__(self, session) -> None:
+        self.session = session
+        self.memories = MemoryRepository(session)
+        self.employees = EmployeeService(session)
+
+    def create_memory(
+        self, owner: User, employee_id: uuid.UUID, data: MemoryCreate
+    ) -> Memory:
+        """Create a memory for an employee the ``owner`` is allowed to access."""
+        # Raises EmployeeNotFoundError (404) / EmployeeAccessDeniedError (403).
+        employee = self.employees.get_employee(owner, employee_id)
+        memory = self.memories.create_memory(employee.id, data)
+        self.session.commit()
+        self.session.refresh(memory)
+        logger.info(
+            "User %s added %s memory %s to employee %s",
+            owner.id,
+            memory.memory_type,
+            memory.id,
+            employee.id,
+        )
+        return memory
+
+    # Hard ceiling on how many memories a single request may return.
+    MAX_LIMIT = 100
+
+    def list_memories(
+        self,
+        owner: User,
+        employee_id: uuid.UUID,
+        memory_type: Optional[MemoryType] = None,
+        min_importance: Optional[float] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Sequence[Memory]:
+        """List memories for an employee the ``owner`` is allowed to access.
+
+        Optional ``memory_type`` and ``min_importance`` filters are applied
+        when provided. Results are oldest-first. ``limit`` is capped at
+        :attr:`MAX_LIMIT` as a defensive safeguard regardless of the caller.
+        """
+        employee = self.employees.get_employee(owner, employee_id)
+        capped_limit = min(limit, self.MAX_LIMIT)
+        return self.memories.list_memories(
+            employee.id,
+            memory_type=memory_type.value if memory_type is not None else None,
+            min_importance=min_importance,
+            limit=capped_limit,
+            offset=offset,
+        )
+
+    def get_memory(
+        self, owner: User, employee_id: uuid.UUID, memory_id: uuid.UUID
+    ) -> Memory:
+        """Return a single memory scoped to an employee the owner can access.
+
+        Raises :class:`EmployeeNotFoundError` / :class:`EmployeeAccessDeniedError`
+        if the employee is missing or not owned by ``owner``;
+        :class:`MemoryNotFoundError` if the memory does not exist; and
+        :class:`MemoryAccessDeniedError` if it exists but belongs to a
+        different employee.
+        """
+        employee = self.employees.get_employee(owner, employee_id)
+        memory = self.memories.get_memory(memory_id)
+        if memory is None:
+            raise MemoryNotFoundError(str(memory_id))
+        if memory.employee_id != employee.id:
+            logger.warning(
+                "User %s attempted to access memory %s via employee %s, "
+                "but it belongs to employee %s",
+                owner.id,
+                memory_id,
+                employee.id,
+                memory.employee_id,
+            )
+            raise MemoryAccessDeniedError(str(memory_id))
+        return memory
+
+    def get_memory_stats(
+        self, owner: User, employee_id: uuid.UUID
+    ) -> MemoryStatsResponse:
+        """Return aggregated memory statistics for an employee.
+
+        Reuses :meth:`EmployeeService.get_employee` for ownership validation
+        (raising ``EmployeeNotFoundError`` / ``EmployeeAccessDeniedError``).
+        Missing per-type counts default to 0 and the average defaults to 0.0
+        when the employee has no memories.
+        """
+        employee = self.employees.get_employee(owner, employee_id)
+        stats = self.memories.get_memory_stats(employee.id)
+
+        counts = stats["counts_by_type"]
+        average = stats["average_importance_score"]
+        return MemoryStatsResponse(
+            total_memories=stats["total_memories"],
+            permanent_count=counts.get(MemoryType.PERMANENT.value, 0),
+            working_count=counts.get(MemoryType.WORKING.value, 0),
+            learned_count=counts.get(MemoryType.LEARNED.value, 0),
+            average_importance_score=round(average, 2) if average is not None else 0.0,
+        )
+
+    def update_memory(
+        self,
+        owner: User,
+        employee_id: uuid.UUID,
+        memory_id: uuid.UUID,
+        data: MemoryUpdate,
+    ) -> Memory:
+        """Apply a partial update to a memory the owner is allowed to access.
+
+        Resolves and authorizes the memory via :meth:`get_memory` (raising the
+        same domain exceptions). Only fields set on ``data`` are written.
+        """
+        memory = self.get_memory(owner, employee_id, memory_id)
+        self.memories.update_memory(
+            memory,
+            memory_type=(
+                data.memory_type.value if data.memory_type is not None else None
+            ),
+            content=data.content,
+            importance_score=data.importance_score,
+        )
+        self.session.commit()
+        self.session.refresh(memory)
+        logger.info(
+            "User %s updated memory %s on employee %s",
+            owner.id,
+            memory_id,
+            employee_id,
+        )
+        return memory
+
+    def delete_memory(
+        self, owner: User, employee_id: uuid.UUID, memory_id: uuid.UUID
+    ) -> None:
+        """Delete a memory the owner is allowed to access.
+
+        Resolves and authorizes the memory via :meth:`get_memory` (raising the
+        same domain exceptions) before deleting and committing.
+        """
+        memory = self.get_memory(owner, employee_id, memory_id)
+        self.memories.delete_memory(memory)
+        self.session.commit()
+        logger.info(
+            "User %s deleted memory %s from employee %s",
+            owner.id,
+            memory_id,
+            employee_id,
+        )
