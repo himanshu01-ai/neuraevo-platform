@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # environment; the model name is configurable so it is not embedded in
     # business logic.
     ANTHROPIC_API_KEY: str | None = Field(default=None)
-    ANTHROPIC_MODEL: str = Field(default="claude-sonnet-4-20250514")
+    ANTHROPIC_MODEL: str = Field(default="claude-sonnet-4-6")
     ANTHROPIC_TIMEOUT_SECONDS: float = Field(default=30.0)
     ANTHROPIC_MAX_TOKENS: int = Field(default=4096)
 
