@@ -37,6 +37,7 @@ from app.services.conversation_service import ConversationService
 from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
+from app.services.prompt import RuntimePromptBuilderService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -175,6 +176,21 @@ def get_prompt_builder_service() -> PromptBuilderService:
 
 PromptBuilderServiceDep = Annotated[
     PromptBuilderService, Depends(get_prompt_builder_service)
+]
+
+
+def get_runtime_prompt_builder_service() -> RuntimePromptBuilderService:
+    """Provide the Sprint 7.2 runtime prompt builder (stateless, pure transform).
+
+    Builds a :class:`PromptPackage` from a ``RuntimeAIContext``. Distinct from
+    the Sprint 6C :class:`PromptBuilderService` above; the unique class name
+    removes the need for any import alias.
+    """
+    return RuntimePromptBuilderService()
+
+
+RuntimePromptBuilderServiceDep = Annotated[
+    RuntimePromptBuilderService, Depends(get_runtime_prompt_builder_service)
 ]
 
 
