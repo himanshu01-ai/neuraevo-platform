@@ -21,6 +21,7 @@ from app.models.user import User
 from app.repositories.user_repository import UserRepository
 from app.services.ai_context_service import AIContextService
 from app.services.auth_service import AuthService
+from app.services.context import AIContextEngineService
 from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
 from app.services.blueprint_restore_service import BlueprintRestoreService
@@ -147,6 +148,23 @@ def get_ai_context_service(session: SessionDep) -> AIContextService:
 
 AIContextServiceDep = Annotated[
     AIContextService, Depends(get_ai_context_service)
+]
+
+
+def get_ai_context_engine_service(
+    session: SessionDep,
+) -> AIContextEngineService:
+    """Provide an :class:`AIContextEngineService` bound to the session.
+
+    Sprint 7.1 runtime context assembler. Distinct from the Sprint 6C
+    :class:`AIContextService`; composes existing services for loading and
+    ownership.
+    """
+    return AIContextEngineService(session)
+
+
+AIContextEngineServiceDep = Annotated[
+    AIContextEngineService, Depends(get_ai_context_engine_service)
 ]
 
 

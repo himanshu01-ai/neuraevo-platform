@@ -1,5 +1,9 @@
 """Pydantic schemas package."""
 
+from app.schemas.agent_context import (
+    PermissionProfile,
+    RuntimeAIContext,
+)
 from app.schemas.ai_context import (
     AIContextResponse,
     BlueprintSection,
@@ -84,6 +88,8 @@ __all__ = [
     "BlueprintSection",
     "MemorySection",
     "ConversationSection",
+    "RuntimeAIContext",
+    "PermissionProfile",
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",
