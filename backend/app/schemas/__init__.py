@@ -4,6 +4,10 @@ from app.schemas.agent_context import (
     PermissionProfile,
     RuntimeAIContext,
 )
+from app.schemas.ai_response import (
+    AIResponse,
+    AIResponseMetadata,
+)
 from app.schemas.ai_context import (
     AIContextResponse,
     BlueprintSection,
@@ -98,6 +102,8 @@ __all__ = [
     "PromptPackage",
     "PromptMessage",
     "PromptMetadata",
+    "AIResponse",
+    "AIResponseMetadata",
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",
