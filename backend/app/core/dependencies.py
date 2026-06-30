@@ -38,6 +38,7 @@ from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
+from app.services.orchestrator import AIOrchestratorService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -219,6 +220,23 @@ def get_conversation_provider_factory() -> ConversationProviderFactory:
 
 ConversationProviderFactoryDep = Annotated[
     ConversationProviderFactory, Depends(get_conversation_provider_factory)
+]
+
+
+def get_ai_orchestrator_service(
+    prompt_builder: RuntimePromptBuilderServiceDep,
+    provider_factory: ConversationProviderFactoryDep,
+) -> AIOrchestratorService:
+    """Provide the Sprint 7.3 AI orchestrator.
+
+    Reuses the Sprint 7.2 runtime prompt builder and the Sprint 6 provider
+    factory (both injected); adds only runtime orchestration. Holds no session.
+    """
+    return AIOrchestratorService(prompt_builder, provider_factory)
+
+
+AIOrchestratorServiceDep = Annotated[
+    AIOrchestratorService, Depends(get_ai_orchestrator_service)
 ]
 
 
