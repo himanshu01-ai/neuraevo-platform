@@ -68,6 +68,11 @@ from app.schemas.memory_context import (
     MemoryContextResponse,
 )
 from app.schemas.memory_stats import MemoryStatsResponse
+from app.schemas.prompt_package import (
+    PromptMessage,
+    PromptMetadata,
+    PromptPackage,
+)
 
 __all__ = [
     "UserCreate",
@@ -90,6 +95,9 @@ __all__ = [
     "ConversationSection",
     "RuntimeAIContext",
     "PermissionProfile",
+    "PromptPackage",
+    "PromptMessage",
+    "PromptMetadata",
     "BlueprintCreate",
     "BlueprintResponse",
     "BlueprintUpdate",
