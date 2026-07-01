@@ -264,14 +264,16 @@ def get_conversation_runtime_service(
     context_engine: AIContextEngineServiceDep,
     prompt_builder: RuntimePromptBuilderServiceDep,
     orchestrator: AIOrchestratorServiceDep,
+    memory_persistence: MemoryPersistenceServiceDep,
 ) -> ConversationRuntimeService:
     """Provide the Sprint 7.4 conversation runtime service (single entry point).
 
-    Reuses the Sprint 7.1 context engine, Sprint 7.2 prompt builder, and Sprint
-    7.3 orchestrator (all injected); adds only coordination. Holds no session.
+    Reuses the Sprint 7.1 context engine, Sprint 7.2 prompt builder, Sprint 7.3
+    orchestrator, and (Sprint 8.2) the Sprint 8.1 memory persistence service —
+    all injected; adds only coordination. Holds no session.
     """
     return ConversationRuntimeService(
-        context_engine, prompt_builder, orchestrator
+        context_engine, prompt_builder, orchestrator, memory_persistence
     )
 
 

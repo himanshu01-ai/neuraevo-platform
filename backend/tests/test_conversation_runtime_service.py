@@ -49,9 +49,13 @@ class ConversationRuntimeServiceTests(unittest.TestCase):
         self.prompt_builder.build.return_value = self.package
         self.orchestrator = MagicMock()
         self.orchestrator.run.return_value = self.response
+        self.memory_persistence = MagicMock()
 
         self.runtime = ConversationRuntimeService(
-            self.context_engine, self.prompt_builder, self.orchestrator
+            self.context_engine,
+            self.prompt_builder,
+            self.orchestrator,
+            self.memory_persistence,
         )
 
     def _execute(self) -> AIResponse:
@@ -134,10 +138,15 @@ class ConversationRuntimeServiceTests(unittest.TestCase):
 
     # --- statelessness / no writes / no repos ----------------------------
     def test_service_is_stateless_no_session_or_repository(self):
-        # Holds only the three injected collaborators — no session, no repo.
+        # Holds only the injected collaborators — no session, no repo.
         self.assertEqual(
             set(vars(self.runtime)),
-            {"context_engine", "prompt_builder", "orchestrator"},
+            {
+                "context_engine",
+                "prompt_builder",
+                "orchestrator",
+                "memory_persistence",
+            },
         )
 
     def test_reuses_injected_collaborators(self):
@@ -150,12 +159,16 @@ class ConversationRuntimeServiceTests(unittest.TestCase):
         from app.core.dependencies import get_conversation_runtime_service
 
         service = get_conversation_runtime_service(
-            self.context_engine, self.prompt_builder, self.orchestrator
+            self.context_engine,
+            self.prompt_builder,
+            self.orchestrator,
+            self.memory_persistence,
         )
         self.assertIsInstance(service, ConversationRuntimeService)
         self.assertIs(service.context_engine, self.context_engine)
         self.assertIs(service.prompt_builder, self.prompt_builder)
         self.assertIs(service.orchestrator, self.orchestrator)
+        self.assertIs(service.memory_persistence, self.memory_persistence)
 
 
 if __name__ == "__main__":
