@@ -45,6 +45,7 @@ from app.schemas.conversation_context import (
 from app.schemas.conversation_generation import (
     ConversationGenerationResponse,
 )
+from app.schemas.conversation_runtime import GenerateConversationRequest
 from app.schemas.message import MessageCreate, MessageResponse
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.schemas.interview_answer import (
@@ -116,6 +117,7 @@ __all__ = [
     "ConversationContextMessage",
     "ConversationContextResponse",
     "ConversationGenerationResponse",
+    "GenerateConversationRequest",
     "InterviewQuestionCreate",
     "InterviewQuestionResponse",
     "InterviewAnswerCreate",
