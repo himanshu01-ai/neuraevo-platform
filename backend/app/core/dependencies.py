@@ -170,8 +170,7 @@ def get_memory_retrieval_service(
 
     The reused Sprint 5B :class:`MessageRepository` is wired here in the
     composition root and injected into the service, so the service never
-    instantiates a repository itself (Sprint 9.1). Not yet consumed by any
-    other service or router.
+    instantiates a repository itself (Sprint 9.1).
     """
     return MemoryRetrievalService(MessageRepository(session))
 
@@ -193,14 +192,18 @@ AIContextServiceDep = Annotated[
 
 def get_ai_context_engine_service(
     session: SessionDep,
+    memory_retrieval: MemoryRetrievalServiceDep,
 ) -> AIContextEngineService:
     """Provide an :class:`AIContextEngineService` bound to the session.
 
     Sprint 7.1 runtime context assembler. Distinct from the Sprint 6C
     :class:`AIContextService`; composes existing services for loading and
-    ownership.
+    ownership. The Sprint 9.1 :class:`MemoryRetrievalService` is wired here
+    (Sprint 9.2) via the existing ``get_memory_retrieval_service`` provider and
+    injected into the engine — this is the only place it is constructed, so
+    the engine never imports or constructs a repository itself.
     """
-    return AIContextEngineService(session)
+    return AIContextEngineService(session, memory_retrieval=memory_retrieval)
 
 
 AIContextEngineServiceDep = Annotated[

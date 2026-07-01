@@ -1,8 +1,9 @@
-"""AI Context Engine (Sprint 7.1).
+"""AI Context Engine (Sprint 7.1; Sprint 9.2 adds retrieved-history).
 
 Assembles the complete runtime context required *before* any AI generation:
-employee, blueprint, memories, recent conversation history, a (stub) permission
-profile, language, personality, and the current user input.
+employee, blueprint, memories, recent conversation history, retrieved message
+history, a (stub) permission profile, language, personality, and the current
+user input.
 
 Read-only orchestration that composes existing domain services for loading and
 ownership validation. It does not duplicate any ownership logic, and it performs
@@ -18,11 +19,13 @@ from app.models.user import User
 from app.schemas.agent_context import PermissionProfile, RuntimeAIContext
 from app.schemas.blueprint import BlueprintResponse
 from app.schemas.employee import EmployeeResponse
+from app.schemas.message import MessageResponse
 from app.services.blueprint_service import BlueprintService
 from app.services.conversation_context_service import (
     ConversationContextService,
 )
 from app.services.employee_service import EmployeeService
+from app.services.memory import MemoryRetrievalService
 from app.services.memory_context_service import MemoryContextService
 from app.utils.logger import get_logger
 
@@ -38,12 +41,26 @@ class AIContextEngineService:
     reused services — each owns the chain it validates — so none is
     re-implemented here. The service performs no writes and knows nothing about
     prompts or providers.
+
+    ``memory_retrieval`` (Sprint 9.2) is the Sprint 9.1
+    :class:`MemoryRetrievalService`. Unlike the collaborators above, it is
+    required (not optional/session-defaulted): its own constructor takes a
+    repository instance rather than a session, so building a default here
+    would require this engine to import and construct a repository directly —
+    which would violate the composition-root boundary. Following the same
+    precedent as ``ConversationRuntimeService`` receiving
+    ``MemoryPersistenceService`` (Sprint 8.2), it is wired exclusively by
+    ``core/dependencies.py`` via the existing ``get_memory_retrieval_service``
+    provider and always injected. It performs no ownership validation of its
+    own — it is only ever called here after the conversation's ownership has
+    already been validated.
     """
 
     def __init__(
         self,
         session,
         *,
+        memory_retrieval: MemoryRetrievalService,
         employees: Optional[EmployeeService] = None,
         blueprints: Optional[BlueprintService] = None,
         memory: Optional[MemoryContextService] = None,
@@ -54,6 +71,7 @@ class AIContextEngineService:
         self.blueprints = blueprints or BlueprintService(session)
         self.memory = memory or MemoryContextService(session)
         self.conversation = conversation or ConversationContextService(session)
+        self.memory_retrieval = memory_retrieval
 
     def build_context(
         self,
@@ -85,7 +103,14 @@ class AIContextEngineService:
             owner, employee_id, conversation_id
         )
 
-        # 5. Permission profile — deny-by-default stub until the permissions
+        # 5. Retrieved message history (Sprint 9.2). Conversation ownership was
+        #    already validated in step 4 above, so MemoryRetrievalService is
+        #    called with no further authorization checks of its own.
+        retrieved_messages = self.memory_retrieval.retrieve(
+            owner, employee_id, conversation_id
+        )
+
+        # 6. Permission profile — deny-by-default stub until the permissions
         #    sprint. Assembled here so the runtime context shape is stable.
         permission_profile = PermissionProfile()
 
@@ -104,6 +129,10 @@ class AIContextEngineService:
             blueprint=BlueprintResponse.model_validate(blueprint),
             memories=memory_context,
             recent_conversation=conversation_context,
+            retrieved_history=[
+                MessageResponse.model_validate(message)
+                for message in retrieved_messages
+            ],
             permission_profile=permission_profile,
             language=employee.language,
             personality=employee.personality,
