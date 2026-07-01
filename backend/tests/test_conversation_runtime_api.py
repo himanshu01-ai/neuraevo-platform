@@ -1,10 +1,17 @@
-"""Endpoint tests for the Sprint 7.5 Conversation Runtime API.
+"""Endpoint tests for the Conversation Runtime API (Sprint 7.5, Sprint 8.3).
 
-The router is tested in isolation via FastAPI dependency overrides: the current
-user and the ``ConversationRuntimeService`` are replaced with test doubles, so
-no database, provider, or real service runs. These cover success, request
-validation, ownership errors, and provider failures, and confirm the router
-delegates (no business logic) and maps domain errors to HTTP status codes.
+Two layers of tests:
+
+* ``ConversationRuntimeAPITests`` mocks the whole ``ConversationRuntimeService``
+  to cover pure HTTP concerns — success, request validation, ownership errors,
+  provider failures, auth, and error-to-status mapping.
+* ``ConversationRuntimeApiPersistenceTests`` (Sprint 8.3) mocks only the
+  runtime service's collaborators and lets the real ``ConversationRuntimeService``
+  run, proving the endpoint triggers memory persistence exactly once, after
+  generation, and propagates persistence failures.
+
+Both run in isolation via FastAPI dependency overrides — no database, provider,
+or network is involved.
 
 Runnable with stdlib unittest (no pytest dependency required):
     PYTHONPATH=. python -m unittest tests.test_conversation_runtime_api
@@ -17,8 +24,12 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from app.core.dependencies import (
+    get_ai_context_engine_service,
+    get_ai_orchestrator_service,
     get_conversation_runtime_service,
     get_current_user,
+    get_memory_persistence_service,
+    get_runtime_prompt_builder_service,
 )
 from app.main import app
 from app.schemas.ai_response import AIResponse, AIResponseMetadata
@@ -146,6 +157,116 @@ class ConversationRuntimeAPITests(unittest.TestCase):
         path = "/api/v1/conversations/{conversation_id}/runtime"
         self.assertIn(path, schema["paths"])
         self.assertIn("post", schema["paths"][path])
+
+    def test_persistence_failure_propagates_via_mocked_service(self):
+        # A persistence error is not a domain/provider error, so the router does
+        # not convert it — it propagates (surfaced as a 500 to the client).
+        self.service.execute.side_effect = RuntimeError("db write failed")
+        with self.assertRaises(RuntimeError):
+            self._post()
+
+
+class ConversationRuntimeApiPersistenceTests(unittest.TestCase):
+    """Sprint 8.3 integration: HTTP -> real ConversationRuntimeService -> mocks.
+
+    Overrides only the runtime service's collaborators (not the service itself),
+    so the real ``execute`` runs end-to-end and the endpoint is proven to trigger
+    memory persistence exactly once, after generation.
+    """
+
+    def setUp(self) -> None:
+        self.conversation_id = uuid.uuid4()
+        self.employee_id = uuid.uuid4()
+        self.user = MagicMock(name="User")
+        self.user.id = uuid.uuid4()
+        self.ai_response = AIResponse(
+            content="You have a 3pm sync.",
+            metadata=AIResponseMetadata(
+                provider="test-provider",
+                language="en",
+                employee_id=self.employee_id,
+                conversation_id=self.conversation_id,
+                prompt_message_count=2,
+            ),
+        )
+
+        # Collaborators of the REAL ConversationRuntimeService.
+        self.context_engine = MagicMock()
+        self.context_engine.build_context.return_value = MagicMock(
+            name="RuntimeAIContext"
+        )
+        self.prompt_builder = MagicMock()
+        self.prompt_builder.build.return_value = MagicMock(name="PromptPackage")
+        self.orchestrator = MagicMock()
+        self.orchestrator.run.return_value = self.ai_response
+        self.memory = MagicMock(name="MemoryPersistenceService")
+
+        app.dependency_overrides[get_current_user] = lambda: self.user
+        app.dependency_overrides[get_ai_context_engine_service] = (
+            lambda: self.context_engine
+        )
+        app.dependency_overrides[get_runtime_prompt_builder_service] = (
+            lambda: self.prompt_builder
+        )
+        app.dependency_overrides[get_ai_orchestrator_service] = (
+            lambda: self.orchestrator
+        )
+        app.dependency_overrides[get_memory_persistence_service] = (
+            lambda: self.memory
+        )
+        # get_conversation_runtime_service is NOT overridden -> the real service
+        # is built from the mocked collaborators above.
+        self.client = TestClient(app)
+        self.url = f"/api/v1/conversations/{self.conversation_id}/runtime"
+        self.body = {
+            "employee_id": str(self.employee_id),
+            "message": "What's next?",
+        }
+
+    def tearDown(self) -> None:
+        app.dependency_overrides.clear()
+
+    def test_success_returns_200_ai_response(self):
+        response = self.client.post(self.url, json=self.body)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["content"], "You have a 3pm sync.")
+
+    def test_messages_persisted_exactly_once(self):
+        self.client.post(self.url, json=self.body)
+        self.memory.persist.assert_called_once()
+
+    def test_no_duplicate_persistence(self):
+        self.client.post(self.url, json=self.body)
+        self.assertEqual(self.memory.persist.call_count, 1)
+
+    def test_persist_receives_expected_arguments(self):
+        self.client.post(self.url, json=self.body)
+        args = self.memory.persist.call_args.args
+        self.assertIs(args[0], self.user)  # owner
+        self.assertEqual(args[1], self.employee_id)
+        self.assertEqual(args[2], self.conversation_id)
+        self.assertEqual(args[3], "What's next?")  # current user input
+        self.assertIs(args[4], self.ai_response)  # AIResponse instance
+
+    def test_persistence_runs_after_generation(self):
+        order = []
+        self.orchestrator.run.side_effect = (
+            lambda *a, **k: order.append("run") or self.ai_response
+        )
+        self.memory.persist.side_effect = lambda *a, **k: order.append("persist")
+        self.client.post(self.url, json=self.body)
+        self.assertEqual(order, ["run", "persist"])
+
+    def test_persistence_failure_propagates(self):
+        self.memory.persist.side_effect = RuntimeError("db write failed")
+        with self.assertRaises(RuntimeError):
+            self.client.post(self.url, json=self.body)
+
+    def test_generation_failure_skips_persistence(self):
+        self.orchestrator.run.side_effect = ConversationGenerationError("boom")
+        response = self.client.post(self.url, json=self.body)
+        self.assertEqual(response.status_code, 502)
+        self.memory.persist.assert_not_called()
 
 
 if __name__ == "__main__":
