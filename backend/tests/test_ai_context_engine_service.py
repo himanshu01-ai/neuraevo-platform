@@ -1,11 +1,14 @@
-"""Unit tests for the Sprint 7.1 AI Context Engine.
+"""Unit tests for the Sprint 7.1 AI Context Engine (Sprint 9.2 adds retrieval).
 
 These are pure unit tests: every collaborator is mocked, so no database, no
 network, and no provider is involved. They verify that the engine
 (a) assembles all runtime-context fields from the composed services,
 (b) reuses ownership validation (and short-circuits on denial),
-(c) performs no database writes, and
-(d) carries a deny-by-default permission stub.
+(c) performs no database writes,
+(d) carries a deny-by-default permission stub, and
+(e) (Sprint 9.2) calls the existing MemoryRetrievalService exactly once, only
+    after ownership has already been validated, and inserts its (unchanged)
+    result into ``RuntimeAIContext.retrieved_history``.
 
 Runnable with stdlib unittest (no pytest dependency required):
     PYTHONPATH=. python -m unittest tests.test_ai_context_engine_service
@@ -88,6 +91,22 @@ class AIContextEngineServiceTests(unittest.TestCase):
                 ),
             ],
         )
+        self.retrieved_messages = [
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                conversation_id=self.conversation_id,
+                role=MessageRole.USER,
+                content="Hi",
+                created_at=self.now,
+            ),
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                conversation_id=self.conversation_id,
+                role=MessageRole.ASSISTANT,
+                content="Hello!",
+                created_at=self.now,
+            ),
+        ]
 
         # Mocked collaborators (constructor injection).
         self.employees = MagicMock()
@@ -98,6 +117,8 @@ class AIContextEngineServiceTests(unittest.TestCase):
         self.memory.build_memory_context.return_value = self.memory_context
         self.conversation = MagicMock()
         self.conversation.build_context.return_value = self.conversation_context
+        self.memory_retrieval = MagicMock()
+        self.memory_retrieval.retrieve.return_value = self.retrieved_messages
 
         self.session = MagicMock()
         self.service = AIContextEngineService(
@@ -106,6 +127,7 @@ class AIContextEngineServiceTests(unittest.TestCase):
             blueprints=self.blueprints,
             memory=self.memory,
             conversation=self.conversation,
+            memory_retrieval=self.memory_retrieval,
         )
 
     def _build(self) -> RuntimeAIContext:
@@ -191,7 +213,13 @@ class AIContextEngineServiceTests(unittest.TestCase):
 
     # --- default collaborators (no explicit injection) -------------------
     def test_defaults_to_session_bound_collaborators(self):
-        service = AIContextEngineService(self.session)
+        # memory_retrieval has no session-based default (Sprint 9.2
+        # refactor): its own constructor takes a repository, not a session, so
+        # it must always be injected — supplied here so the *other* four
+        # collaborators' defaulting behavior can still be exercised.
+        service = AIContextEngineService(
+            self.session, memory_retrieval=self.memory_retrieval
+        )
         from app.services.blueprint_service import BlueprintService
         from app.services.conversation_context_service import (
             ConversationContextService,
@@ -203,6 +231,88 @@ class AIContextEngineServiceTests(unittest.TestCase):
         self.assertIsInstance(service.blueprints, BlueprintService)
         self.assertIsInstance(service.memory, MemoryContextService)
         self.assertIsInstance(service.conversation, ConversationContextService)
+        self.assertIs(service.memory_retrieval, self.memory_retrieval)
+
+    def test_memory_retrieval_is_required_not_defaulted(self):
+        # Guards the Sprint 9.2 architectural fix: MemoryRetrievalService must
+        # never be constructed inline by this engine (that would require
+        # importing MessageRepository here), so omitting it is a TypeError
+        # rather than silently building a default.
+        with self.assertRaises(TypeError):
+            AIContextEngineService(self.session)
+
+    def test_does_not_import_message_repository(self):
+        import app.services.context.ai_context_engine_service as module
+
+        self.assertFalse(hasattr(module, "MessageRepository"))
+
+    # --- Sprint 9.2: memory retrieval integration -------------------------
+    def test_memory_retrieval_called_exactly_once(self):
+        self._build()
+        self.memory_retrieval.retrieve.assert_called_once()
+
+    def test_memory_retrieval_called_with_correct_args(self):
+        self._build()
+        self.memory_retrieval.retrieve.assert_called_once_with(
+            self.owner, self.employee_id, self.conversation_id
+        )
+
+    def test_memory_retrieval_called_after_ownership_validation(self):
+        call_order = []
+        self.conversation.build_context.side_effect = (
+            lambda *a, **k: call_order.append("conversation_ownership")
+            or self.conversation_context
+        )
+        self.memory_retrieval.retrieve.side_effect = (
+            lambda *a, **k: call_order.append("retrieve")
+            or self.retrieved_messages
+        )
+        self._build()
+        self.assertEqual(call_order, ["conversation_ownership", "retrieve"])
+
+    def test_retrieved_messages_inserted_into_context(self):
+        ctx = self._build()
+        self.assertEqual(len(ctx.retrieved_history), 2)
+        self.assertEqual(ctx.retrieved_history[0].content, "Hi")
+        self.assertEqual(ctx.retrieved_history[0].role, MessageRole.USER)
+        self.assertEqual(ctx.retrieved_history[1].content, "Hello!")
+        self.assertEqual(ctx.retrieved_history[1].role, MessageRole.ASSISTANT)
+
+    def test_empty_history_returns_empty_list(self):
+        self.memory_retrieval.retrieve.return_value = []
+        ctx = self._build()
+        self.assertEqual(ctx.retrieved_history, [])
+
+    def test_memory_retrieval_exception_propagates(self):
+        self.memory_retrieval.retrieve.side_effect = RuntimeError("db down")
+        with self.assertRaises(RuntimeError):
+            self._build()
+
+    def test_employee_ownership_failure_skips_retrieval(self):
+        self.employees.get_employee.side_effect = EmployeeAccessDeniedError("x")
+        with self.assertRaises(EmployeeAccessDeniedError):
+            self._build()
+        self.memory_retrieval.retrieve.assert_not_called()
+
+    def test_conversation_ownership_failure_skips_retrieval(self):
+        self.conversation.build_context.side_effect = ConversationNotFoundError(
+            "x"
+        )
+        with self.assertRaises(ConversationNotFoundError):
+            self._build()
+        self.memory_retrieval.retrieve.assert_not_called()
+
+    def test_constructor_injected_memory_retrieval_is_used(self):
+        self.assertIs(self.service.memory_retrieval, self.memory_retrieval)
+
+    def test_di_provider_wires_memory_retrieval_without_manual_construction(self):
+        from app.core.dependencies import get_ai_context_engine_service
+
+        session = MagicMock(name="Session")
+        memory_retrieval = MagicMock(name="MemoryRetrievalService")
+        service = get_ai_context_engine_service(session, memory_retrieval)
+        self.assertIsInstance(service, AIContextEngineService)
+        self.assertIs(service.memory_retrieval, memory_retrieval)
 
 
 if __name__ == "__main__":

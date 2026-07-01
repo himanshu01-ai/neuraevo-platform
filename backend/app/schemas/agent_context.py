@@ -19,6 +19,7 @@ from app.schemas.blueprint import BlueprintResponse
 from app.schemas.conversation_context import ConversationContextResponse
 from app.schemas.employee import EmployeeResponse
 from app.schemas.memory_context import MemoryContextResponse
+from app.schemas.message import MessageResponse
 
 
 class PermissionProfile(BaseModel):
@@ -41,12 +42,18 @@ class RuntimeAIContext(BaseModel):
     convenience (mirroring the employee's fields). ``recent_conversation``
     carries the conversation history as assembled by the existing conversation
     context service; the recency window is owned by that service.
+
+    ``retrieved_history`` (Sprint 9.2) carries the same conversation's messages
+    as returned by the Sprint 9.1 ``MemoryRetrievalService``, unchanged. It
+    defaults to an empty list so existing callers that construct
+    ``RuntimeAIContext`` without it keep working unmodified.
     """
 
     employee: EmployeeResponse
     blueprint: BlueprintResponse
     memories: MemoryContextResponse
     recent_conversation: ConversationContextResponse
+    retrieved_history: List[MessageResponse] = Field(default_factory=list)
     permission_profile: PermissionProfile
     language: str
     personality: Optional[str] = None
