@@ -41,7 +41,7 @@ from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
-from app.services.memory import MemoryPersistenceService
+from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -160,6 +160,24 @@ def get_memory_persistence_service(
 
 MemoryPersistenceServiceDep = Annotated[
     MemoryPersistenceService, Depends(get_memory_persistence_service)
+]
+
+
+def get_memory_retrieval_service(
+    session: SessionDep,
+) -> MemoryRetrievalService:
+    """Provide a :class:`MemoryRetrievalService` bound to the session.
+
+    The reused Sprint 5B :class:`MessageRepository` is wired here in the
+    composition root and injected into the service, so the service never
+    instantiates a repository itself (Sprint 9.1). Not yet consumed by any
+    other service or router.
+    """
+    return MemoryRetrievalService(MessageRepository(session))
+
+
+MemoryRetrievalServiceDep = Annotated[
+    MemoryRetrievalService, Depends(get_memory_retrieval_service)
 ]
 
 
