@@ -18,6 +18,7 @@ from app.core.security import decode_token
 from app.employee_builder.blueprint import BlueprintGenerationProvider
 from app.employee_builder.providers import ClaudeBlueprintProvider
 from app.models.user import User
+from app.repositories.message_repository import MessageRepository
 from app.repositories.user_repository import UserRepository
 from app.services.ai_context_service import AIContextService
 from app.services.auth_service import AuthService
@@ -40,6 +41,7 @@ from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
+from app.services.memory import MemoryPersistenceService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -142,6 +144,23 @@ def get_memory_context_service(
 ) -> MemoryContextService:
     """Provide a :class:`MemoryContextService` bound to the session."""
     return MemoryContextService(session)
+
+
+def get_memory_persistence_service(
+    session: SessionDep,
+) -> MemoryPersistenceService:
+    """Provide a :class:`MemoryPersistenceService` bound to the session.
+
+    The reused Sprint 5B :class:`MessageRepository` is wired here in the
+    composition root and injected into the service, so the service never
+    instantiates a repository itself (Sprint 8.1).
+    """
+    return MemoryPersistenceService(session, MessageRepository(session))
+
+
+MemoryPersistenceServiceDep = Annotated[
+    MemoryPersistenceService, Depends(get_memory_persistence_service)
+]
 
 
 def get_ai_context_service(session: SessionDep) -> AIContextService:
