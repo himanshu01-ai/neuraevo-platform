@@ -39,6 +39,7 @@ from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
+from app.services.runtime import ConversationRuntimeService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -237,6 +238,26 @@ def get_ai_orchestrator_service(
 
 AIOrchestratorServiceDep = Annotated[
     AIOrchestratorService, Depends(get_ai_orchestrator_service)
+]
+
+
+def get_conversation_runtime_service(
+    context_engine: AIContextEngineServiceDep,
+    prompt_builder: RuntimePromptBuilderServiceDep,
+    orchestrator: AIOrchestratorServiceDep,
+) -> ConversationRuntimeService:
+    """Provide the Sprint 7.4 conversation runtime service (single entry point).
+
+    Reuses the Sprint 7.1 context engine, Sprint 7.2 prompt builder, and Sprint
+    7.3 orchestrator (all injected); adds only coordination. Holds no session.
+    """
+    return ConversationRuntimeService(
+        context_engine, prompt_builder, orchestrator
+    )
+
+
+ConversationRuntimeServiceDep = Annotated[
+    ConversationRuntimeService, Depends(get_conversation_runtime_service)
 ]
 
 
