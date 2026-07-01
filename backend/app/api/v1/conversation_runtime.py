@@ -7,7 +7,12 @@ The router is HTTP-only: it validates the request, delegates to the service, map
 domain errors to HTTP status codes, and returns the provider-agnostic
 :class:`AIResponse`. It contains no business logic, builds no prompts, calls no
 providers, and touches no repositories or ownership logic — all of that lives in
-the coordinated services. Nothing is persisted (Sprint 7.5 stop point).
+the coordinated services. As of Sprint 8.3 the runtime service persists the
+completed turn (user + assistant messages) internally after generation; the
+router itself still does none of that — it only delegates. This integration
+required no functional change to the router: persistence happens inside
+``ConversationRuntimeService.execute`` (Sprint 8.2), which the router already
+calls.
 """
 
 import uuid
@@ -104,10 +109,13 @@ def generate_runtime_response(
     """Run the runtime pipeline and return the generated response.
 
     Validates the request, then delegates to
-    :meth:`ConversationRuntimeService.execute`. Ownership of the employee, its
-    blueprint, and the conversation is enforced inside the coordinated services
-    (``404``/``403``); an invalid path/body yields ``422``; provider failures
-    yield ``502``/``504``. Nothing is persisted.
+    :meth:`ConversationRuntimeService.execute`, which assembles context, builds
+    the prompt, generates the reply, and (Sprint 8.2) persists the completed
+    turn before returning. Ownership of the employee, its blueprint, and the
+    conversation is enforced inside the coordinated services (``404``/``403``);
+    an invalid path/body yields ``422``; provider failures yield ``502``/``504``;
+    a persistence failure is not a domain error and propagates. The resulting
+    :class:`AIResponse` is returned with ``200``.
     """
     try:
         return service.execute(
