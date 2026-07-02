@@ -25,6 +25,7 @@ from app.schemas.memory_context import MemoryContextItem, MemoryContextResponse
 from app.schemas.message import MessageResponse
 from app.schemas.prompt_package import PromptPackage
 from app.services.prompt.prompt_builder_service import (
+    MAX_RETRIEVED_HISTORY_MESSAGES,
     RuntimePromptBuilderService,
 )
 from app.utils.constants import MemoryType, MessageRole
@@ -122,6 +123,20 @@ def make_retrieved_message(
         content=content,
         created_at=datetime.now(timezone.utc),
     )
+
+
+def make_retrieved_history(count: int) -> List[MessageResponse]:
+    """Build ``count`` chronological messages labeled ``msg-0`` (oldest) up to
+    ``msg-{count-1}`` (newest), alternating USER/ASSISTANT roles."""
+    conversation_id = uuid.uuid4()
+    return [
+        make_retrieved_message(
+            conversation_id=conversation_id,
+            role=MessageRole.USER if i % 2 == 0 else MessageRole.ASSISTANT,
+            content=f"msg-{i}",
+        )
+        for i in range(count)
+    ]
 
 
 class PromptBuilderServiceTests(unittest.TestCase):
@@ -348,6 +363,90 @@ class PromptBuilderServiceTests(unittest.TestCase):
         self.assertNotIn("import app.repositories", src)
         self.assertNotIn("Repository(", src)
         self.assertFalse(hasattr(module, "MessageRepository"))
+
+    # --- Sprint 9.4: retrieved history windowing --------------------------
+
+    def test_history_below_limit_unchanged(self):
+        history = make_retrieved_history(MAX_RETRIEVED_HISTORY_MESSAGES - 1)
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(
+            [m.content for m in pkg.retrieved_history],
+            [m.content for m in history],
+        )
+
+    def test_history_exactly_at_limit_unchanged(self):
+        history = make_retrieved_history(MAX_RETRIEVED_HISTORY_MESSAGES)
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(
+            len(pkg.retrieved_history), MAX_RETRIEVED_HISTORY_MESSAGES
+        )
+        self.assertEqual(
+            [m.content for m in pkg.retrieved_history],
+            [m.content for m in history],
+        )
+
+    def test_history_above_limit_truncated_to_window(self):
+        history = make_retrieved_history(MAX_RETRIEVED_HISTORY_MESSAGES + 7)
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(
+            len(pkg.retrieved_history), MAX_RETRIEVED_HISTORY_MESSAGES
+        )
+
+    def test_window_keeps_newest_messages(self):
+        overflow = 7
+        total = MAX_RETRIEVED_HISTORY_MESSAGES + overflow
+        history = make_retrieved_history(total)
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        # The oldest `overflow` messages are dropped; the newest survive.
+        self.assertEqual(pkg.retrieved_history[0].content, f"msg-{overflow}")
+        self.assertEqual(pkg.retrieved_history[-1].content, f"msg-{total - 1}")
+
+    def test_window_preserves_chronological_order(self):
+        overflow = 3
+        total = MAX_RETRIEVED_HISTORY_MESSAGES + overflow
+        history = make_retrieved_history(total)
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(
+            [m.content for m in pkg.retrieved_history],
+            [f"msg-{i}" for i in range(overflow, total)],
+        )
+
+    def test_windowing_leaves_package_messages_untouched(self):
+        history = make_retrieved_history(MAX_RETRIEVED_HISTORY_MESSAGES + 10)
+        ctx_with = make_context(
+            user_input="Schedule a call", retrieved_history=history
+        )
+        pkg = self.builder.build(ctx_with)
+        # package.messages is exactly recent_conversation + current input,
+        # regardless of how much retrieved history was windowed away.
+        pairs = [(m.role, m.content) for m in pkg.messages]
+        self.assertEqual(pairs[0], ("user", "Hi"))
+        self.assertEqual(pairs[1], ("assistant", "Hello!"))
+        self.assertEqual(pairs[-1], ("user", "Schedule a call"))
+        self.assertEqual(len(pkg.messages), 3)
+
+    def test_windowed_empty_history_still_empty(self):
+        pkg = self.builder.build(make_context(retrieved_history=[]))
+        self.assertEqual(pkg.retrieved_history, [])
+
+    def test_window_constant_is_simple_positive_int(self):
+        # Guard the "plain constant" requirement: an int, not settings-driven.
+        self.assertIsInstance(MAX_RETRIEVED_HISTORY_MESSAGES, int)
+        self.assertGreater(MAX_RETRIEVED_HISTORY_MESSAGES, 0)
+
+    def test_builder_still_stateless_after_windowing(self):
+        history = make_retrieved_history(MAX_RETRIEVED_HISTORY_MESSAGES + 5)
+        self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(vars(self.builder), {})
+
+    def test_no_settings_or_env_used_for_window(self):
+        import app.services.prompt.prompt_builder_service as module
+
+        with open(module.__file__, encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertNotIn("os.environ", src)
+        self.assertNotIn("getenv", src)
+        self.assertNotIn("from app.core.config", src)
 
 
 if __name__ == "__main__":
