@@ -5,7 +5,7 @@ Wires the database session into the service layer and exposes
 """
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -152,23 +152,6 @@ def get_memory_context_service(
     return MemoryContextService(session)
 
 
-def get_memory_persistence_service(
-    session: SessionDep,
-) -> MemoryPersistenceService:
-    """Provide a :class:`MemoryPersistenceService` bound to the session.
-
-    The reused Sprint 5B :class:`MessageRepository` is wired here in the
-    composition root and injected into the service, so the service never
-    instantiates a repository itself (Sprint 8.1).
-    """
-    return MemoryPersistenceService(session, MessageRepository(session))
-
-
-MemoryPersistenceServiceDep = Annotated[
-    MemoryPersistenceService, Depends(get_memory_persistence_service)
-]
-
-
 def get_memory_retrieval_service(
     session: SessionDep,
 ) -> MemoryRetrievalService:
@@ -257,6 +240,54 @@ def get_vector_store_service(
 
 VectorStoreServiceDep = Annotated[
     VectorStoreService, Depends(get_vector_store_service)
+]
+
+
+def get_indexing_embedding_service() -> Optional[EmbeddingService]:
+    """Provide an :class:`EmbeddingService` for memory indexing, or ``None``.
+
+    Sprint 10.1's ``get_embedding_provider`` seam is intentionally unfulfilled
+    (no concrete provider yet). Rather than let that break the runtime pipeline
+    at dependency-resolution time, this composition-root assembler tolerates the
+    gap: when no provider is available it returns ``None`` and memory
+    persistence simply skips indexing (Case 2 semantics). Once a concrete
+    provider is registered in a later sprint, this returns a real
+    :class:`EmbeddingService` and indexing activates with no further changes.
+    """
+    try:
+        provider = get_embedding_provider()
+    except NotImplementedError:
+        return None
+    return EmbeddingService(provider)
+
+
+IndexingEmbeddingServiceDep = Annotated[
+    Optional[EmbeddingService], Depends(get_indexing_embedding_service)
+]
+
+
+def get_memory_persistence_service(
+    session: SessionDep,
+    embeddings: IndexingEmbeddingServiceDep,
+    vector_store: VectorStoreServiceDep,
+) -> MemoryPersistenceService:
+    """Provide a :class:`MemoryPersistenceService` bound to the session.
+
+    The reused Sprint 5B :class:`MessageRepository` is wired here in the
+    composition root and injected into the service, so the service never
+    instantiates a repository itself (Sprint 8.1). Sprint 10.3 also injects the
+    Sprint 10.1 :class:`EmbeddingService` (or ``None`` until its provider is
+    implemented) and the Sprint 10.2 :class:`VectorStoreService`, so the service
+    can index a persisted memory after the authoritative DB commit — it never
+    instantiates a service or provider itself.
+    """
+    return MemoryPersistenceService(
+        session, MessageRepository(session), embeddings, vector_store
+    )
+
+
+MemoryPersistenceServiceDep = Annotated[
+    MemoryPersistenceService, Depends(get_memory_persistence_service)
 ]
 
 

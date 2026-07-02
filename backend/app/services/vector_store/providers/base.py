@@ -5,12 +5,15 @@ management primitives. Concrete providers (e.g. Qdrant) own all vendor-specific
 code behind this interface, isolated from services, repositories, models, and
 routers.
 
-This sprint is infrastructure only: NO indexing, NO vector search, NO embedding
-generation. Those operations belong to later sprints and are intentionally
-absent from this contract.
+Sprint 10.2 shipped infrastructure only (health check + collection primitives).
+Sprint 10.3 adds ONE capability — ``upsert_vector`` — so a persisted memory can
+be indexed. There is still NO vector search, NO query, NO similarity/nearest-
+neighbor, and NO hybrid search: those belong to later sprints and are
+intentionally absent from this contract.
 """
 
 from abc import ABC, abstractmethod
+from typing import Dict, List
 
 
 class VectorStoreError(Exception):
@@ -54,3 +57,18 @@ class VectorStoreProvider(ABC):
     @abstractmethod
     def delete_collection(self, collection_name: str) -> None:
         """Delete the collection named ``collection_name``."""
+
+    @abstractmethod
+    def upsert_vector(
+        self,
+        collection_name: str,
+        point_id: str,
+        vector: List[float],
+        payload: Dict[str, object],
+    ) -> None:
+        """Insert or update a single vector point (Sprint 10.3, indexing only).
+
+        Writes one point (``point_id`` + ``vector`` + ``payload``) into
+        ``collection_name``. This is an index write only — it performs no
+        search, query, or similarity lookup.
+        """

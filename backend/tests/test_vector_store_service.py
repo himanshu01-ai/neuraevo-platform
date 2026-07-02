@@ -129,10 +129,54 @@ class QdrantProviderTests(unittest.TestCase):
         with self.assertRaises(VectorStoreError):
             self.provider.delete_collection("memories")
 
-    # --- no indexing / search surface -----------------------------------
-    def test_provider_exposes_no_index_or_search_operations(self):
-        # Sprint 10.2 is infrastructure only.
-        for forbidden in ("upsert", "search", "query", "index", "embed"):
+    # --- upsert_vector (Sprint 10.3, index write only) -------------------
+    def test_upsert_vector_delegates_to_client(self):
+        fake_models = MagicMock(name="qdrant_client.models")
+        payload = {"memory_id": "m1", "employee_id": "e1"}
+        with patch.dict(
+            sys.modules,
+            {
+                "qdrant_client": MagicMock(name="qdrant_client"),
+                "qdrant_client.models": fake_models,
+            },
+        ):
+            self.provider.upsert_vector(
+                "memories", "point-1", [0.1, 0.2, 0.3], payload
+            )
+
+        fake_models.PointStruct.assert_called_once_with(
+            id="point-1", vector=[0.1, 0.2, 0.3], payload=payload
+        )
+        self.client.upsert.assert_called_once_with(
+            collection_name="memories",
+            points=[fake_models.PointStruct.return_value],
+        )
+
+    def test_upsert_vector_wraps_failure(self):
+        fake_models = MagicMock()
+        self.client.upsert.side_effect = RuntimeError("boom")
+        with patch.dict(
+            sys.modules,
+            {
+                "qdrant_client": MagicMock(),
+                "qdrant_client.models": fake_models,
+            },
+        ):
+            with self.assertRaises(VectorStoreError):
+                self.provider.upsert_vector("memories", "p1", [0.1], {})
+
+    # --- no search surface (Sprint 10.3 adds ONLY upsert) ----------------
+    def test_provider_exposes_no_search_operations(self):
+        # upsert_vector exists (indexing); search/query variants must not.
+        self.assertTrue(hasattr(self.provider, "upsert_vector"))
+        for forbidden in (
+            "search",
+            "query",
+            "similarity_search",
+            "nearest_neighbors",
+            "hybrid_search",
+            "delete_by_filter",
+        ):
             self.assertFalse(
                 hasattr(self.provider, forbidden),
                 f"unexpected {forbidden!r} on QdrantProvider",
@@ -172,6 +216,13 @@ class VectorStoreServiceTests(unittest.TestCase):
     def test_delete_collection_delegates(self):
         self.service.delete_collection("memories")
         self.provider.delete_collection.assert_called_once_with("memories")
+
+    def test_upsert_vector_delegates_with_args(self):
+        payload = {"memory_id": "m1"}
+        self.service.upsert_vector("memories", "p1", [0.1, 0.2], payload)
+        self.provider.upsert_vector.assert_called_once_with(
+            "memories", "p1", [0.1, 0.2], payload
+        )
 
     def test_provider_exception_propagates(self):
         self.provider.health_check.side_effect = VectorStoreError("down")

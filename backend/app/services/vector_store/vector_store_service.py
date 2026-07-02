@@ -4,11 +4,14 @@ Stateless service that delegates vector-store infrastructure operations (health
 check and collection-management primitives) to an injected
 :class:`VectorStoreProvider`, returning provider results unchanged.
 
-It performs NO indexing, NO vector search, NO embedding generation, NO
-repository usage, and NO AI logic. The provider is injected via the constructor
-(never instantiated here). Not yet consumed by any runtime flow, router, or
-persistence path — Sprint 10.2 ships the infrastructure only.
+It performs NO vector search, NO embedding generation, NO repository usage, and
+NO AI logic. As of Sprint 10.3 it delegates a single index write —
+``upsert_vector`` — used by memory persistence to index a saved memory; there is
+still no search, query, or similarity lookup. The provider is injected via the
+constructor (never instantiated here).
 """
+
+from typing import Dict, List
 
 from app.services.vector_store.providers.base import VectorStoreProvider
 
@@ -43,3 +46,15 @@ class VectorStoreService:
     def delete_collection(self, collection_name: str) -> None:
         """Delete the collection named ``collection_name``."""
         return self.provider.delete_collection(collection_name)
+
+    def upsert_vector(
+        self,
+        collection_name: str,
+        point_id: str,
+        vector: List[float],
+        payload: Dict[str, object],
+    ) -> None:
+        """Index one vector point (Sprint 10.3) — index write only, no search."""
+        return self.provider.upsert_vector(
+            collection_name, point_id, vector, payload
+        )
