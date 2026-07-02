@@ -17,6 +17,7 @@ ranked, or reordered.
 from typing import List
 
 from app.schemas.agent_context import RuntimeAIContext
+from app.schemas.message import MessageResponse
 from app.schemas.prompt_package import (
     PromptMessage,
     PromptMetadata,
@@ -24,6 +25,12 @@ from app.schemas.prompt_package import (
 )
 
 _DIVIDER = "=" * 40
+
+# Sprint 9.4: prompt-time window for retrieved history. Only the newest N
+# retrieved messages (in their original chronological order) enter the
+# PromptPackage; the database and retrieval remain untouched. Intentionally a
+# plain constant — no settings, env vars, or injection.
+MAX_RETRIEVED_HISTORY_MESSAGES = 50
 
 # Blueprint field -> display label, in fixed order (deterministic output).
 _BLUEPRINT_FIELDS: List[tuple] = [
@@ -125,18 +132,40 @@ class RuntimePromptBuilderService:
         )
         return messages
 
-    # --- retrieved history (Sprint 9.3) -----------------------------------
+    # --- retrieved history (Sprint 9.3; windowed in Sprint 9.4) -----------
 
     def _build_retrieved_history(
         self, context: RuntimeAIContext
     ) -> List[PromptMessage]:
-        """Expose ``context.retrieved_history`` unchanged.
+        """Expose ``context.retrieved_history``, windowed to the newest N.
 
-        Same order as received (no re-sorting), roles preserved exactly, and
-        content passed through untouched. An empty ``retrieved_history``
-        yields an empty list here, leaving every other field untouched.
+        Roles preserved exactly and content passed through untouched. Sprint
+        9.4 applies a prompt-time window (see
+        :data:`MAX_RETRIEVED_HISTORY_MESSAGES`): only the newest messages are
+        kept, in their original chronological order — no re-sorting, ranking,
+        or summarization. An empty ``retrieved_history`` yields an empty list
+        here, leaving every other field untouched.
         """
+        windowed = self._apply_retrieved_history_window(
+            context.retrieved_history
+        )
         return [
             PromptMessage(role=message.role.value, content=message.content)
-            for message in context.retrieved_history
+            for message in windowed
         ]
+
+    @staticmethod
+    def _apply_retrieved_history_window(
+        messages: List[MessageResponse],
+    ) -> List[MessageResponse]:
+        """Keep only the newest ``MAX_RETRIEVED_HISTORY_MESSAGES`` messages.
+
+        ``retrieved_history`` arrives oldest-first (chronological, matching
+        the Sprint 5B repository ordering), so the newest messages are at the
+        tail: a ``[-N:]`` slice drops the oldest overflow while preserving
+        chronological order. At or below the limit, the input is returned
+        unchanged.
+        """
+        if len(messages) <= MAX_RETRIEVED_HISTORY_MESSAGES:
+            return messages
+        return messages[-MAX_RETRIEVED_HISTORY_MESSAGES:]
