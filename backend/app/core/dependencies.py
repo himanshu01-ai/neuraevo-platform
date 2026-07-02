@@ -42,6 +42,7 @@ from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
+from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -177,6 +178,43 @@ def get_memory_retrieval_service(
 
 MemoryRetrievalServiceDep = Annotated[
     MemoryRetrievalService, Depends(get_memory_retrieval_service)
+]
+
+
+def get_embedding_provider() -> EmbeddingProvider:
+    """Provide the active embedding provider (Sprint 10.1).
+
+    Sprint 10.1 ships only the abstraction — no concrete embedding provider
+    exists yet — so this composition-root seam is intentionally unfulfilled and
+    raises. A later sprint registers a real provider here (the one place
+    providers are constructed), with no change required in
+    :class:`EmbeddingService` or its consumers.
+    """
+    raise NotImplementedError(
+        "No embedding provider is implemented yet (Sprint 10.1 ships only the "
+        "abstraction); a concrete provider is wired here in a later sprint."
+    )
+
+
+EmbeddingProviderDep = Annotated[
+    EmbeddingProvider, Depends(get_embedding_provider)
+]
+
+
+def get_embedding_service(
+    provider: EmbeddingProviderDep,
+) -> EmbeddingService:
+    """Provide an :class:`EmbeddingService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — it is the Sprint 10.1 abstraction only.
+    """
+    return EmbeddingService(provider)
+
+
+EmbeddingServiceDep = Annotated[
+    EmbeddingService, Depends(get_embedding_service)
 ]
 
 
