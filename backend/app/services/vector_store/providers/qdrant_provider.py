@@ -5,12 +5,12 @@ manages the Qdrant client, performs a health check, and exposes collection-
 management primitives. All Qdrant-specific code is contained here — no indexing,
 no vector search, no embedding generation, and no Qdrant code anywhere else.
 
-The ``qdrant_client`` SDK is imported lazily (inside the client-construction and
-collection-creation paths), so importing this module never requires the package
-to be installed. A client may also be injected for testing.
+The ``qdrant_client`` SDK is imported lazily (inside the client-construction,
+collection-creation, and upsert paths), so importing this module never requires
+the package to be installed. A client may also be injected for testing.
 """
 
-from typing import Optional
+from typing import Dict, List, Optional
 
 from app.services.vector_store.providers.base import (
     VectorStoreError,
@@ -111,3 +111,31 @@ class QdrantProvider(VectorStoreProvider):
         except Exception as exc:
             logger.warning("Qdrant delete_collection failed: %s", exc)
             raise VectorStoreError("delete_collection failed") from exc
+
+    def upsert_vector(
+        self,
+        collection_name: str,
+        point_id: str,
+        vector: List[float],
+        payload: Dict[str, object],
+    ) -> None:
+        """Write one point into ``collection_name`` (index only, no search).
+
+        Wraps the id/vector/payload in a Qdrant ``PointStruct`` (lazily
+        imported) and calls ``client.upsert``. Failures are wrapped as
+        :class:`VectorStoreError`.
+        """
+        try:
+            from qdrant_client.models import PointStruct
+
+            self._get_client().upsert(
+                collection_name=collection_name,
+                points=[
+                    PointStruct(
+                        id=point_id, vector=vector, payload=payload
+                    )
+                ],
+            )
+        except Exception as exc:
+            logger.warning("Qdrant upsert_vector failed: %s", exc)
+            raise VectorStoreError("upsert_vector failed") from exc
