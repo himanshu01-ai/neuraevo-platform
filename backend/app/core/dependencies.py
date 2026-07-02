@@ -43,6 +43,11 @@ from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
+from app.services.vector_store import (
+    QdrantProvider,
+    VectorStoreProvider,
+    VectorStoreService,
+)
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -215,6 +220,43 @@ def get_embedding_service(
 
 EmbeddingServiceDep = Annotated[
     EmbeddingService, Depends(get_embedding_service)
+]
+
+
+def get_vector_store_provider() -> VectorStoreProvider:
+    """Provide the active vector-store provider (Qdrant) from settings.
+
+    Connection settings are read here in the composition root and handed to the
+    provider; the Qdrant client itself is built lazily on first use, so this
+    provider is constructed without importing the SDK or contacting a server.
+    Swapping vector stores is a change confined to this one line.
+    """
+    return QdrantProvider(
+        url=settings.QDRANT_URL,
+        api_key=settings.QDRANT_API_KEY,
+        timeout=settings.QDRANT_TIMEOUT_SECONDS,
+    )
+
+
+VectorStoreProviderDep = Annotated[
+    VectorStoreProvider, Depends(get_vector_store_provider)
+]
+
+
+def get_vector_store_service(
+    provider: VectorStoreProviderDep,
+) -> VectorStoreService:
+    """Provide a :class:`VectorStoreService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — Sprint 10.2 infrastructure only.
+    """
+    return VectorStoreService(provider)
+
+
+VectorStoreServiceDep = Annotated[
+    VectorStoreService, Depends(get_vector_store_service)
 ]
 
 

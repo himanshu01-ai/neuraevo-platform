@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     # Maximum number of memories selected for context assembly (newest first).
     MEMORY_CONTEXT_LIMIT: int = Field(default=10)
 
+    # --- Vector Store / Qdrant ------------------------------------------
+    # Connection settings for the Qdrant vector store. All optional so the app
+    # boots without a configured/live Qdrant instance — Sprint 10.2 wires the
+    # infrastructure only; nothing calls Qdrant yet.
+    QDRANT_URL: str | None = Field(default=None)
+    QDRANT_API_KEY: str | None = Field(default=None)
+    QDRANT_TIMEOUT_SECONDS: float = Field(default=30.0)
+
     # --- CORS ------------------------------------------------------------
     # Comma-separated list of allowed origins, e.g.
     # "http://localhost:3000,https://app.neuraevo.com"
