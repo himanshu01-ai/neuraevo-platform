@@ -12,6 +12,7 @@ Runnable with stdlib unittest (no pytest dependency required):
 import unittest
 import uuid
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from app.schemas.agent_context import PermissionProfile, RuntimeAIContext
 from app.schemas.blueprint import BlueprintResponse
@@ -21,6 +22,7 @@ from app.schemas.conversation_context import (
 )
 from app.schemas.employee import EmployeeResponse
 from app.schemas.memory_context import MemoryContextItem, MemoryContextResponse
+from app.schemas.message import MessageResponse
 from app.schemas.prompt_package import PromptPackage
 from app.services.prompt.prompt_builder_service import (
     RuntimePromptBuilderService,
@@ -34,6 +36,7 @@ def make_context(
     with_conversation: bool = True,
     personality="Warm and concise",
     user_input: str = "What's next on my calendar?",
+    retrieved_history: Optional[List[MessageResponse]] = None,
 ) -> RuntimeAIContext:
     now = datetime.now(timezone.utc)
     employee_id = uuid.uuid4()
@@ -100,10 +103,24 @@ def make_context(
         blueprint=blueprint,
         memories=memories,
         recent_conversation=conversation,
+        retrieved_history=retrieved_history or [],
         permission_profile=PermissionProfile(),
         language="en",
         personality=personality,
         current_user_input=user_input,
+    )
+
+
+def make_retrieved_message(
+    *, conversation_id: uuid.UUID, role: MessageRole, content: str
+) -> MessageResponse:
+    """Build a Sprint 9.1 ``MessageResponse`` for ``retrieved_history`` fixtures."""
+    return MessageResponse(
+        id=uuid.uuid4(),
+        conversation_id=conversation_id,
+        role=role,
+        content=content,
+        created_at=datetime.now(timezone.utc),
     )
 
 
@@ -186,6 +203,151 @@ class PromptBuilderServiceTests(unittest.TestCase):
             "ConversationProvider",
         ):
             self.assertNotIn(name, dir(module))
+
+    # --- Sprint 9.3: retrieved history exposed in the prompt package -----
+
+    def test_retrieved_history_included_in_prompt_package(self):
+        conversation_id = uuid.uuid4()
+        history = [
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="What's the weather?",
+            ),
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content="Sunny and 72F.",
+            ),
+        ]
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(len(pkg.retrieved_history), 2)
+        self.assertEqual(pkg.retrieved_history[0].content, "What's the weather?")
+        self.assertEqual(pkg.retrieved_history[1].content, "Sunny and 72F.")
+
+    def test_retrieved_history_order_preserved(self):
+        conversation_id = uuid.uuid4()
+        history = [
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="first",
+            ),
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content="second",
+            ),
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="third",
+            ),
+        ]
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(
+            [m.content for m in pkg.retrieved_history],
+            ["first", "second", "third"],
+        )
+
+    def test_retrieved_history_roles_preserved(self):
+        conversation_id = uuid.uuid4()
+        history = [
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="hi",
+            ),
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.ASSISTANT,
+                content="hello",
+            ),
+        ]
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(pkg.retrieved_history[0].role, "user")
+        self.assertEqual(pkg.retrieved_history[1].role, "assistant")
+
+    def test_retrieved_history_content_unaltered(self):
+        conversation_id = uuid.uuid4()
+        raw_content = "  Exact content, including   spacing.  "
+        history = [
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content=raw_content,
+            )
+        ]
+        pkg = self.builder.build(make_context(retrieved_history=history))
+        self.assertEqual(pkg.retrieved_history[0].content, raw_content)
+
+    def test_empty_retrieved_history_yields_empty_list(self):
+        pkg = self.builder.build(make_context())
+        self.assertEqual(pkg.retrieved_history, [])
+
+    def test_empty_retrieved_history_matches_previous_sprint_structure(self):
+        # With no retrieved_history, every other field must be byte-identical
+        # to the pre-Sprint-9.3 package: system_prompt, messages, language,
+        # and metadata are unaffected by this field's presence or absence.
+        ctx = make_context(user_input="Schedule a call")
+        pkg = self.builder.build(ctx)
+        pairs = [(m.role, m.content) for m in pkg.messages]
+        self.assertEqual(pairs[0], ("user", "Hi"))
+        self.assertEqual(pairs[1], ("assistant", "Hello!"))
+        self.assertEqual(pairs[-1], ("user", "Schedule a call"))
+        self.assertEqual(len(pkg.messages), 3)
+        self.assertEqual(pkg.language, "en")
+        self.assertEqual(pkg.metadata.message_count, 2)
+        self.assertEqual(pkg.retrieved_history, [])
+
+    def test_retrieved_history_independent_of_recent_conversation(self):
+        # retrieved_history and recent_conversation.messages are populated
+        # from separate RuntimeAIContext fields; the builder must not mix
+        # them — retrieved_history reflects only what it was given.
+        conversation_id = uuid.uuid4()
+        history = [
+            make_retrieved_message(
+                conversation_id=conversation_id,
+                role=MessageRole.USER,
+                content="only in retrieved_history",
+            )
+        ]
+        pkg = self.builder.build(
+            make_context(with_conversation=True, retrieved_history=history)
+        )
+        self.assertEqual(len(pkg.retrieved_history), 1)
+        self.assertEqual(
+            pkg.retrieved_history[0].content, "only in retrieved_history"
+        )
+        # ``messages`` still comes solely from recent_conversation + input.
+        self.assertEqual(len(pkg.messages), 3)
+
+    def test_no_memory_retrieval_service_referenced(self):
+        # No import, instantiation, or call of MemoryRetrievalService — only
+        # a doc mention of where context.retrieved_history came from is
+        # permitted (checked precisely, not by banning the bare word, since
+        # the module's docstring legitimately explains the field's origin).
+        import app.services.prompt.prompt_builder_service as module
+
+        self.assertFalse(hasattr(module, "MemoryRetrievalService"))
+        with open(module.__file__, encoding="utf-8") as handle:
+            lines = handle.readlines()
+        for line in lines:
+            if "MemoryRetrievalService" in line:
+                self.assertNotIn("import", line)
+        self.assertNotIn(
+            "MemoryRetrievalService(", "".join(lines)
+        )
+        self.assertNotIn(".retrieve(", "".join(lines))
+
+    def test_no_repository_imports(self):
+        import app.services.prompt.prompt_builder_service as module
+
+        with open(module.__file__, encoding="utf-8") as handle:
+            src = handle.read()
+        self.assertNotIn("import app.repositories", src)
+        self.assertNotIn("Repository(", src)
+        self.assertFalse(hasattr(module, "MessageRepository"))
 
 
 if __name__ == "__main__":

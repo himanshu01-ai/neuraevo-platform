@@ -1,13 +1,17 @@
-"""Prompt Builder (Sprint 7.2).
+"""Prompt Builder (Sprint 7.2; Sprint 9.3 exposes retrieved history).
 
 Transforms a :class:`RuntimeAIContext` (Sprint 7.1) into a deterministic,
 provider-agnostic :class:`PromptPackage`. It assembles the employee identity,
-blueprint, memories, recent conversation, current user input, language, and
-personality.
+blueprint, memories, recent conversation, retrieved message history, current
+user input, language, and personality.
 
 Pure, stateless transformation: no AI provider imports, no Anthropic/OpenAI/
-Gemini calls, no prompt execution, no repositories, no HTTP, no persistence.
-The same input always yields the identical package.
+Gemini calls, no prompt execution, no repositories, no service instantiation,
+no memory retrieval, no HTTP, no persistence. The same input always yields the
+identical package. ``context.retrieved_history`` (Sprint 9.1/9.2's
+``MemoryRetrievalService`` result, already assembled by
+``AIContextEngineService``) is only ever read here, never fetched, filtered,
+ranked, or reordered.
 """
 
 from typing import List
@@ -49,6 +53,7 @@ class RuntimePromptBuilderService:
         return PromptPackage(
             system_prompt=self._build_system_prompt(context),
             messages=self._build_messages(context),
+            retrieved_history=self._build_retrieved_history(context),
             language=context.language,
             metadata=PromptMetadata(
                 employee_id=context.employee.id,
@@ -119,3 +124,19 @@ class RuntimePromptBuilderService:
             PromptMessage(role="user", content=context.current_user_input)
         )
         return messages
+
+    # --- retrieved history (Sprint 9.3) -----------------------------------
+
+    def _build_retrieved_history(
+        self, context: RuntimeAIContext
+    ) -> List[PromptMessage]:
+        """Expose ``context.retrieved_history`` unchanged.
+
+        Same order as received (no re-sorting), roles preserved exactly, and
+        content passed through untouched. An empty ``retrieved_history``
+        yields an empty list here, leaving every other field untouched.
+        """
+        return [
+            PromptMessage(role=message.role.value, content=message.content)
+            for message in context.retrieved_history
+        ]

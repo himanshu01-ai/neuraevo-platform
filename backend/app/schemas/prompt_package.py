@@ -9,7 +9,7 @@ later sprint can hand to a provider.
 import uuid
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PromptMessage(BaseModel):
@@ -39,9 +39,15 @@ class PromptPackage(BaseModel):
     blueprint, personality, language, memories); ``messages`` carries the recent
     conversation followed by the current user input; ``language`` is surfaced for
     downstream use; ``metadata`` is read-only transparency information.
+
+    ``retrieved_history`` (Sprint 9.3) exposes ``RuntimeAIContext.retrieved_history``
+    (Sprint 9.1/9.2's ``MemoryRetrievalService`` result) unchanged: same order,
+    same roles, same content. It defaults to an empty list so existing callers
+    that construct ``PromptPackage`` without it keep working unmodified.
     """
 
     system_prompt: str
     messages: List[PromptMessage]
+    retrieved_history: List[PromptMessage] = Field(default_factory=list)
     language: str
     metadata: PromptMetadata
