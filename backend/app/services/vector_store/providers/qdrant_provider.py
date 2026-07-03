@@ -7,10 +7,12 @@ no vector search, no embedding generation, and no Qdrant code anywhere else.
 
 The ``qdrant_client`` SDK is imported lazily (inside the client-construction,
 collection-creation, and upsert paths), so importing this module never requires
-the package to be installed. A client may also be injected for testing.
+the package to be installed. A client may also be injected for testing. Search
+results are converted to plain ``(str, float)`` tuples here, so no Qdrant SDK
+object ever crosses the provider boundary.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from app.services.vector_store.providers.base import (
     VectorStoreError,
@@ -139,3 +141,27 @@ class QdrantProvider(VectorStoreProvider):
         except Exception as exc:
             logger.warning("Qdrant upsert_vector failed: %s", exc)
             raise VectorStoreError("upsert_vector failed") from exc
+
+    def search_vectors(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        limit: int,
+    ) -> List[Tuple[str, float]]:
+        """Return the ``limit`` most similar points as ``(id, score)`` tuples.
+
+        Calls the Qdrant client's similarity search and converts each scored
+        point into a plain ``(str, float)`` tuple, so no Qdrant SDK object (or
+        payload) escapes this provider. Failures are wrapped as
+        :class:`VectorStoreError`.
+        """
+        try:
+            results = self._get_client().search(
+                collection_name=collection_name,
+                query_vector=query_vector,
+                limit=limit,
+            )
+            return [(str(point.id), float(point.score)) for point in results]
+        except Exception as exc:
+            logger.warning("Qdrant search_vectors failed: %s", exc)
+            raise VectorStoreError("search_vectors failed") from exc

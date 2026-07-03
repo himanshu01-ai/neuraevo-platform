@@ -16,6 +16,7 @@ Runnable with stdlib unittest (no pytest dependency required):
 
 import sys
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from app.services.vector_store import (
@@ -165,17 +166,58 @@ class QdrantProviderTests(unittest.TestCase):
             with self.assertRaises(VectorStoreError):
                 self.provider.upsert_vector("memories", "p1", [0.1], {})
 
-    # --- no search surface (Sprint 10.3 adds ONLY upsert) ----------------
-    def test_provider_exposes_no_search_operations(self):
-        # upsert_vector exists (indexing); search/query variants must not.
+    # --- search_vectors (Sprint 10.4, similarity search only) ------------
+    def test_search_vectors_returns_plain_id_score_tuples(self):
+        # Qdrant returns SDK scored-point objects; the provider must convert
+        # them to plain (str, float) tuples so no SDK object leaks out.
+        scored = [
+            SimpleNamespace(id="c", score=0.99, payload={"x": 1}),
+            SimpleNamespace(id="a", score=0.80, payload={"x": 2}),
+        ]
+        self.client.search.return_value = scored
+        result = self.provider.search_vectors("memories", [0.1, 0.2], 5)
+
+        self.client.search.assert_called_once_with(
+            collection_name="memories", query_vector=[0.1, 0.2], limit=5
+        )
+        self.assertEqual(result, [("c", 0.99), ("a", 0.80)])
+        for entry in result:
+            self.assertIsInstance(entry, tuple)
+            self.assertIsInstance(entry[0], str)
+            self.assertIsInstance(entry[1], float)
+
+    def test_search_vectors_preserves_provider_order(self):
+        scored = [
+            SimpleNamespace(id="c", score=0.9),
+            SimpleNamespace(id="a", score=0.5),
+            SimpleNamespace(id="b", score=0.1),
+        ]
+        self.client.search.return_value = scored
+        result = self.provider.search_vectors("memories", [0.1], 3)
+        self.assertEqual([pid for pid, _ in result], ["c", "a", "b"])
+
+    def test_search_vectors_empty(self):
+        self.client.search.return_value = []
+        self.assertEqual(self.provider.search_vectors("memories", [0.1], 5), [])
+
+    def test_search_vectors_wraps_failure(self):
+        self.client.search.side_effect = RuntimeError("boom")
+        with self.assertRaises(VectorStoreError):
+            self.provider.search_vectors("memories", [0.1], 5)
+
+    # --- surface: 10.4 adds ONLY search_vectors --------------------------
+    def test_provider_exposes_only_allowed_operations(self):
         self.assertTrue(hasattr(self.provider, "upsert_vector"))
+        self.assertTrue(hasattr(self.provider, "search_vectors"))
         for forbidden in (
-            "search",
             "query",
             "similarity_search",
             "nearest_neighbors",
             "hybrid_search",
             "delete_by_filter",
+            "recommend",
+            "scroll",
+            "upsert_many",
         ):
             self.assertFalse(
                 hasattr(self.provider, forbidden),
@@ -223,6 +265,14 @@ class VectorStoreServiceTests(unittest.TestCase):
         self.provider.upsert_vector.assert_called_once_with(
             "memories", "p1", [0.1, 0.2], payload
         )
+
+    def test_search_vectors_delegates_and_returns_unchanged(self):
+        self.provider.search_vectors.return_value = [("c", 0.9), ("a", 0.5)]
+        result = self.service.search_vectors("memories", [0.1, 0.2], 5)
+        self.provider.search_vectors.assert_called_once_with(
+            "memories", [0.1, 0.2], 5
+        )
+        self.assertEqual(result, [("c", 0.9), ("a", 0.5)])
 
     def test_provider_exception_propagates(self):
         self.provider.health_check.side_effect = VectorStoreError("down")

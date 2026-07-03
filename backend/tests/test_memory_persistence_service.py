@@ -174,12 +174,12 @@ class MemoryPersistenceServiceTests(unittest.TestCase):
         self.assertIs(service.embeddings, embeddings)
         self.assertIs(service.vector_store, vector_store)
 
-    def test_indexing_embedding_service_none_until_provider_ready(self):
+    def test_optional_embedding_service_none_until_provider_ready(self):
         # The composition-root assembler tolerates Sprint 10.1's unfulfilled
         # provider seam, so the runtime DI chain resolves (embeddings -> None).
-        from app.core.dependencies import get_indexing_embedding_service
+        from app.core.dependencies import get_optional_embedding_service
 
-        self.assertIsNone(get_indexing_embedding_service())
+        self.assertIsNone(get_optional_embedding_service())
 
     # =================================================================
     # Sprint 10.3 — post-commit vector indexing

@@ -4,14 +4,15 @@ Stateless service that delegates vector-store infrastructure operations (health
 check and collection-management primitives) to an injected
 :class:`VectorStoreProvider`, returning provider results unchanged.
 
-It performs NO vector search, NO embedding generation, NO repository usage, and
-NO AI logic. As of Sprint 10.3 it delegates a single index write —
-``upsert_vector`` — used by memory persistence to index a saved memory; there is
-still no search, query, or similarity lookup. The provider is injected via the
-constructor (never instantiated here).
+It performs NO embedding generation, NO repository usage, and NO AI logic. As of
+Sprint 10.3 it delegates an index write (``upsert_vector``); as of Sprint 10.4
+it also delegates similarity search (``search_vectors``), returning
+``(point_id, score)`` pairs. There is still no hybrid/keyword search, reranking,
+or metadata filtering. The provider is injected via the constructor (never
+instantiated here).
 """
 
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from app.services.vector_store.providers.base import VectorStoreProvider
 
@@ -57,4 +58,15 @@ class VectorStoreService:
         """Index one vector point (Sprint 10.3) — index write only, no search."""
         return self.provider.upsert_vector(
             collection_name, point_id, vector, payload
+        )
+
+    def search_vectors(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        limit: int,
+    ) -> List[Tuple[str, float]]:
+        """Return the ``limit`` most similar ``(point_id, score)`` pairs (10.4)."""
+        return self.provider.search_vectors(
+            collection_name, query_vector, limit
         )

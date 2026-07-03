@@ -152,23 +152,6 @@ def get_memory_context_service(
     return MemoryContextService(session)
 
 
-def get_memory_retrieval_service(
-    session: SessionDep,
-) -> MemoryRetrievalService:
-    """Provide a :class:`MemoryRetrievalService` bound to the session.
-
-    The reused Sprint 5B :class:`MessageRepository` is wired here in the
-    composition root and injected into the service, so the service never
-    instantiates a repository itself (Sprint 9.1).
-    """
-    return MemoryRetrievalService(MessageRepository(session))
-
-
-MemoryRetrievalServiceDep = Annotated[
-    MemoryRetrievalService, Depends(get_memory_retrieval_service)
-]
-
-
 def get_embedding_provider() -> EmbeddingProvider:
     """Provide the active embedding provider (Sprint 10.1).
 
@@ -243,16 +226,18 @@ VectorStoreServiceDep = Annotated[
 ]
 
 
-def get_indexing_embedding_service() -> Optional[EmbeddingService]:
-    """Provide an :class:`EmbeddingService` for memory indexing, or ``None``.
+def get_optional_embedding_service() -> Optional[EmbeddingService]:
+    """Provide an :class:`EmbeddingService` if available, else ``None``.
 
     Sprint 10.1's ``get_embedding_provider`` seam is intentionally unfulfilled
     (no concrete provider yet). Rather than let that break the runtime pipeline
     at dependency-resolution time, this composition-root assembler tolerates the
-    gap: when no provider is available it returns ``None`` and memory
-    persistence simply skips indexing (Case 2 semantics). Once a concrete
-    provider is registered in a later sprint, this returns a real
-    :class:`EmbeddingService` and indexing activates with no further changes.
+    gap: when no provider is available it returns ``None``. Consumers degrade
+    gracefully — memory persistence skips indexing (Sprint 10.3) and semantic
+    retrieval is simply unavailable (Sprint 10.4) — while their session-bound,
+    non-embedding paths keep working. Once a concrete provider is registered in
+    a later sprint, this returns a real :class:`EmbeddingService` and both
+    activate with no further changes.
     """
     try:
         provider = get_embedding_provider()
@@ -261,14 +246,14 @@ def get_indexing_embedding_service() -> Optional[EmbeddingService]:
     return EmbeddingService(provider)
 
 
-IndexingEmbeddingServiceDep = Annotated[
-    Optional[EmbeddingService], Depends(get_indexing_embedding_service)
+OptionalEmbeddingServiceDep = Annotated[
+    Optional[EmbeddingService], Depends(get_optional_embedding_service)
 ]
 
 
 def get_memory_persistence_service(
     session: SessionDep,
-    embeddings: IndexingEmbeddingServiceDep,
+    embeddings: OptionalEmbeddingServiceDep,
     vector_store: VectorStoreServiceDep,
 ) -> MemoryPersistenceService:
     """Provide a :class:`MemoryPersistenceService` bound to the session.
@@ -288,6 +273,32 @@ def get_memory_persistence_service(
 
 MemoryPersistenceServiceDep = Annotated[
     MemoryPersistenceService, Depends(get_memory_persistence_service)
+]
+
+
+def get_memory_retrieval_service(
+    session: SessionDep,
+    embeddings: OptionalEmbeddingServiceDep,
+    vector_store: VectorStoreServiceDep,
+) -> MemoryRetrievalService:
+    """Provide a :class:`MemoryRetrievalService` bound to the session.
+
+    The reused Sprint 5B :class:`MessageRepository` is wired here in the
+    composition root and injected into the service, so the service never
+    instantiates a repository itself (Sprint 9.1). Sprint 10.4 also injects the
+    Sprint 10.1 :class:`EmbeddingService` (or ``None`` until its provider is
+    implemented) and the Sprint 10.2 :class:`VectorStoreService`, so the service
+    can perform semantic retrieval — it never instantiates a service or provider
+    itself. The Sprint 9.1 conversation-history ``retrieve`` keeps working even
+    when ``embeddings`` is ``None``, so the runtime pipeline is unaffected.
+    """
+    return MemoryRetrievalService(
+        MessageRepository(session), embeddings, vector_store
+    )
+
+
+MemoryRetrievalServiceDep = Annotated[
+    MemoryRetrievalService, Depends(get_memory_retrieval_service)
 ]
 
 
