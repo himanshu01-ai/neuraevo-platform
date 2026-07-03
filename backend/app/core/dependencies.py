@@ -50,6 +50,7 @@ from app.services.vector_store import (
 )
 from app.services.tools import ToolExecutionService, ToolProvider
 from app.services.tools.registry import ToolRegistry
+from app.services.permissions import PermissionProvider, PermissionService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -477,6 +478,44 @@ def get_tool_registry(
 
 
 ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
+
+
+def get_permission_provider() -> PermissionProvider:
+    """Provide the active permission provider (Sprint 11.3).
+
+    Sprint 11.3 ships only the permission framework — no concrete permission
+    provider exists yet — so this composition-root seam is intentionally
+    unfulfilled and raises. A later sprint registers a real provider here (the
+    one place providers are constructed), with no change required in
+    :class:`PermissionService` or its consumers.
+    """
+    raise NotImplementedError(
+        "No permission provider is implemented yet (Sprint 11.3 ships only the "
+        "permission framework); a concrete provider is wired here in a later "
+        "sprint."
+    )
+
+
+PermissionProviderDep = Annotated[
+    PermissionProvider, Depends(get_permission_provider)
+]
+
+
+def get_permission_service(
+    provider: PermissionProviderDep,
+) -> PermissionService:
+    """Provide a :class:`PermissionService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — it is the Sprint 11.3 framework only.
+    """
+    return PermissionService(provider)
+
+
+PermissionServiceDep = Annotated[
+    PermissionService, Depends(get_permission_service)
+]
 
 
 def get_conversation_generation_service(
