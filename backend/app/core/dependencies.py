@@ -48,6 +48,7 @@ from app.services.vector_store import (
     VectorStoreProvider,
     VectorStoreService,
 )
+from app.services.tools import ToolExecutionService, ToolProvider
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -422,6 +423,42 @@ def get_conversation_runtime_service(
 
 ConversationRuntimeServiceDep = Annotated[
     ConversationRuntimeService, Depends(get_conversation_runtime_service)
+]
+
+
+def get_tool_provider() -> ToolProvider:
+    """Provide the active tool provider (Sprint 11.1).
+
+    Sprint 11.1 ships only the tool-execution framework — no concrete tool
+    provider exists yet — so this composition-root seam is intentionally
+    unfulfilled and raises. A later sprint registers real tool providers here
+    (the one place providers are constructed), with no change required in
+    :class:`ToolExecutionService` or its consumers.
+    """
+    raise NotImplementedError(
+        "No tool provider is implemented yet (Sprint 11.1 ships only the "
+        "execution framework); concrete providers are wired here in a later "
+        "sprint."
+    )
+
+
+ToolProviderDep = Annotated[ToolProvider, Depends(get_tool_provider)]
+
+
+def get_tool_execution_service(
+    provider: ToolProviderDep,
+) -> ToolExecutionService:
+    """Provide a :class:`ToolExecutionService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — it is the Sprint 11.1 framework only.
+    """
+    return ToolExecutionService(provider)
+
+
+ToolExecutionServiceDep = Annotated[
+    ToolExecutionService, Depends(get_tool_execution_service)
 ]
 
 
