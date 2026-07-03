@@ -119,6 +119,10 @@ class AIContextEngineServiceTests(unittest.TestCase):
         self.conversation.build_context.return_value = self.conversation_context
         self.memory_retrieval = MagicMock()
         self.memory_retrieval.retrieve.return_value = self.retrieved_messages
+        # Sprint 10.5: semantic memories default to empty so pre-existing
+        # retrieved_history assertions (recent-only) remain valid; individual
+        # merge tests override this.
+        self.memory_retrieval.retrieve_semantic.return_value = []
 
         self.session = MagicMock()
         self.service = AIContextEngineService(
@@ -313,6 +317,152 @@ class AIContextEngineServiceTests(unittest.TestCase):
         service = get_ai_context_engine_service(session, memory_retrieval)
         self.assertIsInstance(service, AIContextEngineService)
         self.assertIs(service.memory_retrieval, memory_retrieval)
+
+    # =================================================================
+    # Sprint 10.5 — semantic memory merged into retrieved_history
+    # =================================================================
+    def _msg(self, *, mid=None, role=MessageRole.USER, content="x"):
+        return SimpleNamespace(
+            id=mid or uuid.uuid4(),
+            conversation_id=self.conversation_id,
+            role=role,
+            content=content,
+            created_at=self.now,
+        )
+
+    def _set_history(self, recent, semantic):
+        self.memory_retrieval.retrieve.return_value = recent
+        self.memory_retrieval.retrieve_semantic.return_value = semantic
+
+    def test_retrieve_called_once(self):
+        self._build()
+        self.memory_retrieval.retrieve.assert_called_once()
+
+    def test_retrieve_semantic_called_once(self):
+        self._build()
+        self.memory_retrieval.retrieve_semantic.assert_called_once()
+
+    def test_current_user_input_passed_to_retrieve_semantic(self):
+        self._build()
+        self.memory_retrieval.retrieve_semantic.assert_called_once_with(
+            self.user_input
+        )
+
+    def test_merge_order_recent_then_semantic_dedup_by_id(self):
+        # Recent A,B,C ; Semantic C,D,E  ->  A,B,C,D,E (never reordered).
+        a, b, c, d, e = (uuid.uuid4() for _ in range(5))
+        recent = [
+            self._msg(mid=a, content="A"),
+            self._msg(mid=b, content="B"),
+            self._msg(mid=c, content="C"),
+        ]
+        semantic = [
+            self._msg(mid=c, content="C"),
+            self._msg(mid=d, content="D"),
+            self._msg(mid=e, content="E"),
+        ]
+        self._set_history(recent, semantic)
+        ctx = self._build()
+        self.assertEqual([m.id for m in ctx.retrieved_history], [a, b, c, d, e])
+        self.assertEqual(
+            [m.content for m in ctx.retrieved_history],
+            ["A", "B", "C", "D", "E"],
+        )
+
+    def test_duplicate_ids_removed_recent_copy_wins(self):
+        dup = uuid.uuid4()
+        self._set_history(
+            [self._msg(mid=dup, content="recent-copy")],
+            [self._msg(mid=dup, content="semantic-copy")],
+        )
+        ctx = self._build()
+        self.assertEqual(len(ctx.retrieved_history), 1)
+        self.assertEqual(ctx.retrieved_history[0].id, dup)
+        # First (recent) occurrence is the one kept.
+        self.assertEqual(ctx.retrieved_history[0].content, "recent-copy")
+
+    def test_duplicate_text_different_ids_kept(self):
+        id1, id2 = uuid.uuid4(), uuid.uuid4()
+        self._set_history(
+            [self._msg(mid=id1, content="identical text")],
+            [self._msg(mid=id2, content="identical text")],
+        )
+        ctx = self._build()
+        self.assertEqual([m.id for m in ctx.retrieved_history], [id1, id2])
+        self.assertEqual(len(ctx.retrieved_history), 2)
+
+    def test_empty_semantic_returns_recent_only(self):
+        self._set_history(
+            [self._msg(content="A"), self._msg(content="B")], []
+        )
+        ctx = self._build()
+        self.assertEqual(
+            [m.content for m in ctx.retrieved_history], ["A", "B"]
+        )
+
+    def test_empty_recent_returns_semantic_only(self):
+        self._set_history(
+            [], [self._msg(content="S1"), self._msg(content="S2")]
+        )
+        ctx = self._build()
+        self.assertEqual(
+            [m.content for m in ctx.retrieved_history], ["S1", "S2"]
+        )
+
+    def test_both_empty_returns_empty(self):
+        self._set_history([], [])
+        ctx = self._build()
+        self.assertEqual(ctx.retrieved_history, [])
+
+    def test_prompt_builder_receives_merged_history_unchanged(self):
+        # The unchanged Sprint 7.2 builder consumes context.retrieved_history;
+        # feeding it the merged context yields the same merged sequence.
+        from app.services.prompt.prompt_builder_service import (
+            RuntimePromptBuilderService,
+        )
+
+        a, b, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+        recent = [
+            self._msg(mid=a, role=MessageRole.USER, content="A"),
+            self._msg(mid=b, role=MessageRole.ASSISTANT, content="B"),
+        ]
+        semantic = [
+            self._msg(mid=b, role=MessageRole.ASSISTANT, content="B"),
+            self._msg(mid=c, role=MessageRole.USER, content="C"),
+        ]
+        self._set_history(recent, semantic)
+        ctx = self._build()
+
+        package = RuntimePromptBuilderService().build(ctx)
+        self.assertEqual(
+            [m.content for m in package.retrieved_history], ["A", "B", "C"]
+        )
+        self.assertEqual(
+            [m.role for m in package.retrieved_history],
+            ["user", "assistant", "user"],
+        )
+
+    def test_semantic_failure_degrades_to_recent_only(self):
+        # retrieve_semantic raises (e.g. embedding provider unwired); context
+        # assembly must not fail — recent history is the guaranteed baseline.
+        self.memory_retrieval.retrieve.return_value = [
+            self._msg(content="A"),
+            self._msg(content="B"),
+        ]
+        self.memory_retrieval.retrieve_semantic.side_effect = RuntimeError(
+            "no embedding provider"
+        )
+        ctx = self._build()
+        self.assertEqual(
+            [m.content for m in ctx.retrieved_history], ["A", "B"]
+        )
+
+    def test_repeated_build_does_not_accumulate_state(self):
+        self._set_history([self._msg(content="A")], [self._msg(content="S")])
+        first = self._build()
+        second = self._build()
+        self.assertEqual(len(first.retrieved_history), 2)
+        self.assertEqual(len(second.retrieved_history), 2)
 
 
 if __name__ == "__main__":

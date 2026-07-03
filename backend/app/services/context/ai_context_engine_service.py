@@ -1,20 +1,27 @@
-"""AI Context Engine (Sprint 7.1; Sprint 9.2 adds retrieved-history).
+"""AI Context Engine (Sprint 7.1; 9.2 retrieved-history; 10.5 semantic merge).
 
 Assembles the complete runtime context required *before* any AI generation:
 employee, blueprint, memories, recent conversation history, retrieved message
 history, a (stub) permission profile, language, personality, and the current
 user input.
 
+As of Sprint 10.5 the retrieved history is the merge of two existing sources:
+the recent chronological conversation history (``retrieve``) followed by the
+semantically-similar memories for the current user input (``retrieve_semantic``),
+de-duplicated by message id. The engine only orders/merges the results the
+retrieval service already produces — it adds no reranking, filtering, scoring,
+or search of its own.
+
 Read-only orchestration that composes existing domain services for loading and
 ownership validation. It does not duplicate any ownership logic, and it performs
 no provider imports, no AI/Claude/OpenAI calls, no prompt building, and no
-database writes. The next sprint(s) — prompt building, tool calling, permission
-execution, memory writing — are intentionally out of scope here.
+database writes.
 """
 
 import uuid
-from typing import Optional
+from typing import List, Optional, Sequence
 
+from app.models.message import Message
 from app.models.user import User
 from app.schemas.agent_context import PermissionProfile, RuntimeAIContext
 from app.schemas.blueprint import BlueprintResponse
@@ -103,11 +110,17 @@ class AIContextEngineService:
             owner, employee_id, conversation_id
         )
 
-        # 5. Retrieved message history (Sprint 9.2). Conversation ownership was
-        #    already validated in step 4 above, so MemoryRetrievalService is
-        #    called with no further authorization checks of its own.
-        retrieved_messages = self.memory_retrieval.retrieve(
+        # 5. Retrieved message history. Conversation ownership was already
+        #    validated in step 4, so retrieval performs no auth of its own.
+        #    (Sprint 9.2) recent chronological history, then (Sprint 10.5)
+        #    semantically-similar memories for the current input, merged and
+        #    de-duplicated by message id — recent first, semantic appended.
+        recent_messages = self.memory_retrieval.retrieve(
             owner, employee_id, conversation_id
+        )
+        semantic_messages = self._retrieve_semantic(current_user_input)
+        retrieved_messages = self._merge_history(
+            recent_messages, semantic_messages
         )
 
         # 6. Permission profile — deny-by-default stub until the permissions
@@ -138,3 +151,46 @@ class AIContextEngineService:
             personality=employee.personality,
             current_user_input=current_user_input,
         )
+
+    # --- semantic memory (Sprint 10.5) -----------------------------------
+
+    def _retrieve_semantic(self, current_user_input: str) -> Sequence[Message]:
+        """Best-effort semantic memories for the current user input.
+
+        Delegates to ``MemoryRetrievalService.retrieve_semantic`` (unchanged).
+        Semantic augmentation depends on an embedding provider (Sprint 10.1's
+        seam is still unfulfilled), so until one is wired ``retrieve_semantic``
+        raises; recent chronological history is the guaranteed baseline, so any
+        semantic failure degrades to no semantic memories rather than a failed
+        request — the runtime pipeline is unaffected.
+        """
+        try:
+            return self.memory_retrieval.retrieve_semantic(current_user_input)
+        except Exception as exc:  # provider unwired or transient search failure
+            logger.warning(
+                "Semantic memory retrieval unavailable; using recent history "
+                "only: %s",
+                exc,
+            )
+            return []
+
+    @staticmethod
+    def _merge_history(
+        recent: Sequence[Message], semantic: Sequence[Message]
+    ) -> List[Message]:
+        """Merge recent then semantic history, de-duplicated by message id.
+
+        Recent history comes first (chronological order preserved), then the
+        semantic memories are appended after it. If a message id appears in
+        both lists only the first occurrence (the recent one) is kept.
+        De-duplication is by ``message.id`` — never by text — so two messages
+        with identical text but different ids are both kept. No reordering.
+        """
+        merged: List[Message] = []
+        seen: set = set()
+        for message in list(recent) + list(semantic):
+            if message.id in seen:
+                continue
+            seen.add(message.id)
+            merged.append(message)
+        return merged
