@@ -49,6 +49,7 @@ from app.services.vector_store import (
     VectorStoreService,
 )
 from app.services.tools import ToolExecutionService, ToolProvider
+from app.services.tools.registry import ToolRegistry
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -460,6 +461,22 @@ def get_tool_execution_service(
 ToolExecutionServiceDep = Annotated[
     ToolExecutionService, Depends(get_tool_execution_service)
 ]
+
+
+def get_tool_registry(
+    providers: Optional[list[ToolProvider]] = None,
+) -> ToolRegistry:
+    """Provide a :class:`ToolRegistry` over the given providers (Sprint 11.2).
+
+    No concrete tool providers exist yet (Sprint 11.1's provider seam is
+    unfulfilled), so the default is an empty registry; a later sprint supplies
+    the provider list here in the composition root. Constructor injection only —
+    the registry is never instantiated inside a service.
+    """
+    return ToolRegistry(providers or [])
+
+
+ToolRegistryDep = Annotated[ToolRegistry, Depends(get_tool_registry)]
 
 
 def get_conversation_generation_service(
