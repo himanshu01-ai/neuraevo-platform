@@ -38,6 +38,21 @@ class MessageRepository:
     def get_message(self, message_id: uuid.UUID) -> Optional[Message]:
         return self.session.get(Message, message_id)
 
+    def get_by_ids(
+        self, message_ids: Sequence[uuid.UUID]
+    ) -> Sequence[Message]:
+        """Return the messages whose id is in ``message_ids``.
+
+        Bulk id lookup used to load semantically-ranked memories from the
+        authoritative store (Sprint 10.4). Results are returned in unspecified
+        order — the caller is responsible for any ordering (e.g. preserving
+        vector-search rank). Missing ids are simply absent from the result.
+        """
+        if not message_ids:
+            return []
+        stmt = select(Message).where(Message.id.in_(message_ids))
+        return self.session.scalars(stmt).all()
+
     def list_messages(
         self, conversation_id: uuid.UUID
     ) -> Sequence[Message]:

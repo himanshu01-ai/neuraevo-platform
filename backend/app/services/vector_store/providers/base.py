@@ -6,14 +6,16 @@ code behind this interface, isolated from services, repositories, models, and
 routers.
 
 Sprint 10.2 shipped infrastructure only (health check + collection primitives).
-Sprint 10.3 adds ONE capability — ``upsert_vector`` — so a persisted memory can
-be indexed. There is still NO vector search, NO query, NO similarity/nearest-
-neighbor, and NO hybrid search: those belong to later sprints and are
-intentionally absent from this contract.
+Sprint 10.3 added ``upsert_vector`` (indexing). Sprint 10.4 adds ONE capability
+— ``search_vectors`` — returning ``(point_id, score)`` pairs ordered by
+similarity. There is still NO hybrid/keyword search, NO reranking, NO metadata
+filtering, NO recommend/scroll/query, and NO batch search: those belong to later
+sprints and are intentionally absent from this contract. Providers must return
+plain ``(str, float)`` tuples — never vendor/SDK objects.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 
 class VectorStoreError(Exception):
@@ -71,4 +73,19 @@ class VectorStoreProvider(ABC):
         Writes one point (``point_id`` + ``vector`` + ``payload``) into
         ``collection_name``. This is an index write only — it performs no
         search, query, or similarity lookup.
+        """
+
+    @abstractmethod
+    def search_vectors(
+        self,
+        collection_name: str,
+        query_vector: List[float],
+        limit: int,
+    ) -> List[Tuple[str, float]]:
+        """Return the ``limit`` most similar points (Sprint 10.4).
+
+        Returns ``[(point_id, score), ...]`` ordered by descending similarity —
+        plain ``(str, float)`` tuples only, never vendor/SDK objects and never
+        payloads. Pure similarity search: no hybrid/keyword matching, reranking,
+        or metadata filtering.
         """
