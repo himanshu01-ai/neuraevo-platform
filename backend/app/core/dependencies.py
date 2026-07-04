@@ -60,6 +60,7 @@ from app.services.multimodal_ai import (
     MultimodalAIProvider,
     MultimodalAIService,
 )
+from app.services.multimodal_ai.adapters import MultimodalAIAdapter
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -616,6 +617,29 @@ def get_multimodal_ai_service(
 
 MultimodalAIServiceDep = Annotated[
     MultimodalAIService, Depends(get_multimodal_ai_service)
+]
+
+
+def get_multimodal_ai_adapter() -> MultimodalAIAdapter:
+    """Provide the active multimodal AI adapter (Sprint 12.3).
+
+    Sprint 12.3 ships only the adapter framework — no concrete adapter exists
+    yet — so this composition-root seam is intentionally unfulfilled and raises.
+    A later sprint registers a real adapter here (the one place adapters are
+    constructed) beneath a concrete provider, with no change required in
+    :class:`MultimodalAIAdapter`'s consumers. The adapter is deliberately NOT
+    injected into any provider, the Runtime, or the AI Orchestrator in this
+    sprint — nothing is wired.
+    """
+    raise NotImplementedError(
+        "No multimodal AI adapter is implemented yet (Sprint 12.3 ships only "
+        "the adapter framework); a concrete adapter is wired here in a later "
+        "sprint."
+    )
+
+
+MultimodalAIAdapterDep = Annotated[
+    MultimodalAIAdapter, Depends(get_multimodal_ai_adapter)
 ]
 
 
