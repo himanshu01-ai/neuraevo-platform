@@ -61,6 +61,7 @@ from app.services.multimodal_ai import (
     MultimodalAIService,
 )
 from app.services.multimodal_ai.adapters import MultimodalAIAdapter
+from app.services.multimodal_ai.providers import GeminiProvider, ProviderConfig
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -641,6 +642,42 @@ def get_multimodal_ai_adapter() -> MultimodalAIAdapter:
 MultimodalAIAdapterDep = Annotated[
     MultimodalAIAdapter, Depends(get_multimodal_ai_adapter)
 ]
+
+
+def get_provider_config() -> ProviderConfig:
+    """Provide the immutable provider-layer configuration (Sprint 12.4).
+
+    The composition root is the single legitimate place a concrete model name is
+    chosen; business logic never hardcodes it (the provider reads the model only
+    from ``ProviderConfig.default_model``). Not consumed for generation yet — it
+    becomes part of the provider architecture for future sprints.
+    """
+    return ProviderConfig(
+        provider_name="gemini",
+        default_model="gemini-live-2.5",
+    )
+
+
+ProviderConfigDep = Annotated[ProviderConfig, Depends(get_provider_config)]
+
+
+def get_gemini_provider(
+    adapter: MultimodalAIAdapterDep,
+    config: ProviderConfigDep,
+) -> GeminiProvider:
+    """Provide the first concrete MultimodalAIProvider (Gemini business layer).
+
+    Constructor injection only: the Sprint 12.3 adapter seam and the provider
+    config are injected here; the provider never instantiates an adapter itself.
+    The adapter seam still raises ``NotImplementedError`` until a later sprint
+    supplies a concrete adapter, so this provider is a DI seam only — not yet
+    resolvable at runtime, and not wired into the Runtime, AI Orchestrator, or
+    any route.
+    """
+    return GeminiProvider(adapter, config)
+
+
+GeminiProviderDep = Annotated[GeminiProvider, Depends(get_gemini_provider)]
 
 
 def get_optional_planner_service() -> Optional[PlannerService]:
