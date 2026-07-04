@@ -52,6 +52,10 @@ from app.services.tools import ToolExecutionService, ToolProvider
 from app.services.tools.registry import ToolRegistry
 from app.services.permissions import PermissionProvider, PermissionService
 from app.services.planner import PlannerProvider, PlannerService
+from app.services.interaction import (
+    InteractionProvider,
+    InteractionService,
+)
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -529,6 +533,46 @@ def get_planner_service(
 
 PlannerServiceDep = Annotated[
     PlannerService, Depends(get_planner_service)
+]
+
+
+def get_interaction_provider() -> InteractionProvider:
+    """Provide the active interaction provider (Sprint 12.1).
+
+    Sprint 12.1 ships only the multimodal interaction framework — no concrete
+    interaction provider exists yet — so this composition-root seam is
+    intentionally unfulfilled and raises. A later sprint registers a real
+    provider here (the one place providers are constructed), with no change
+    required in :class:`InteractionService` or its consumers.
+    """
+    raise NotImplementedError(
+        "No interaction provider is implemented yet (Sprint 12.1 ships only the "
+        "multimodal interaction framework); a concrete provider is wired here in "
+        "a later sprint."
+    )
+
+
+InteractionProviderDep = Annotated[
+    InteractionProvider, Depends(get_interaction_provider)
+]
+
+
+def get_interaction_service(
+    provider: InteractionProviderDep,
+) -> InteractionService:
+    """Provide an :class:`InteractionService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — it is the Sprint 12.1 framework only, a
+    new interface into the existing Agent Execution Core that leaves the Runtime,
+    Planner, Permission, Registry, and Execution layers untouched.
+    """
+    return InteractionService(provider)
+
+
+InteractionServiceDep = Annotated[
+    InteractionService, Depends(get_interaction_service)
 ]
 
 
