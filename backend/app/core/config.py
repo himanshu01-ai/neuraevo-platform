@@ -8,8 +8,13 @@ source of truth for configuration.
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Insecure JWT secret intended for local development only. Sharing it as a
+# module constant lets both the field default and the production-safety
+# validator refer to the same value.
+_DEV_JWT_SECRET = "dev-insecure-change-me"
 
 
 class Settings(BaseSettings):
@@ -38,8 +43,10 @@ class Settings(BaseSettings):
 
     # --- Authentication / JWT -------------------------------------------
     # IMPORTANT: override JWT_SECRET_KEY via the environment in any non-local
-    # deployment. The default below is for local development only.
-    JWT_SECRET_KEY: str = Field(default="dev-insecure-change-me")
+    # deployment. The default below is for local development only, and the
+    # application refuses to start with it outside ``development`` (see the
+    # ``_require_secure_jwt_secret_outside_development`` validator).
+    JWT_SECRET_KEY: str = Field(default=_DEV_JWT_SECRET)
     JWT_ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
@@ -77,6 +84,27 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _require_secure_jwt_secret_outside_development(self) -> "Settings":
+        """Fail fast when the insecure dev JWT secret is used outside dev.
+
+        In any non-``development`` environment the application refuses to start
+        while ``JWT_SECRET_KEY`` is still the built-in development default,
+        preventing forgeable tokens from a forgotten override. Development
+        behaviour is unchanged (the default is allowed there).
+        """
+        if (
+            self.ENVIRONMENT.strip().lower() != "development"
+            and self.JWT_SECRET_KEY == _DEV_JWT_SECRET
+        ):
+            raise ValueError(
+                "JWT_SECRET_KEY must be overridden via the environment in "
+                f"non-development environments (ENVIRONMENT={self.ENVIRONMENT!r}); "
+                "the insecure development default is not permitted outside "
+                "development."
+            )
+        return self
 
 
 @lru_cache
