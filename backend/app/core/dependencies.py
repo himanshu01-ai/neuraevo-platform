@@ -56,6 +56,10 @@ from app.services.interaction import (
     InteractionProvider,
     InteractionService,
 )
+from app.services.multimodal_ai import (
+    MultimodalAIProvider,
+    MultimodalAIService,
+)
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -573,6 +577,45 @@ def get_interaction_service(
 
 InteractionServiceDep = Annotated[
     InteractionService, Depends(get_interaction_service)
+]
+
+
+def get_multimodal_ai_provider() -> MultimodalAIProvider:
+    """Provide the active multimodal AI provider (Sprint 12.2).
+
+    Sprint 12.2 ships only the multimodal AI provider framework — no concrete
+    provider exists yet — so this composition-root seam is intentionally
+    unfulfilled and raises. A later sprint registers a real provider here (the
+    one place providers are constructed), with no change required in
+    :class:`MultimodalAIService` or its consumers.
+    """
+    raise NotImplementedError(
+        "No multimodal AI provider is implemented yet (Sprint 12.2 ships only "
+        "the provider framework); a concrete provider is wired here in a later "
+        "sprint."
+    )
+
+
+MultimodalAIProviderDep = Annotated[
+    MultimodalAIProvider, Depends(get_multimodal_ai_provider)
+]
+
+
+def get_multimodal_ai_service(
+    provider: MultimodalAIProviderDep,
+) -> MultimodalAIService:
+    """Provide a :class:`MultimodalAIService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service, and not wired into the Runtime or AI
+    Orchestrator — it is the Sprint 12.2 framework only.
+    """
+    return MultimodalAIService(provider)
+
+
+MultimodalAIServiceDep = Annotated[
+    MultimodalAIService, Depends(get_multimodal_ai_service)
 ]
 
 
