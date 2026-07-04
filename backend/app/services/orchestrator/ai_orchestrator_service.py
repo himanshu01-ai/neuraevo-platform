@@ -136,7 +136,23 @@ class AIOrchestratorService:
         permission, and executes no tool itself. It performs no retries, no
         exception wrapping, and no mutation — any planner/registry/permission/
         execution exception propagates unchanged, halting the remaining steps.
+
+        The four agent-execution collaborators are optional at construction (a
+        provider seam may still be unfulfilled). If any is unavailable this
+        method fails fast with a clear :class:`RuntimeError` rather than an
+        opaque ``AttributeError``.
         """
+        if (
+            self.planner is None
+            or self.permissions is None
+            or self.tool_registry is None
+            or self.tool_execution is None
+        ):
+            raise RuntimeError(
+                "Agent execution is unavailable because required providers "
+                "have not been configured."
+            )
+
         plan = self.planner.create_plan(user_request)
 
         results: List[ToolExecutionResult] = []
