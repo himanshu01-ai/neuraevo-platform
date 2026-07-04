@@ -51,6 +51,7 @@ from app.services.vector_store import (
 from app.services.tools import ToolExecutionService, ToolProvider
 from app.services.tools.registry import ToolRegistry
 from app.services.permissions import PermissionProvider, PermissionService
+from app.services.planner import PlannerProvider, PlannerService
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -515,6 +516,44 @@ def get_permission_service(
 
 PermissionServiceDep = Annotated[
     PermissionService, Depends(get_permission_service)
+]
+
+
+def get_planner_provider() -> PlannerProvider:
+    """Provide the active planner provider (Sprint 11.4).
+
+    Sprint 11.4 ships only the planning framework — no concrete planner provider
+    exists yet — so this composition-root seam is intentionally unfulfilled and
+    raises. A later sprint registers a real provider here (the one place
+    providers are constructed), with no change required in :class:`PlannerService`
+    or its consumers.
+    """
+    raise NotImplementedError(
+        "No planner provider is implemented yet (Sprint 11.4 ships only the "
+        "planning framework); a concrete provider is wired here in a later "
+        "sprint."
+    )
+
+
+PlannerProviderDep = Annotated[
+    PlannerProvider, Depends(get_planner_provider)
+]
+
+
+def get_planner_service(
+    provider: PlannerProviderDep,
+) -> PlannerService:
+    """Provide a :class:`PlannerService` bound to the active provider.
+
+    The provider is injected from the composition root (constructor injection);
+    the service never instantiates a provider itself. Holds no session. Not yet
+    consumed by any router or service — it is the Sprint 11.4 framework only.
+    """
+    return PlannerService(provider)
+
+
+PlannerServiceDep = Annotated[
+    PlannerService, Depends(get_planner_service)
 ]
 
 
