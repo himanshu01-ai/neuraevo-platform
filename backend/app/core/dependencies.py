@@ -390,45 +390,6 @@ ConversationProviderFactoryDep = Annotated[
 ]
 
 
-def get_ai_orchestrator_service(
-    prompt_builder: RuntimePromptBuilderServiceDep,
-    provider_factory: ConversationProviderFactoryDep,
-) -> AIOrchestratorService:
-    """Provide the Sprint 7.3 AI orchestrator.
-
-    Reuses the Sprint 7.2 runtime prompt builder and the Sprint 6 provider
-    factory (both injected); adds only runtime orchestration. Holds no session.
-    """
-    return AIOrchestratorService(prompt_builder, provider_factory)
-
-
-AIOrchestratorServiceDep = Annotated[
-    AIOrchestratorService, Depends(get_ai_orchestrator_service)
-]
-
-
-def get_conversation_runtime_service(
-    context_engine: AIContextEngineServiceDep,
-    prompt_builder: RuntimePromptBuilderServiceDep,
-    orchestrator: AIOrchestratorServiceDep,
-    memory_persistence: MemoryPersistenceServiceDep,
-) -> ConversationRuntimeService:
-    """Provide the Sprint 7.4 conversation runtime service (single entry point).
-
-    Reuses the Sprint 7.1 context engine, Sprint 7.2 prompt builder, Sprint 7.3
-    orchestrator, and (Sprint 8.2) the Sprint 8.1 memory persistence service —
-    all injected; adds only coordination. Holds no session.
-    """
-    return ConversationRuntimeService(
-        context_engine, prompt_builder, orchestrator, memory_persistence
-    )
-
-
-ConversationRuntimeServiceDep = Annotated[
-    ConversationRuntimeService, Depends(get_conversation_runtime_service)
-]
-
-
 def get_tool_provider() -> ToolProvider:
     """Provide the active tool provider (Sprint 11.1).
 
@@ -465,15 +426,29 @@ ToolExecutionServiceDep = Annotated[
 ]
 
 
-def get_tool_registry(
-    providers: Optional[list[ToolProvider]] = None,
-) -> ToolRegistry:
-    """Provide a :class:`ToolRegistry` over the given providers (Sprint 11.2).
+def get_tool_providers() -> list[ToolProvider]:
+    """Provide the registered tool providers (Sprint 11.2; empty for now).
 
     No concrete tool providers exist yet (Sprint 11.1's provider seam is
-    unfulfilled), so the default is an empty registry; a later sprint supplies
-    the provider list here in the composition root. Constructor injection only —
-    the registry is never instantiated inside a service.
+    unfulfilled), so this returns an empty list; a later sprint supplies the
+    real providers here. Exposed as a sub-dependency so the composition root can
+    resolve the registry even when it is reached through a route's dependency
+    graph (Sprint 11.5 wires the registry into the AI orchestrator).
+    """
+    return []
+
+
+ToolProvidersDep = Annotated[list[ToolProvider], Depends(get_tool_providers)]
+
+
+def get_tool_registry(
+    providers: ToolProvidersDep = None,
+) -> ToolRegistry:
+    """Provide a :class:`ToolRegistry` over the registered providers (11.2).
+
+    ``providers`` is injected via the ``get_tool_providers`` sub-dependency
+    (empty until a later sprint), so the registry defaults to empty. Constructor
+    injection only — the registry is never instantiated inside a service.
     """
     return ToolRegistry(providers or [])
 
@@ -554,6 +529,118 @@ def get_planner_service(
 
 PlannerServiceDep = Annotated[
     PlannerService, Depends(get_planner_service)
+]
+
+
+def get_optional_planner_service() -> Optional[PlannerService]:
+    """Provide a :class:`PlannerService` if available, else ``None`` (11.5).
+
+    The Sprint 11.4 planner-provider seam is intentionally unfulfilled, so this
+    composition-root assembler tolerates the gap: it returns ``None`` until a
+    concrete provider exists. The AI orchestrator's runtime ``run`` path never
+    uses the planner, so this keeps the runtime DI chain resolvable; the agent
+    ``execute_agent_request`` path activates once a provider is wired.
+    """
+    try:
+        provider = get_planner_provider()
+    except NotImplementedError:
+        return None
+    return PlannerService(provider)
+
+
+OptionalPlannerServiceDep = Annotated[
+    Optional[PlannerService], Depends(get_optional_planner_service)
+]
+
+
+def get_optional_permission_service() -> Optional[PermissionService]:
+    """Provide a :class:`PermissionService` if available, else ``None`` (11.5).
+
+    Tolerates Sprint 11.3's unfulfilled permission-provider seam so the runtime
+    DI chain resolves; returns a real service once a provider is wired.
+    """
+    try:
+        provider = get_permission_provider()
+    except NotImplementedError:
+        return None
+    return PermissionService(provider)
+
+
+OptionalPermissionServiceDep = Annotated[
+    Optional[PermissionService], Depends(get_optional_permission_service)
+]
+
+
+def get_optional_tool_execution_service() -> Optional[ToolExecutionService]:
+    """Provide a :class:`ToolExecutionService` if available, else ``None`` (11.5).
+
+    Tolerates Sprint 11.1's unfulfilled tool-provider seam so the runtime DI
+    chain resolves; returns a real service once a provider is wired.
+    """
+    try:
+        provider = get_tool_provider()
+    except NotImplementedError:
+        return None
+    return ToolExecutionService(provider)
+
+
+OptionalToolExecutionServiceDep = Annotated[
+    Optional[ToolExecutionService], Depends(get_optional_tool_execution_service)
+]
+
+
+def get_ai_orchestrator_service(
+    prompt_builder: RuntimePromptBuilderServiceDep,
+    provider_factory: ConversationProviderFactoryDep,
+    planner: OptionalPlannerServiceDep,
+    permissions: OptionalPermissionServiceDep,
+    tool_registry: ToolRegistryDep,
+    tool_execution: OptionalToolExecutionServiceDep,
+) -> AIOrchestratorService:
+    """Provide the AI orchestrator (Sprint 7.3; Sprint 11.5 adds agent core).
+
+    Reuses the Sprint 7.2 runtime prompt builder and the Sprint 6 provider
+    factory for the existing ``run`` path. Sprint 11.5 also injects the Sprint
+    11.2–11.4 agent-execution collaborators — planner, permission service, tool
+    registry, and tool execution service — so the orchestrator can coordinate
+    ``execute_agent_request``. The planner/permission/tool-execution services
+    are ``None`` until their provider seams are fulfilled (their runtime ``run``
+    path is unaffected). All injected; holds no session and instantiates nothing.
+    """
+    return AIOrchestratorService(
+        prompt_builder,
+        provider_factory,
+        planner=planner,
+        permissions=permissions,
+        tool_registry=tool_registry,
+        tool_execution=tool_execution,
+    )
+
+
+AIOrchestratorServiceDep = Annotated[
+    AIOrchestratorService, Depends(get_ai_orchestrator_service)
+]
+
+
+def get_conversation_runtime_service(
+    context_engine: AIContextEngineServiceDep,
+    prompt_builder: RuntimePromptBuilderServiceDep,
+    orchestrator: AIOrchestratorServiceDep,
+    memory_persistence: MemoryPersistenceServiceDep,
+) -> ConversationRuntimeService:
+    """Provide the Sprint 7.4 conversation runtime service (single entry point).
+
+    Reuses the Sprint 7.1 context engine, Sprint 7.2 prompt builder, Sprint 7.3
+    orchestrator, and (Sprint 8.2) the Sprint 8.1 memory persistence service —
+    all injected; adds only coordination. Holds no session.
+    """
+    return ConversationRuntimeService(
+        context_engine, prompt_builder, orchestrator, memory_persistence
+    )
+
+
+ConversationRuntimeServiceDep = Annotated[
+    ConversationRuntimeService, Depends(get_conversation_runtime_service)
 ]
 
 

@@ -1,43 +1,75 @@
-"""AI Orchestrator (Sprint 7.3).
+"""AI Orchestrator (Sprint 7.3; Sprint 11.5 adds the Agent Execution Core).
 
-Runtime orchestration only. Given a ``RuntimeAIContext`` it:
+Runtime orchestration only. Given a ``RuntimeAIContext`` its Sprint 7.3 ``run``:
 
   1. builds a ``PromptPackage`` via the Sprint 7.2 ``RuntimePromptBuilderService``,
   2. resolves the active provider via the Sprint 6 ``ConversationProviderFactory``,
   3. invokes the provider, and
   4. returns a provider-agnostic ``AIResponse``.
 
-It performs no database or memory writes, no tool or permission execution, no
-streaming, and no post-processing of the generated text. The reused
-components (prompt builder, provider factory, provider) are not modified.
+Sprint 11.5 adds ``execute_agent_request``, which coordinates the existing
+Sprint 11.2–11.4 components (planner, tool registry, permission service, tool
+execution service) into a plan-then-per-step permission-gated execution. The
+orchestrator itself generates no plan, checks no permission, and executes no
+tool directly — it only coordinates the injected services, in order, without
+retries, exception wrapping, logging, mutation, or caching.
+
+It performs no database or memory writes, no streaming, and no post-processing.
+The reused components are not modified.
 """
+
+from typing import List, Optional, Union
 
 from app.schemas.agent_context import RuntimeAIContext
 from app.schemas.ai_response import AIResponse, AIResponseMetadata
 from app.schemas.prompt_package import PromptPackage
+from app.services.permissions import (
+    PermissionRequest,
+    PermissionResult,
+    PermissionService,
+)
+from app.services.planner import PlannerService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.providers import ConversationProviderFactory
+from app.services.tools import (
+    ToolExecutionRequest,
+    ToolExecutionResult,
+    ToolExecutionService,
+)
+from app.services.tools.registry import ToolRegistry
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 class AIOrchestratorService:
-    """Coordinates prompt building and provider invocation into an AIResponse.
+    """Coordinates prompt building/generation and (Sprint 11.5) agent execution.
 
     Collaborators are injected (Dependency Inversion): the Sprint 7.2 prompt
-    builder and the Sprint 6 provider factory. Both are reused unchanged; this
-    service adds only the orchestration wiring. It holds no session and touches
-    no repository.
+    builder and the Sprint 6 provider factory power the existing ``run`` path.
+    Sprint 11.5 also injects the Sprint 11.2–11.4 agent-execution collaborators
+    — planner, permission service, tool registry, tool execution service — used
+    only by ``execute_agent_request``. They are optional (``None`` until their
+    provider seams are fulfilled), so the ``run`` path and its runtime DI chain
+    are unaffected. All are reused unchanged; this service adds only coordination
+    and holds no session, repository, or runtime state.
     """
 
     def __init__(
         self,
         prompt_builder: RuntimePromptBuilderService,
         provider_factory: ConversationProviderFactory,
+        planner: Optional[PlannerService] = None,
+        permissions: Optional[PermissionService] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+        tool_execution: Optional[ToolExecutionService] = None,
     ) -> None:
         self.prompt_builder = prompt_builder
         self.provider_factory = provider_factory
+        self.planner = planner
+        self.permissions = permissions
+        self.tool_registry = tool_registry
+        self.tool_execution = tool_execution
 
     def run(self, context: RuntimeAIContext) -> AIResponse:
         """Build the prompt, invoke the active provider, and wrap the reply.
@@ -78,6 +110,62 @@ class AIOrchestratorService:
                 prompt_message_count=len(package.messages),
             ),
         )
+
+    # --- Agent Execution Core (Sprint 11.5) ------------------------------
+
+    def execute_agent_request(
+        self, user_request: str
+    ) -> Union[List[ToolExecutionResult], PermissionResult]:
+        """Coordinate plan -> per-step permission-gated tool execution.
+
+        Order is exact and fixed:
+
+          1. ``planner.create_plan(user_request)`` -> an ``ExecutionPlan``.
+          2. For each ``PlanningStep`` in plan order:
+             a. ``tool_registry.get_tool(step.tool_name)`` — raises ``KeyError``
+                if the tool is unknown (no fallback).
+             b. ``permissions.check_permission(...)`` — if the result is not
+                approved, or requires user confirmation, execution STOPS
+                immediately and that ``PermissionResult`` is returned directly
+                (remaining steps are not executed).
+             c. ``tool_execution.execute(...)`` — the result is collected.
+          3. Return the collected ``ToolExecutionResult`` list, in execution
+             order.
+
+        The orchestrator only coordinates: it generates no plan, checks no
+        permission, and executes no tool itself. It performs no retries, no
+        exception wrapping, and no mutation — any planner/registry/permission/
+        execution exception propagates unchanged, halting the remaining steps.
+        """
+        plan = self.planner.create_plan(user_request)
+
+        results: List[ToolExecutionResult] = []
+        for step in plan.steps:
+            # a. Resolve the tool; a missing tool is a KeyError (no fallback).
+            self.tool_registry.get_tool(step.tool_name)
+
+            # b. Permission gate — halt (return the result) if not approved or
+            #    if user confirmation is required.
+            permission = self.permissions.check_permission(
+                PermissionRequest(
+                    tool_name=step.tool_name, arguments=step.arguments
+                )
+            )
+            if (
+                not permission.approved
+                or permission.requires_user_confirmation
+            ):
+                return permission
+
+            # c. Execute and collect, preserving order.
+            result = self.tool_execution.execute(
+                ToolExecutionRequest(
+                    tool_name=step.tool_name, arguments=step.arguments
+                )
+            )
+            results.append(result)
+
+        return results
 
     @staticmethod
     def _render_prompt(package: PromptPackage) -> str:
