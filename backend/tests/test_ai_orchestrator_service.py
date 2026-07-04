@@ -23,10 +23,13 @@ from app.schemas.prompt_package import (
 from app.services.orchestrator.ai_orchestrator_service import (
     AIOrchestratorService,
 )
+from app.services.permissions import PermissionResult
+from app.services.planner import ExecutionPlan, PlanningStep
 from app.services.providers import (
     ConversationGenerationError,
     ConversationGenerationTimeoutError,
 )
+from app.services.tools import ToolExecutionResult
 
 
 class AIOrchestratorServiceTests(unittest.TestCase):
@@ -58,8 +61,19 @@ class AIOrchestratorServiceTests(unittest.TestCase):
         self.provider_factory = MagicMock()
         self.provider_factory.get_provider.return_value = self.provider
 
+        # Sprint 11.5 agent-execution collaborators (all mocked).
+        self.planner = MagicMock(name="PlannerService")
+        self.permissions = MagicMock(name="PermissionService")
+        self.tool_registry = MagicMock(name="ToolRegistry")
+        self.tool_execution = MagicMock(name="ToolExecutionService")
+
         self.orchestrator = AIOrchestratorService(
-            self.prompt_builder, self.provider_factory
+            self.prompt_builder,
+            self.provider_factory,
+            planner=self.planner,
+            permissions=self.permissions,
+            tool_registry=self.tool_registry,
+            tool_execution=self.tool_execution,
         )
         # Context is opaque to the orchestrator (passed straight to the builder).
         self.context = MagicMock(name="RuntimeAIContext")
@@ -135,7 +149,15 @@ class AIOrchestratorServiceTests(unittest.TestCase):
     def test_orchestrator_holds_only_injected_collaborators(self):
         # No session / repository — orchestration only.
         self.assertEqual(
-            set(vars(self.orchestrator)), {"prompt_builder", "provider_factory"}
+            set(vars(self.orchestrator)),
+            {
+                "prompt_builder",
+                "provider_factory",
+                "planner",
+                "permissions",
+                "tool_registry",
+                "tool_execution",
+            },
         )
 
     def test_reuses_injected_collaborators(self):
@@ -149,6 +171,198 @@ class AIOrchestratorServiceTests(unittest.TestCase):
         self.assertEqual(self.prompt_builder.build.call_count, 1)
         self.assertEqual(self.provider_factory.get_provider.call_count, 1)
         self.assertEqual(self.provider.generate_reply.call_count, 1)
+
+    def test_run_does_not_touch_agent_collaborators(self):
+        self._run()
+        self.planner.create_plan.assert_not_called()
+        self.permissions.check_permission.assert_not_called()
+        self.tool_registry.get_tool.assert_not_called()
+        self.tool_execution.execute.assert_not_called()
+
+
+class AgentExecutionCoreTests(unittest.TestCase):
+    """Sprint 11.5 — orchestrator.execute_agent_request coordination."""
+
+    def setUp(self) -> None:
+        self.user_request = "Draft and send the weekly update"
+        self.steps = [
+            PlanningStep(
+                tool_name="draft_email",
+                arguments={"topic": "weekly"},
+                description="Draft the update",
+            ),
+            PlanningStep(
+                tool_name="send_email",
+                arguments={"to": "team@example.com"},
+                description="Send the update",
+            ),
+        ]
+        self.plan = ExecutionPlan(steps=self.steps)
+
+        self.planner = MagicMock(name="PlannerService")
+        self.planner.create_plan.return_value = self.plan
+        self.permissions = MagicMock(name="PermissionService")
+        self.permissions.check_permission.return_value = PermissionResult(
+            approved=True
+        )
+        self.tool_registry = MagicMock(name="ToolRegistry")
+        self.tool_registry.get_tool.side_effect = (
+            lambda name: MagicMock(name=f"provider:{name}")
+        )
+        self.tool_execution = MagicMock(name="ToolExecutionService")
+        self._exec_results = [
+            ToolExecutionResult(success=True, output="drafted"),
+            ToolExecutionResult(success=True, output="sent"),
+        ]
+        self.tool_execution.execute.side_effect = list(self._exec_results)
+
+        # prompt_builder / provider_factory are unused by the agent path.
+        self.orchestrator = AIOrchestratorService(
+            MagicMock(name="PromptBuilder"),
+            MagicMock(name="ProviderFactory"),
+            planner=self.planner,
+            permissions=self.permissions,
+            tool_registry=self.tool_registry,
+            tool_execution=self.tool_execution,
+        )
+
+    def _execute(self):
+        return self.orchestrator.execute_agent_request(self.user_request)
+
+    # --- happy path: one plan, per-step gate + execute, ordered ----------
+    def test_planner_called_exactly_once_with_request(self):
+        self._execute()
+        self.planner.create_plan.assert_called_once_with(self.user_request)
+
+    def test_permission_checked_once_per_step(self):
+        self._execute()
+        self.assertEqual(self.permissions.check_permission.call_count, 2)
+
+    def test_registry_lookup_once_per_step(self):
+        self._execute()
+        self.assertEqual(self.tool_registry.get_tool.call_count, 2)
+        looked_up = [
+            c.args[0] for c in self.tool_registry.get_tool.call_args_list
+        ]
+        self.assertEqual(looked_up, ["draft_email", "send_email"])
+
+    def test_execution_once_per_approved_step(self):
+        self._execute()
+        self.assertEqual(self.tool_execution.execute.call_count, 2)
+
+    def test_returns_results_in_execution_order(self):
+        results = self._execute()
+        self.assertEqual(results, self._exec_results)
+        self.assertEqual([r.output for r in results], ["drafted", "sent"])
+
+    def test_per_step_call_order_registry_then_permission_then_execute(self):
+        order = []
+        self.tool_registry.get_tool.side_effect = (
+            lambda name: order.append(f"registry:{name}")
+        )
+        self.permissions.check_permission.side_effect = (
+            lambda request: order.append(f"permission:{request.tool_name}")
+            or PermissionResult(approved=True)
+        )
+        self.tool_execution.execute.side_effect = (
+            lambda request: order.append(f"execute:{request.tool_name}")
+            or ToolExecutionResult(success=True)
+        )
+        self._execute()
+        self.assertEqual(
+            order,
+            [
+                "registry:draft_email",
+                "permission:draft_email",
+                "execute:draft_email",
+                "registry:send_email",
+                "permission:send_email",
+                "execute:send_email",
+            ],
+        )
+
+    def test_permission_and_execution_receive_step_tool_and_arguments(self):
+        self._execute()
+        perm_req = self.permissions.check_permission.call_args_list[0].args[0]
+        self.assertEqual(perm_req.tool_name, "draft_email")
+        self.assertEqual(perm_req.arguments, {"topic": "weekly"})
+        exec_req = self.tool_execution.execute.call_args_list[0].args[0]
+        self.assertEqual(exec_req.tool_name, "draft_email")
+        self.assertEqual(exec_req.arguments, {"topic": "weekly"})
+
+    # --- permission denied: halt immediately -----------------------------
+    def test_permission_denied_halts_and_returns_permission_result(self):
+        denied = PermissionResult(approved=False, reason="blocked")
+        self.permissions.check_permission.return_value = denied
+        result = self._execute()
+        self.assertIs(result, denied)
+
+    def test_permission_denied_skips_execution_and_remaining_steps(self):
+        denied = PermissionResult(approved=False, reason="blocked")
+        self.permissions.check_permission.return_value = denied
+        self._execute()
+        # Halted on step 1: execute never runs, step 2 never checked.
+        self.tool_execution.execute.assert_not_called()
+        self.assertEqual(self.permissions.check_permission.call_count, 1)
+        self.assertEqual(self.tool_registry.get_tool.call_count, 1)
+
+    # --- permission requires confirmation: halt --------------------------
+    def test_requires_confirmation_halts_and_returns_result(self):
+        confirm = PermissionResult(
+            approved=True, requires_user_confirmation=True
+        )
+        self.permissions.check_permission.return_value = confirm
+        result = self._execute()
+        self.assertIs(result, confirm)
+        self.tool_execution.execute.assert_not_called()
+        self.assertEqual(self.permissions.check_permission.call_count, 1)
+
+    # --- unknown tool: registry KeyError propagates ----------------------
+    def test_unknown_tool_raises_key_error_and_executes_nothing(self):
+        self.tool_registry.get_tool.side_effect = KeyError("draft_email")
+        with self.assertRaises(KeyError):
+            self._execute()
+        self.permissions.check_permission.assert_not_called()
+        self.tool_execution.execute.assert_not_called()
+
+    # --- planner exception propagates ------------------------------------
+    def test_planner_exception_propagates(self):
+        self.planner.create_plan.side_effect = RuntimeError("planner boom")
+        with self.assertRaises(RuntimeError):
+            self._execute()
+        self.tool_registry.get_tool.assert_not_called()
+        self.tool_execution.execute.assert_not_called()
+
+    # --- execution exception propagates, later steps skipped -------------
+    def test_execution_exception_propagates_and_skips_later_steps(self):
+        self.tool_execution.execute.side_effect = RuntimeError("exec boom")
+        with self.assertRaises(RuntimeError):
+            self._execute()
+        # Failed on step 1: step 2 never looked up or checked.
+        self.assertEqual(self.tool_registry.get_tool.call_count, 1)
+        self.assertEqual(self.permissions.check_permission.call_count, 1)
+
+    # --- empty plan ------------------------------------------------------
+    def test_empty_plan_returns_empty_list(self):
+        self.planner.create_plan.return_value = ExecutionPlan(steps=[])
+        result = self._execute()
+        self.assertEqual(result, [])
+        self.tool_registry.get_tool.assert_not_called()
+        self.permissions.check_permission.assert_not_called()
+        self.tool_execution.execute.assert_not_called()
+
+    # --- statelessness ---------------------------------------------------
+    def test_stateless_no_state_added_after_execution(self):
+        before = set(vars(self.orchestrator))
+        self._execute()
+        self.assertEqual(set(vars(self.orchestrator)), before)
+
+    def test_repeated_execution_no_accumulation(self):
+        first = self._execute()
+        self.tool_execution.execute.side_effect = list(self._exec_results)
+        second = self._execute()
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len(second), 2)
 
 
 if __name__ == "__main__":
