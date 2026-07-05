@@ -35,6 +35,7 @@ from app.services.session.providers.gemini_live_provider import (
     GeminiLiveSessionProvider,
     LiveSessionProtocol,
     _LiveSessionHandle,
+    _StreamAggregator,
 )
 
 
@@ -433,6 +434,211 @@ class DependencyTests(unittest.TestCase):
 
         with self.assertRaises(NotImplementedError):
             get_session_provider()
+
+
+# =====================================================================
+# Sprint 12.9 — Live text messaging
+# =====================================================================
+def _text_msg(text):
+    return SimpleNamespace(text=text, server_content=None)
+
+
+def _transcript_msg(text):
+    return SimpleNamespace(
+        text=None,
+        server_content=SimpleNamespace(
+            output_transcription=SimpleNamespace(text=text)
+        ),
+    )
+
+
+class _FakeSDKSession:
+    """Fake SDK AsyncSession for messaging tests (send + streamed receive)."""
+
+    def __init__(self, messages=(), send_error=None, receive_error=None):
+        self._messages = list(messages)
+        self._send_error = send_error
+        self._receive_error = receive_error
+        self.send_count = 0
+        self.receive_count = 0
+        self.sent = []
+
+    async def send_client_content(self, **kwargs):
+        self.send_count += 1
+        self.sent.append(kwargs)
+        if self._send_error is not None:
+            raise self._send_error
+
+    def receive(self):
+        self.receive_count += 1
+        return self._agen()
+
+    async def _agen(self):
+        if self._receive_error is not None:
+            raise self._receive_error
+        for message in self._messages:
+            yield message
+
+    async def __aexit__(self, *exc):  # for close via the CM
+        return False
+
+
+def _messaging_provider(messages=(), **session_kwargs):
+    sdk = _FakeSDKSession(messages=messages, **session_kwargs)
+    cm = _FakeAsyncCM(session=sdk)
+    provider, client = _make_provider(cm=cm)
+    sid = provider.create_session(
+        uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+    ).session.session_id
+    return provider, sdk, sid, client
+
+
+class SendMessageTests(unittest.TestCase):
+    def test_send_returns_success_and_session_stays_active(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        result = provider.send_message(sid, "hello")
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.ACTIVE)
+
+    def test_exactly_one_send_with_user_text_turn(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_message(sid, "hello world")
+        self.assertEqual(sdk.send_count, 1)
+        turns = sdk.sent[0]["turns"]
+        self.assertEqual(turns["role"], "user")
+        self.assertEqual(turns["parts"][0]["text"], "hello world")
+        self.assertTrue(sdk.sent[0]["turn_complete"])
+
+    def test_send_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_message(uuid.uuid4(), "hi")
+
+    def test_send_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.pause_session(sid)  # ACTIVE -> PAUSED
+        with self.assertRaises(ValueError):
+            provider.send_message(sid, "hi")
+        self.assertEqual(sdk.send_count, 0)  # rejected before any SDK call
+
+    def test_send_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            send_error=RuntimeError("sdk send boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.send_message(sid, "hi")
+
+
+class ReceiveResponseTests(unittest.TestCase):
+    def test_aggregates_text_chunks_into_one_string(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("Neura"), _text_msg("Evo"), _text_msg(" Works")]
+        )
+        result = provider.receive_response(sid)
+        self.assertEqual(result, "NeuraEvo Works")
+        self.assertIsInstance(result, str)
+
+    def test_exactly_one_receive(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("a")]
+        )
+        provider.receive_response(sid)
+        self.assertEqual(sdk.receive_count, 1)
+
+    def test_ignores_empty_and_none_chunks(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[
+                _text_msg("A"),
+                _text_msg(""),
+                _text_msg(None),
+                _text_msg("B"),
+            ]
+        )
+        self.assertEqual(provider.receive_response(sid), "AB")
+
+    def test_preserves_order(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("1"), _text_msg("2"), _text_msg("3")]
+        )
+        self.assertEqual(provider.receive_response(sid), "123")
+
+    def test_aggregates_output_audio_transcription(self):
+        # Audio-native Live models stream text via output transcription.
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_transcript_msg("Neura"), _transcript_msg("Evo Live")]
+        )
+        self.assertEqual(provider.receive_response(sid), "NeuraEvo Live")
+
+    def test_receive_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.receive_response(uuid.uuid4())
+
+    def test_receive_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider(messages=[_text_msg("x")])
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.receive_response(sid)
+        self.assertEqual(sdk.receive_count, 0)
+
+    def test_receive_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            receive_error=RuntimeError("stream boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.receive_response(sid)
+
+
+class StreamAggregatorTests(unittest.TestCase):
+    def test_collects_orders_and_joins(self):
+        agg = _StreamAggregator()
+        agg.add("Hello, ")
+        agg.add("World")
+        self.assertEqual(agg.result(), "Hello, World")
+
+    def test_ignores_empty_and_none(self):
+        agg = _StreamAggregator()
+        agg.add("A")
+        agg.add("")
+        agg.add(None)
+        agg.add("B")
+        self.assertEqual(agg.result(), "AB")
+
+    def test_empty_aggregator_returns_empty_string(self):
+        self.assertEqual(_StreamAggregator().result(), "")
+
+    def test_is_a_private_module_member(self):
+        self.assertTrue(_StreamAggregator.__name__.startswith("_"))
+
+
+class MessagingConfigAndSpiTests(unittest.TestCase):
+    def test_connect_enables_output_transcription(self):
+        _, _, _, client = _messaging_provider()
+        self.assertEqual(
+            client.aio.live.connect.call_args.kwargs.get("config"),
+            {"output_audio_transcription": {}},
+        )
+
+    def test_session_spi_unchanged_and_messaging_is_provider_only(self):
+        from app.services.session.providers.base import (
+            SessionProvider as SPI,
+        )
+
+        self.assertEqual(
+            SPI.__abstractmethods__,
+            frozenset(
+                {
+                    "create_session",
+                    "pause_session",
+                    "resume_session",
+                    "close_session",
+                    "get_session",
+                    "health_check",
+                }
+            ),
+        )
+        self.assertFalse(hasattr(SPI, "send_message"))
+        self.assertFalse(hasattr(SPI, "receive_response"))
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 """Gemini Live session provider — real Live lifecycle (Sprint 12.8).
 
 First concrete :class:`SessionProvider` that opens a **real** Gemini Live session
-through Google's official ``google-genai`` SDK, via the frozen Session SPI. This
-sprint intentionally stops after connection establishment and clean termination:
-it opens and closes a Live session but exchanges no messages and performs no
-streaming, audio, video, or tool execution.
+through Google's official ``google-genai`` SDK, via the frozen Session SPI. As of
+Sprint 12.9 it also supports bidirectional **text** messaging over an established
+session: sending one user text turn and aggregating the streamed text response.
+It intentionally stops there — no audio/video/image/document messaging, no tool
+execution. Only the model's text (a text part, or the server-side text
+transcription of the response) is consumed; no audio bytes, microphone, or
+speaker are ever handled.
 
 The Live API is async-only (``client.aio.live.connect``), while the Session SPI
 is synchronous; the provider bridges the two through a provider-private
@@ -27,7 +30,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from app.services.multimodal_ai.adapters import GenAIClientProtocol
 from app.services.multimodal_ai.providers import ProviderConfig
@@ -86,6 +89,27 @@ class _ProviderSessionRecord:
     handle: Optional[_LiveSessionHandle] = None
 
 
+class _StreamAggregator:
+    """Provider-PRIVATE aggregator for a streamed text response.
+
+    Collects text chunks in arrival order, ignores empty/``None`` payloads, and
+    joins them into one complete string. Only the provider knows this exists — no
+    SDK stream object or event is ever exposed through it.
+    """
+
+    def __init__(self) -> None:
+        self._chunks: List[str] = []
+
+    def add(self, chunk: Optional[str]) -> None:
+        """Append a non-empty text chunk, preserving order (empties ignored)."""
+        if chunk:
+            self._chunks.append(chunk)
+
+    def result(self) -> str:
+        """Return the ordered chunks joined into one complete string."""
+        return "".join(self._chunks)
+
+
 class GeminiLiveSessionProvider(SessionProvider):
     """Concrete :class:`SessionProvider` opening a real Gemini Live session.
 
@@ -104,6 +128,12 @@ class GeminiLiveSessionProvider(SessionProvider):
     _MODEL_METADATA_KEY = "model"
     _CONNECT_TIMEOUT_SECONDS = 30.0
     _CLOSE_TIMEOUT_SECONDS = 10.0
+    _SEND_TIMEOUT_SECONDS = 30.0
+    _RECEIVE_TIMEOUT_SECONDS = 60.0
+    # Connect-time config: enable server-side text transcription of the model's
+    # response so a complete text string can be aggregated from Live models. Only
+    # the text transcript is consumed — no audio bytes, mic, or speaker.
+    _LIVE_CONNECT_CONFIG: Dict[str, Any] = {"output_audio_transcription": {}}
 
     # Allowed lifecycle transitions (unchanged from Sprint 12.7):
     #   CREATED -> ACTIVE -> PAUSED -> ACTIVE -> CLOSED ; FAILED from any live
@@ -222,6 +252,40 @@ class GeminiLiveSessionProvider(SessionProvider):
         return True
 
     # ------------------------------------------------------------------
+    # Live text messaging (provider-specific; NOT part of the Session SPI)
+    # ------------------------------------------------------------------
+    def send_message(
+        self, session_id: uuid.UUID, message: str
+    ) -> SessionResult:
+        """Send exactly ONE user text message over an ACTIVE Live session.
+
+        Validates the session is present and ACTIVE, then sends a single
+        user-role text turn. No retries, prompt engineering, planner, memory, or
+        tools. Returns the (unchanged) ACTIVE session snapshot. SDK exceptions
+        propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        self._run_async(
+            self._asend(record.handle.sdk_session, message),
+            self._SEND_TIMEOUT_SECONDS,
+        )
+        return SessionResult(success=True, session=record.session)
+
+    def receive_response(self, session_id: uuid.UUID) -> str:
+        """Aggregate the streamed text response into one complete string.
+
+        Validates the session is present and ACTIVE, consumes the streamed
+        response exactly once (order preserved, empty chunks ignored), and
+        returns the joined text. No SDK stream object is ever exposed; SDK
+        exceptions propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        return self._run_async(
+            self._acollect(record.handle.sdk_session),
+            self._RECEIVE_TIMEOUT_SECONDS,
+        )
+
+    # ------------------------------------------------------------------
     # Internals — lifecycle state (provider-private)
     # ------------------------------------------------------------------
     def _resolve_model(self, metadata: Optional[Dict[str, Any]]) -> str:
@@ -297,7 +361,9 @@ class GeminiLiveSessionProvider(SessionProvider):
         established on the background loop. Raises on failure (caller handles
         cleanup + ``FAILED``).
         """
-        cm = self.client.aio.live.connect(model=model)
+        cm = self.client.aio.live.connect(
+            model=model, config=self._LIVE_CONNECT_CONFIG
+        )
         sdk_session = self._run_async(
             cm.__aenter__(), self._CONNECT_TIMEOUT_SECONDS
         )
@@ -325,3 +391,55 @@ class GeminiLiveSessionProvider(SessionProvider):
             self._close_live_session(handle)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Internals — messaging (provider-private)
+    # ------------------------------------------------------------------
+    def _validate_active_session(
+        self, session_id: uuid.UUID
+    ) -> _ProviderSessionRecord:
+        """Return the record for an existing ACTIVE session, else ``ValueError``.
+
+        The single validation path for send/receive: rejects a missing session
+        and a non-ACTIVE (or handle-less) session with a ``ValueError``, so the
+        exists+ACTIVE check is never duplicated.
+        """
+        record = self._sessions.get(session_id)
+        if record is None:
+            raise ValueError(f"Session not found: {session_id}")
+        if record.session.state != SessionState.ACTIVE or record.handle is None:
+            raise ValueError(
+                f"Session is not ACTIVE: {record.session.state.value}"
+            )
+        return record
+
+    async def _asend(self, sdk_session: Any, message: str) -> None:
+        """Send exactly one user-role text turn over the SDK Live session."""
+        await sdk_session.send_client_content(
+            turns={"role": "user", "parts": [{"text": message}]},
+            turn_complete=True,
+        )
+
+    async def _acollect(self, sdk_session: Any) -> str:
+        """Consume the streamed response once and aggregate its text chunks."""
+        aggregator = _StreamAggregator()
+        async for message in sdk_session.receive():
+            aggregator.add(self._extract_text(message))
+        return aggregator.result()
+
+    @staticmethod
+    def _extract_text(message: Any) -> Optional[str]:
+        """Extract plain text from one SDK stream message (never the SDK object).
+
+        Prefers a text part; falls back to the server-side output transcription
+        (Live models that respond in audio). Returns ``None`` when the message
+        carries no text.
+        """
+        text = getattr(message, "text", None)
+        if text:
+            return text
+        server_content = getattr(message, "server_content", None)
+        transcription = getattr(server_content, "output_transcription", None)
+        if transcription is not None:
+            return getattr(transcription, "text", None)
+        return None
