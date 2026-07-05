@@ -3,12 +3,15 @@
 First concrete :class:`SessionProvider` that opens a **real** Gemini Live session
 through Google's official ``google-genai`` SDK, via the frozen Session SPI. As of
 Sprint 12.9 it supports bidirectional **text** messaging (one user text turn +
-aggregated streamed text response), and as of Sprint 12.10 bidirectional **audio
-transport** (send/receive raw PCM audio chunks). It intentionally stops there —
-no microphone capture, speaker playback, UI, image/document messaging, or tool
-execution. Audio crosses the provider boundary only as provider-independent
-``bytes``; the SDK's audio structures/mime types stay hidden inside the private
-``_AudioTransport``.
+aggregated streamed text response), Sprint 12.10 bidirectional **audio
+transport** (send/receive raw PCM audio chunks), and as of Sprint 12.11
+**visual input messaging** (send a supported image and aggregate the streamed
+textual explanation). It intentionally stops before native document processing
+(PDF/DOCX/PPTX/XLSX — Sprint 12.12), OCR, image editing, microphone/speaker/UI,
+and tool execution. Audio crosses the boundary as ``bytes`` and visual input as
+the provider-independent :class:`VisualInput`; the SDK's audio/visual
+structures and mime types stay hidden inside the private ``_AudioTransport`` /
+``_VisualTransport``.
 
 The Live API is async-only (``client.aio.live.connect``), while the Session SPI
 is synchronous; the provider bridges the two through a provider-private
@@ -31,7 +34,10 @@ import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.multimodal_ai.adapters import GenAIClientProtocol
 from app.services.multimodal_ai.providers import ProviderConfig
@@ -41,6 +47,47 @@ from app.services.session.models import (
     SessionState,
 )
 from app.services.session.providers.base import SessionProvider
+
+
+class VisualSource(str, Enum):
+    """The origin of a visual input. Used ONLY for metadata — the provider's
+    behavior never depends on the source value.
+
+    - ``image``: a gallery / uploaded image.
+    - ``screenshot``: a captured screen image.
+    - ``camera_frame``: a still frame from a camera.
+    - ``document_page``: a rendered document page (already converted to an image).
+    - ``whiteboard``: a whiteboard photo.
+    - ``diagram``: a diagram image.
+    - ``other``: any other visual origin.
+    """
+
+    IMAGE = "image"
+    SCREENSHOT = "screenshot"
+    CAMERA_FRAME = "camera_frame"
+    DOCUMENT_PAGE = "document_page"
+    WHITEBOARD = "whiteboard"
+    DIAGRAM = "diagram"
+    OTHER = "other"
+
+
+class VisualInput(BaseModel):
+    """Immutable, provider-independent visual input (never carries SDK objects).
+
+    ``payload`` is the raw image bytes; ``mime_type`` is the image MIME type (only
+    ``image/jpeg`` / ``image/png`` / ``image/webp`` are supported); ``source``
+    tags the origin (metadata only — behavior never depends on it); ``metadata``
+    is opaque caller context (an optional ``prompt`` entry accompanies the image).
+    ``frozen=True`` makes instances immutable. Native PDF/DOCX/PPTX/XLSX are not
+    supported here — those belong to Sprint 12.12.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    payload: bytes
+    mime_type: str
+    source: VisualSource
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 @runtime_checkable
@@ -140,6 +187,55 @@ class _AudioTransport:
         return None
 
 
+class _VisualTransport:
+    """Provider-PRIVATE visual (de)serialization; hides SDK visual structures.
+
+    Owns the supported image MIME types, checks a MIME type, encodes a
+    :class:`VisualInput` into SDK content parts (an inline-data image part plus an
+    optional caller-supplied text prompt from ``metadata['prompt']``), and decodes
+    an SDK response message into plain text. The rest of the application never
+    sees SDK visual formats — only :class:`VisualInput` in and ``str`` out.
+    """
+
+    SUPPORTED_MIME_TYPES = frozenset(
+        {"image/jpeg", "image/png", "image/webp"}
+    )
+    _PROMPT_METADATA_KEY = "prompt"
+
+    def is_supported_mime(self, mime_type: Any) -> bool:
+        """Whether ``mime_type`` is a supported image MIME type."""
+        return mime_type in self.SUPPORTED_MIME_TYPES
+
+    def encode_parts(self, visual_input: "VisualInput") -> List[Dict[str, Any]]:
+        """Encode a VisualInput into SDK content parts (image + optional prompt)."""
+        parts: List[Dict[str, Any]] = [
+            {
+                "inline_data": {
+                    "mime_type": visual_input.mime_type,
+                    "data": bytes(visual_input.payload),
+                }
+            }
+        ]
+        prompt = visual_input.metadata.get(self._PROMPT_METADATA_KEY)
+        if isinstance(prompt, str) and prompt.strip():
+            parts.append({"text": prompt})
+        return parts
+
+    def decode_response_text(self, message: Any) -> Optional[str]:
+        """Extract plain text from one SDK response message (never the SDK object).
+
+        Prefers a text part; falls back to the server-side output transcription.
+        """
+        text = getattr(message, "text", None)
+        if text:
+            return text
+        server_content = getattr(message, "server_content", None)
+        transcription = getattr(server_content, "output_transcription", None)
+        if transcription is not None:
+            return getattr(transcription, "text", None)
+        return None
+
+
 class GeminiLiveSessionProvider(SessionProvider):
     """Concrete :class:`SessionProvider` opening a real Gemini Live session.
 
@@ -196,6 +292,8 @@ class GeminiLiveSessionProvider(SessionProvider):
         self._loop_lock = threading.Lock()
         # Provider-private audio (de)serialization; hides SDK audio structures.
         self._audio_transport = _AudioTransport()
+        # Provider-private visual (de)serialization; hides SDK visual structures.
+        self._visual_transport = _VisualTransport()
 
     # ------------------------------------------------------------------
     # Session SPI
@@ -350,6 +448,43 @@ class GeminiLiveSessionProvider(SessionProvider):
         record = self._validate_active_session(session_id)
         return self._run_async(
             self._acollect_audio(record.handle.sdk_session),
+            self._RECEIVE_TIMEOUT_SECONDS,
+        )
+
+    # ------------------------------------------------------------------
+    # Live visual input (provider-specific; NOT part of the Session SPI)
+    # ------------------------------------------------------------------
+    def send_visual_input(
+        self, session_id: uuid.UUID, visual_input: "VisualInput"
+    ) -> SessionResult:
+        """Send exactly ONE visual message over an ACTIVE Live session.
+
+        Validates the session is present and ACTIVE and validates the
+        :class:`VisualInput` via the single :meth:`_validate_visual_input` helper,
+        then sends exactly one content turn (the SDK visual format is hidden by
+        ``_VisualTransport``). No retries, buffering, prompt engineering, planner,
+        memory, or runtime. Returns the unchanged ACTIVE snapshot; SDK exceptions
+        propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        validated = self._validate_visual_input(visual_input)
+        self._run_async(
+            self._asend_visual(record.handle.sdk_session, validated),
+            self._SEND_TIMEOUT_SECONDS,
+        )
+        return SessionResult(success=True, session=record.session)
+
+    def receive_visual_response(self, session_id: uuid.UUID) -> str:
+        """Aggregate the streamed textual explanation into one complete string.
+
+        Validates the session is present and ACTIVE, consumes the streamed
+        response exactly once (order preserved, empty chunks ignored), and returns
+        the joined text. No SDK object is ever exposed; SDK exceptions propagate
+        unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        return self._run_async(
+            self._acollect_visual(record.handle.sdk_session),
             self._RECEIVE_TIMEOUT_SECONDS,
         )
 
@@ -547,3 +682,48 @@ class GeminiLiveSessionProvider(SessionProvider):
             if chunk:
                 buffer.extend(chunk)
         return bytes(buffer)
+
+    # ------------------------------------------------------------------
+    # Internals — visual input (provider-private)
+    # ------------------------------------------------------------------
+    def _validate_visual_input(self, visual_input: Any) -> "VisualInput":
+        """Validate an outgoing VisualInput; the single visual-send validator.
+
+        Ensures the input is a :class:`VisualInput` with bytes-like, non-empty
+        payload, a supported image MIME type, and a valid :class:`VisualSource`.
+        Raises ``TypeError`` for wrong types and ``ValueError`` for empty payloads
+        or unsupported MIME types. ``metadata`` is left untouched. All visual
+        sending routes through here, so the validation is never duplicated.
+        """
+        if not isinstance(visual_input, VisualInput):
+            raise TypeError("visual_input must be a VisualInput")
+        if not isinstance(visual_input.payload, (bytes, bytearray)):
+            raise TypeError("VisualInput.payload must be bytes")
+        if len(visual_input.payload) == 0:
+            raise ValueError("VisualInput.payload must not be empty")
+        if not self._visual_transport.is_supported_mime(visual_input.mime_type):
+            raise ValueError(
+                f"Unsupported visual MIME type: {visual_input.mime_type}"
+            )
+        if not isinstance(visual_input.source, VisualSource):
+            raise ValueError("VisualInput.source must be a VisualSource")
+        return visual_input
+
+    async def _asend_visual(
+        self, sdk_session: Any, visual_input: "VisualInput"
+    ) -> None:
+        """Send exactly one visual content turn over the SDK Live session."""
+        await sdk_session.send_client_content(
+            turns={
+                "role": "user",
+                "parts": self._visual_transport.encode_parts(visual_input),
+            },
+            turn_complete=True,
+        )
+
+    async def _acollect_visual(self, sdk_session: Any) -> str:
+        """Consume the streamed visual explanation once and aggregate its text."""
+        aggregator = _StreamAggregator()
+        async for message in sdk_session.receive():
+            aggregator.add(self._visual_transport.decode_response_text(message))
+        return aggregator.result()

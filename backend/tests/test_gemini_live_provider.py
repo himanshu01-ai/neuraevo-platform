@@ -34,10 +34,14 @@ from app.services.session import (
 from app.services.session.providers.gemini_live_provider import (
     GeminiLiveSessionProvider,
     LiveSessionProtocol,
+    VisualInput,
+    VisualSource,
     _AudioTransport,
     _LiveSessionHandle,
     _StreamAggregator,
+    _VisualTransport,
 )
+from pydantic import ValidationError
 
 
 class _FakeAsyncCM:
@@ -650,6 +654,8 @@ class MessagingConfigAndSpiTests(unittest.TestCase):
         self.assertFalse(hasattr(SPI, "receive_response"))
         self.assertFalse(hasattr(SPI, "send_audio_chunk"))
         self.assertFalse(hasattr(SPI, "receive_audio_chunk"))
+        self.assertFalse(hasattr(SPI, "send_visual_input"))
+        self.assertFalse(hasattr(SPI, "receive_visual_response"))
 
 
 # =====================================================================
@@ -802,6 +808,248 @@ class AudioTransportTests(unittest.TestCase):
 
     def test_is_a_private_module_member(self):
         self.assertTrue(_AudioTransport.__name__.startswith("_"))
+
+
+# =====================================================================
+# Sprint 12.11 — Visual input messaging
+# =====================================================================
+_IMG = b"\x89PNG\r\n\x1a\n" + b"\x00\x10\x20\x30" * 8  # non-empty image bytes
+
+
+def _make_visual(source=VisualSource.IMAGE, mime="image/png", payload=None, metadata=None):
+    return VisualInput(
+        payload=_IMG if payload is None else payload,
+        mime_type=mime,
+        source=source,
+        metadata={} if metadata is None else metadata,
+    )
+
+
+class VisualSourceEnumTests(unittest.TestCase):
+    def test_all_members(self):
+        self.assertEqual(
+            {m.name for m in VisualSource},
+            {
+                "IMAGE",
+                "SCREENSHOT",
+                "CAMERA_FRAME",
+                "DOCUMENT_PAGE",
+                "WHITEBOARD",
+                "DIAGRAM",
+                "OTHER",
+            },
+        )
+
+    def test_values(self):
+        self.assertEqual(VisualSource.IMAGE.value, "image")
+        self.assertEqual(VisualSource.CAMERA_FRAME.value, "camera_frame")
+        self.assertEqual(VisualSource.DOCUMENT_PAGE.value, "document_page")
+
+
+class VisualInputDtoTests(unittest.TestCase):
+    def test_is_frozen(self):
+        visual = _make_visual()
+        with self.assertRaises(ValidationError):
+            visual.mime_type = "image/jpeg"
+
+    def test_metadata_defaults_empty(self):
+        self.assertEqual(_make_visual().metadata, {})
+
+    def test_holds_fields(self):
+        visual = _make_visual(
+            source=VisualSource.DIAGRAM, mime="image/webp", metadata={"k": "v"}
+        )
+        self.assertEqual(visual.mime_type, "image/webp")
+        self.assertIs(visual.source, VisualSource.DIAGRAM)
+        self.assertEqual(visual.metadata, {"k": "v"})
+
+    def test_payload_must_be_bytes(self):
+        with self.assertRaises(ValidationError):
+            VisualInput(payload=123, mime_type="image/png", source=VisualSource.IMAGE)
+
+    def test_source_must_be_valid(self):
+        with self.assertRaises(ValidationError):
+            VisualInput(payload=_IMG, mime_type="image/png", source="bogus")
+
+    def test_accepts_source_value_string(self):
+        visual = VisualInput(
+            payload=_IMG, mime_type="image/png", source="screenshot"
+        )
+        self.assertIs(visual.source, VisualSource.SCREENSHOT)
+
+
+class VisualTransportTests(unittest.TestCase):
+    def test_supported_and_unsupported_mimes(self):
+        transport = _VisualTransport()
+        for mime in ("image/jpeg", "image/png", "image/webp"):
+            self.assertTrue(transport.is_supported_mime(mime))
+        for mime in ("image/gif", "application/pdf", "text/plain", None):
+            self.assertFalse(transport.is_supported_mime(mime))
+
+    def test_encode_parts_image_only(self):
+        parts = _VisualTransport().encode_parts(_make_visual())
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0]["inline_data"]["mime_type"], "image/png")
+        self.assertEqual(parts[0]["inline_data"]["data"], _IMG)
+
+    def test_encode_parts_with_prompt(self):
+        parts = _VisualTransport().encode_parts(
+            _make_visual(metadata={"prompt": "Describe this"})
+        )
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[1]["text"], "Describe this")
+
+    def test_encode_parts_ignores_blank_prompt(self):
+        parts = _VisualTransport().encode_parts(
+            _make_visual(metadata={"prompt": "   "})
+        )
+        self.assertEqual(len(parts), 1)
+
+    def test_decode_response_text(self):
+        transport = _VisualTransport()
+        self.assertEqual(transport.decode_response_text(_text_msg("hi")), "hi")
+        self.assertEqual(
+            transport.decode_response_text(_transcript_msg("yo")), "yo"
+        )
+        self.assertIsNone(transport.decode_response_text(_audio_msg(b"\x00")))
+
+    def test_is_a_private_module_member(self):
+        self.assertTrue(_VisualTransport.__name__.startswith("_"))
+
+
+class SendVisualTests(unittest.TestCase):
+    def test_send_returns_success_and_session_stays_active(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        result = provider.send_visual_input(sid, _make_visual())
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.ACTIVE)
+
+    def test_exactly_one_send_with_image_part(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_visual_input(sid, _make_visual(mime="image/jpeg"))
+        self.assertEqual(sdk.send_count, 1)
+        parts = sdk.sent[0]["turns"]["parts"]
+        self.assertEqual(parts[0]["inline_data"]["mime_type"], "image/jpeg")
+        self.assertEqual(parts[0]["inline_data"]["data"], _IMG)
+
+    def test_prompt_from_metadata_added_as_text_part(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_visual_input(
+            sid, _make_visual(metadata={"prompt": "What is this?"})
+        )
+        parts = sdk.sent[0]["turns"]["parts"]
+        self.assertEqual(parts[-1]["text"], "What is this?")
+
+    def test_every_visual_source_sends_successfully(self):
+        for source in VisualSource:
+            provider, sdk, sid, _ = _messaging_provider()
+            result = provider.send_visual_input(sid, _make_visual(source=source))
+            self.assertTrue(result.success, source)
+            self.assertEqual(sdk.send_count, 1)
+
+    def test_all_supported_mimes_accepted(self):
+        for mime in ("image/jpeg", "image/png", "image/webp"):
+            provider, sdk, sid, _ = _messaging_provider()
+            self.assertTrue(
+                provider.send_visual_input(sid, _make_visual(mime=mime)).success
+            )
+
+    def test_unsupported_mime_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_visual_input(sid, _make_visual(mime="image/gif"))
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_empty_payload_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_visual_input(sid, _make_visual(payload=b""))
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_non_visualinput_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(TypeError):
+            provider.send_visual_input(sid, "not-a-visual-input")
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_send_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_visual_input(uuid.uuid4(), _make_visual())
+
+    def test_send_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.send_visual_input(sid, _make_visual())
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_metadata_preserved(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        visual = _make_visual(metadata={"prompt": "hi", "trace": "abc"})
+        provider.send_visual_input(sid, visual)
+        self.assertEqual(visual.metadata, {"prompt": "hi", "trace": "abc"})
+
+    def test_send_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            send_error=RuntimeError("sdk visual boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.send_visual_input(sid, _make_visual())
+
+
+class ReceiveVisualTests(unittest.TestCase):
+    def test_aggregates_explanation_text(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("A red "), _text_msg("square.")]
+        )
+        result = provider.receive_visual_response(sid)
+        self.assertEqual(result, "A red square.")
+        self.assertIsInstance(result, str)
+
+    def test_aggregates_from_transcription(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_transcript_msg("A red "), _transcript_msg("square.")]
+        )
+        self.assertEqual(provider.receive_visual_response(sid), "A red square.")
+
+    def test_exactly_one_receive(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("x")]
+        )
+        provider.receive_visual_response(sid)
+        self.assertEqual(sdk.receive_count, 1)
+
+    def test_ignores_empty_chunks(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("A"), _text_msg(""), _text_msg(None), _text_msg("B")]
+        )
+        self.assertEqual(provider.receive_visual_response(sid), "AB")
+
+    def test_preserves_order(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("1"), _text_msg("2"), _text_msg("3")]
+        )
+        self.assertEqual(provider.receive_visual_response(sid), "123")
+
+    def test_receive_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.receive_visual_response(uuid.uuid4())
+
+    def test_receive_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider(messages=[_text_msg("x")])
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.receive_visual_response(sid)
+        self.assertEqual(sdk.receive_count, 0)
+
+    def test_receive_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            receive_error=RuntimeError("visual stream boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.receive_visual_response(sid)
 
 
 if __name__ == "__main__":
