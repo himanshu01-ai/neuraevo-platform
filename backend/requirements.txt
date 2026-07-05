@@ -8,4 +8,5 @@ psycopg[binary]==3.3.4
 bcrypt==4.2.1
 PyJWT==2.10.1
 anthropic==0.112.0
+google-genai==2.10.0
 qdrant-client==1.12.1

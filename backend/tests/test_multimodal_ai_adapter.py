@@ -103,15 +103,14 @@ class MultimodalAIAdapterAbstractionTests(unittest.TestCase):
         adapter = _FakeAdapter(MagicMock())
         self.assertIsInstance(adapter, MultimodalAIAdapter)
 
-    def test_no_concrete_adapter_shipped(self):
-        # The package exposes ONLY the abstract contract — no provider/adapter
-        # implementation is shipped in this sprint.
+    def test_package_exports_abstract_contract(self):
+        # The abstract contract remains exported and abstract. (Sprint 12.5
+        # later added the concrete GeminiAdapter alongside it — the 12.3
+        # framework itself is unchanged.)
         package = importlib.import_module(
             "app.services.multimodal_ai.adapters"
         )
-        self.assertEqual(
-            list(getattr(package, "__all__", [])), ["MultimodalAIAdapter"]
-        )
+        self.assertIn("MultimodalAIAdapter", getattr(package, "__all__", []))
         self.assertTrue(inspect.isabstract(package.MultimodalAIAdapter))
 
 
@@ -246,13 +245,16 @@ class MultimodalAIAdapterImportAuditTests(unittest.TestCase):
 # Dependency injection (composition root)
 # =====================================================================
 class MultimodalAIAdapterDependencyTests(unittest.TestCase):
-    def test_adapter_seam_unfulfilled_until_later_sprint(self):
-        # Sprint 12.3 ships only the framework: no concrete adapter exists,
-        # so the adapter composition-root seam intentionally raises.
+    def test_adapter_seam_returns_injected_adapter(self):
+        # Sprint 12.3 shipped this seam intentionally unfulfilled (raising
+        # NotImplementedError); Sprint 12.5 fulfilled it with the concrete
+        # Gemini adapter. The generic seam is a pure pass-through of the
+        # injected adapter, so swapping adapters stays a composition-root-only
+        # change.
         from app.core.dependencies import get_multimodal_ai_adapter
 
-        with self.assertRaises(NotImplementedError):
-            get_multimodal_ai_adapter()
+        adapter = MagicMock(name="MultimodalAIAdapter")
+        self.assertIs(get_multimodal_ai_adapter(adapter), adapter)
 
     def test_adapter_dep_alias_exposed(self):
         from app.core import dependencies

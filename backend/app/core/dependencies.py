@@ -4,6 +4,7 @@ Wires the database session into the service layer and exposes
 ``get_current_user`` for protecting routes with JWT bearer authentication.
 """
 
+import os
 import uuid
 from typing import Annotated, Optional
 
@@ -60,7 +61,13 @@ from app.services.multimodal_ai import (
     MultimodalAIProvider,
     MultimodalAIService,
 )
-from app.services.multimodal_ai.adapters import MultimodalAIAdapter
+from app.services.multimodal_ai.adapters import (
+    GeminiAdapter,
+    GenAIClientProtocol,
+    MultimodalAIAdapter,
+    create_genai_client,
+)
+from app.services.multimodal_ai.providers import GeminiProvider, ProviderConfig
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -620,27 +627,97 @@ MultimodalAIServiceDep = Annotated[
 ]
 
 
-def get_multimodal_ai_adapter() -> MultimodalAIAdapter:
-    """Provide the active multimodal AI adapter (Sprint 12.3).
+def get_genai_client() -> GenAIClientProtocol:
+    """Provide a configured Google GenAI client (Sprint 12.5).
 
-    Sprint 12.3 ships only the adapter framework — no concrete adapter exists
-    yet — so this composition-root seam is intentionally unfulfilled and raises.
-    A later sprint registers a real adapter here (the one place adapters are
-    constructed) beneath a concrete provider, with no change required in
-    :class:`MultimodalAIAdapter`'s consumers. The adapter is deliberately NOT
-    injected into any provider, the Runtime, or the AI Orchestrator in this
-    sprint — nothing is wired.
+    The composition root is the only place the SDK client is constructed: it
+    reads ``GEMINI_API_KEY`` (the sole environment variable used), validates it
+    exists, and delegates concrete construction to the adapter-owned
+    :func:`create_genai_client` factory so the SDK import stays confined to the
+    Gemini adapter module. The adapter itself never reads the environment and
+    never builds clients. Typed as :class:`GenAIClientProtocol`, so even the DI
+    surface is SDK-agnostic.
     """
-    raise NotImplementedError(
-        "No multimodal AI adapter is implemented yet (Sprint 12.3 ships only "
-        "the adapter framework); a concrete adapter is wired here in a later "
-        "sprint."
-    )
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key.strip():
+        raise ValueError(
+            "GEMINI_API_KEY is not set; the Gemini adapter cannot be "
+            "constructed without it."
+        )
+    return create_genai_client(api_key)
+
+
+GenAIClientDep = Annotated[GenAIClientProtocol, Depends(get_genai_client)]
+
+
+def get_gemini_adapter(client: GenAIClientDep) -> GeminiAdapter:
+    """Provide the concrete Gemini adapter bound to the injected SDK client.
+
+    Constructor injection only: the client is built by ``get_genai_client`` and
+    handed in; the adapter never instantiates, caches, or replaces it.
+    """
+    return GeminiAdapter(client)
+
+
+GeminiAdapterDep = Annotated[GeminiAdapter, Depends(get_gemini_adapter)]
+
+
+def get_multimodal_ai_adapter(
+    adapter: GeminiAdapterDep,
+) -> MultimodalAIAdapter:
+    """Provide the active multimodal AI adapter (seam fulfilled in Sprint 12.5).
+
+    The Sprint 12.3 seam is now fulfilled by the concrete Gemini adapter,
+    injected via ``get_gemini_adapter``. Swapping adapters remains a change
+    confined to this composition root — no consumer of
+    :class:`MultimodalAIAdapter` changes. Still not wired into the Runtime, AI
+    Orchestrator, or any route.
+    """
+    return adapter
 
 
 MultimodalAIAdapterDep = Annotated[
     MultimodalAIAdapter, Depends(get_multimodal_ai_adapter)
 ]
+
+
+def get_provider_config() -> ProviderConfig:
+    """Provide the immutable provider-layer configuration (Sprint 12.4).
+
+    The composition root is the single legitimate place a concrete model name is
+    chosen; business logic never hardcodes it (the provider reads the model only
+    from ``ProviderConfig.default_model``). Not consumed for generation yet — it
+    becomes part of the provider architecture for future sprints.
+    """
+    return ProviderConfig(
+        provider_name="gemini",
+        # generate_content-compatible GA model (the Sprint 12.5 adapter uses the
+        # synchronous generate_content path, not the Live API). Verified against
+        # the installed google-genai SDK's ListModels output.
+        default_model="gemini-2.5-flash",
+    )
+
+
+ProviderConfigDep = Annotated[ProviderConfig, Depends(get_provider_config)]
+
+
+def get_gemini_provider(
+    adapter: MultimodalAIAdapterDep,
+    config: ProviderConfigDep,
+) -> GeminiProvider:
+    """Provide the first concrete MultimodalAIProvider (Gemini business layer).
+
+    Constructor injection only: the adapter seam and the provider config are
+    injected here; the provider never instantiates an adapter itself. As of
+    Sprint 12.5 the adapter seam resolves to the concrete Gemini adapter, so
+    resolving this provider builds the full Gemini chain (requires
+    ``GEMINI_API_KEY``). Still not wired into the Runtime, AI Orchestrator, or
+    any route.
+    """
+    return GeminiProvider(adapter, config)
+
+
+GeminiProviderDep = Annotated[GeminiProvider, Depends(get_gemini_provider)]
 
 
 def get_optional_planner_service() -> Optional[PlannerService]:
