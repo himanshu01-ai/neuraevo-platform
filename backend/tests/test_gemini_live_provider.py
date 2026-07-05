@@ -34,6 +34,7 @@ from app.services.session import (
 from app.services.session.providers.gemini_live_provider import (
     GeminiLiveSessionProvider,
     LiveSessionProtocol,
+    _AudioTransport,
     _LiveSessionHandle,
     _StreamAggregator,
 )
@@ -462,10 +463,18 @@ class _FakeSDKSession:
         self.send_count = 0
         self.receive_count = 0
         self.sent = []
+        self.realtime_sends = 0
+        self.realtime_sent = []
 
     async def send_client_content(self, **kwargs):
         self.send_count += 1
         self.sent.append(kwargs)
+        if self._send_error is not None:
+            raise self._send_error
+
+    async def send_realtime_input(self, **kwargs):
+        self.realtime_sends += 1
+        self.realtime_sent.append(kwargs)
         if self._send_error is not None:
             raise self._send_error
 
@@ -639,6 +648,160 @@ class MessagingConfigAndSpiTests(unittest.TestCase):
         )
         self.assertFalse(hasattr(SPI, "send_message"))
         self.assertFalse(hasattr(SPI, "receive_response"))
+        self.assertFalse(hasattr(SPI, "send_audio_chunk"))
+        self.assertFalse(hasattr(SPI, "receive_audio_chunk"))
+
+
+# =====================================================================
+# Sprint 12.10 — Live audio transport
+# =====================================================================
+def _audio_msg(data):
+    return SimpleNamespace(data=data)
+
+
+class SendAudioTests(unittest.TestCase):
+    def test_send_returns_success_and_session_stays_active(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        result = provider.send_audio_chunk(sid, b"\x01\x02\x03\x04")
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.ACTIVE)
+
+    def test_exactly_one_audio_send_as_realtime_blob(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_audio_chunk(sid, b"\x10\x20\x30\x40")
+        self.assertEqual(sdk.realtime_sends, 1)
+        blob = sdk.realtime_sent[0]["audio"]
+        self.assertEqual(blob["data"], b"\x10\x20\x30\x40")
+        self.assertEqual(blob["mime_type"], "audio/pcm;rate=16000")
+
+    def test_accepts_bytearray(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        result = provider.send_audio_chunk(sid, bytearray(b"\xaa\xbb"))
+        self.assertTrue(result.success)
+        self.assertEqual(sdk.realtime_sent[0]["audio"]["data"], b"\xaa\xbb")
+
+    def test_send_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_audio_chunk(uuid.uuid4(), b"\x01\x02")
+
+    def test_send_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.send_audio_chunk(sid, b"\x01\x02")
+        self.assertEqual(sdk.realtime_sends, 0)
+
+    def test_empty_chunk_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_audio_chunk(sid, b"")
+        self.assertEqual(sdk.realtime_sends, 0)
+
+    def test_non_bytes_chunk_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(TypeError):
+            provider.send_audio_chunk(sid, "not-bytes")
+        self.assertEqual(sdk.realtime_sends, 0)
+
+    def test_malformed_pcm_length_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_audio_chunk(sid, b"\x01\x02\x03")  # odd length
+        self.assertEqual(sdk.realtime_sends, 0)
+
+    def test_send_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            send_error=RuntimeError("sdk realtime boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.send_audio_chunk(sid, b"\x01\x02")
+
+
+class ReceiveAudioTests(unittest.TestCase):
+    def test_aggregates_audio_bytes_in_order(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_audio_msg(b"\x01\x02"), _audio_msg(b"\x03\x04")]
+        )
+        result = provider.receive_audio_chunk(sid)
+        self.assertEqual(result, b"\x01\x02\x03\x04")
+        self.assertIsInstance(result, bytes)
+
+    def test_exactly_one_receive(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_audio_msg(b"\x01\x02")]
+        )
+        provider.receive_audio_chunk(sid)
+        self.assertEqual(sdk.receive_count, 1)
+
+    def test_ignores_empty_audio_chunks(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[
+                _audio_msg(b"\x01"),
+                _audio_msg(b""),
+                _audio_msg(None),
+                _audio_msg(b"\x02"),
+            ]
+        )
+        self.assertEqual(provider.receive_audio_chunk(sid), b"\x01\x02")
+
+    def test_preserves_order(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_audio_msg(bytes([i])) for i in range(5)]
+        )
+        self.assertEqual(
+            provider.receive_audio_chunk(sid), bytes(range(5))
+        )
+
+    def test_receive_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.receive_audio_chunk(uuid.uuid4())
+
+    def test_receive_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_audio_msg(b"\x01\x02")]
+        )
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.receive_audio_chunk(sid)
+        self.assertEqual(sdk.receive_count, 0)
+
+    def test_receive_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            receive_error=RuntimeError("audio stream boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.receive_audio_chunk(sid)
+
+
+class AudioTransportTests(unittest.TestCase):
+    def test_encode_outgoing_produces_blob_dict(self):
+        blob = _AudioTransport().encode_outgoing(b"\x01\x02")
+        self.assertEqual(blob, {"data": b"\x01\x02", "mime_type": "audio/pcm;rate=16000"})
+
+    def test_extract_incoming_returns_bytes(self):
+        self.assertEqual(
+            _AudioTransport().extract_incoming(_audio_msg(b"\x09\x08")), b"\x09\x08"
+        )
+
+    def test_extract_incoming_ignores_empty_and_none(self):
+        transport = _AudioTransport()
+        self.assertIsNone(transport.extract_incoming(_audio_msg(b"")))
+        self.assertIsNone(transport.extract_incoming(_audio_msg(None)))
+
+    def test_is_supported_format(self):
+        transport = _AudioTransport()
+        self.assertTrue(transport.is_supported_format(b"\x01\x02"))
+        self.assertFalse(transport.is_supported_format(b"\x01\x02\x03"))
+
+    def test_extract_incoming_returns_plain_bytes_not_sdk_object(self):
+        # bytearray in the SDK message -> plain bytes out (never the SDK object).
+        out = _AudioTransport().extract_incoming(_audio_msg(bytearray(b"\x07")))
+        self.assertIs(type(out), bytes)
+
+    def test_is_a_private_module_member(self):
+        self.assertTrue(_AudioTransport.__name__.startswith("_"))
 
 
 if __name__ == "__main__":

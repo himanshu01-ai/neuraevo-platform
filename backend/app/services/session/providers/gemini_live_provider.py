@@ -2,12 +2,13 @@
 
 First concrete :class:`SessionProvider` that opens a **real** Gemini Live session
 through Google's official ``google-genai`` SDK, via the frozen Session SPI. As of
-Sprint 12.9 it also supports bidirectional **text** messaging over an established
-session: sending one user text turn and aggregating the streamed text response.
-It intentionally stops there — no audio/video/image/document messaging, no tool
-execution. Only the model's text (a text part, or the server-side text
-transcription of the response) is consumed; no audio bytes, microphone, or
-speaker are ever handled.
+Sprint 12.9 it supports bidirectional **text** messaging (one user text turn +
+aggregated streamed text response), and as of Sprint 12.10 bidirectional **audio
+transport** (send/receive raw PCM audio chunks). It intentionally stops there —
+no microphone capture, speaker playback, UI, image/document messaging, or tool
+execution. Audio crosses the provider boundary only as provider-independent
+``bytes``; the SDK's audio structures/mime types stay hidden inside the private
+``_AudioTransport``.
 
 The Live API is async-only (``client.aio.live.connect``), while the Session SPI
 is synchronous; the provider bridges the two through a provider-private
@@ -110,6 +111,35 @@ class _StreamAggregator:
         return "".join(self._chunks)
 
 
+class _AudioTransport:
+    """Provider-PRIVATE audio (de)serialization; hides SDK audio structures.
+
+    Owns the audio format details (16-bit PCM), encodes an outgoing PCM chunk
+    into the SDK realtime-input blob, decodes an incoming SDK message into raw
+    provider-independent bytes, and knows the supported chunk format. The rest of
+    the application never sees SDK audio structures or mime types — only ``bytes``
+    cross the provider boundary.
+    """
+
+    INPUT_MIME_TYPE = "audio/pcm;rate=16000"
+    _SAMPLE_WIDTH_BYTES = 2  # 16-bit PCM
+
+    def is_supported_format(self, pcm_chunk: bytes) -> bool:
+        """Whether ``pcm_chunk`` is 16-bit-PCM aligned (even byte length)."""
+        return len(pcm_chunk) % self._SAMPLE_WIDTH_BYTES == 0
+
+    def encode_outgoing(self, pcm_chunk: bytes) -> Dict[str, Any]:
+        """Wrap validated PCM bytes as an SDK realtime-input audio blob (dict)."""
+        return {"data": bytes(pcm_chunk), "mime_type": self.INPUT_MIME_TYPE}
+
+    def extract_incoming(self, message: Any) -> Optional[bytes]:
+        """Return raw audio bytes from one SDK message, or ``None`` if empty."""
+        data = getattr(message, "data", None)
+        if isinstance(data, (bytes, bytearray)) and len(data) > 0:
+            return bytes(data)
+        return None
+
+
 class GeminiLiveSessionProvider(SessionProvider):
     """Concrete :class:`SessionProvider` opening a real Gemini Live session.
 
@@ -164,6 +194,8 @@ class GeminiLiveSessionProvider(SessionProvider):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
         self._loop_lock = threading.Lock()
+        # Provider-private audio (de)serialization; hides SDK audio structures.
+        self._audio_transport = _AudioTransport()
 
     # ------------------------------------------------------------------
     # Session SPI
@@ -282,6 +314,42 @@ class GeminiLiveSessionProvider(SessionProvider):
         record = self._validate_active_session(session_id)
         return self._run_async(
             self._acollect(record.handle.sdk_session),
+            self._RECEIVE_TIMEOUT_SECONDS,
+        )
+
+    # ------------------------------------------------------------------
+    # Live audio transport (provider-specific; NOT part of the Session SPI)
+    # ------------------------------------------------------------------
+    def send_audio_chunk(
+        self, session_id: uuid.UUID, pcm_chunk: bytes
+    ) -> SessionResult:
+        """Send exactly ONE PCM audio chunk over an ACTIVE Live session.
+
+        Validates the session is present and ACTIVE, validates the chunk via the
+        single :meth:`_validate_audio_chunk` helper, and sends exactly one
+        realtime-audio blob (the SDK format is hidden by ``_AudioTransport``). No
+        retries, buffering, planner, memory, or runtime. Returns the unchanged
+        ACTIVE snapshot; SDK exceptions propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        validated = self._validate_audio_chunk(pcm_chunk)
+        self._run_async(
+            self._asend_audio(record.handle.sdk_session, validated),
+            self._SEND_TIMEOUT_SECONDS,
+        )
+        return SessionResult(success=True, session=record.session)
+
+    def receive_audio_chunk(self, session_id: uuid.UUID) -> bytes:
+        """Aggregate the streamed audio response into provider-independent bytes.
+
+        Validates the session is present and ACTIVE, consumes the streamed audio
+        exactly once (order preserved, empty chunks ignored), and returns the
+        concatenated raw bytes. No SDK audio object is ever exposed; SDK
+        exceptions propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        return self._run_async(
+            self._acollect_audio(record.handle.sdk_session),
             self._RECEIVE_TIMEOUT_SECONDS,
         )
 
@@ -443,3 +511,39 @@ class GeminiLiveSessionProvider(SessionProvider):
         if transcription is not None:
             return getattr(transcription, "text", None)
         return None
+
+    # ------------------------------------------------------------------
+    # Internals — audio transport (provider-private)
+    # ------------------------------------------------------------------
+    def _validate_audio_chunk(self, pcm_chunk: Any) -> bytes:
+        """Validate an outgoing audio chunk; the single audio-send validator.
+
+        Ensures the input is bytes-like, non-empty, and a supported (16-bit PCM)
+        format. Raises ``TypeError`` for non-bytes and ``ValueError`` for empty
+        or malformed chunks. All audio sending routes through here, so the
+        validation is never duplicated.
+        """
+        if not isinstance(pcm_chunk, (bytes, bytearray)):
+            raise TypeError("audio chunk must be bytes-like (bytes/bytearray)")
+        if len(pcm_chunk) == 0:
+            raise ValueError("audio chunk must not be empty")
+        if not self._audio_transport.is_supported_format(pcm_chunk):
+            raise ValueError(
+                "audio chunk must be 16-bit PCM (even byte length)"
+            )
+        return bytes(pcm_chunk)
+
+    async def _asend_audio(self, sdk_session: Any, pcm_chunk: bytes) -> None:
+        """Send exactly one realtime-audio blob over the SDK Live session."""
+        await sdk_session.send_realtime_input(
+            audio=self._audio_transport.encode_outgoing(pcm_chunk)
+        )
+
+    async def _acollect_audio(self, sdk_session: Any) -> bytes:
+        """Consume the streamed audio response once and aggregate its bytes."""
+        buffer = bytearray()
+        async for message in sdk_session.receive():
+            chunk = self._audio_transport.extract_incoming(message)
+            if chunk:
+                buffer.extend(chunk)
+        return bytes(buffer)
