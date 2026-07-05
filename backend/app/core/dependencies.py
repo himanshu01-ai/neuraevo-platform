@@ -69,6 +69,9 @@ from app.services.multimodal_ai.adapters import (
 )
 from app.services.multimodal_ai.providers import GeminiProvider, ProviderConfig
 from app.services.session import SessionProvider, SessionService
+from app.services.session.providers.gemini_live_provider import (
+    GeminiLiveSessionProvider,
+)
 from app.services.providers import ConversationProviderFactory
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
@@ -755,6 +758,26 @@ def get_session_service(
 
 
 SessionServiceDep = Annotated[SessionService, Depends(get_session_service)]
+
+
+def get_gemini_live_session_provider(
+    client: GenAIClientDep,
+    config: ProviderConfigDep,
+) -> GeminiLiveSessionProvider:
+    """Provide the first concrete session provider (Gemini Live lifecycle).
+
+    Constructor injection only: the Sprint 12.5 GenAI client and the Sprint 12.4
+    provider config are injected here; the provider never builds an SDK object or
+    reads the environment itself. It is an additive, standalone seam — it does
+    NOT replace ``get_session_provider`` (which stays intentionally unfulfilled),
+    and it is not wired into the Runtime, AI Orchestrator, or any route.
+    """
+    return GeminiLiveSessionProvider(client, config)
+
+
+GeminiLiveSessionProviderDep = Annotated[
+    GeminiLiveSessionProvider, Depends(get_gemini_live_session_provider)
+]
 
 
 def get_optional_planner_service() -> Optional[PlannerService]:
