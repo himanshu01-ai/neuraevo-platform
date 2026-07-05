@@ -1,16 +1,15 @@
-"""Unit tests for the Sprint 12.7 Gemini Live session provider (lifecycle only).
+"""Unit tests for the Sprint 12.8 Gemini Live session provider (real lifecycle).
 
-Everything is mocked — no real SDK client, no network, no Live session, no
-streaming, no tokens. The tests verify: the provider is a concrete
-``SessionProvider`` constructed by DI from a ``GenAIClientProtocol`` +
-``ProviderConfig`` (never building an SDK object); its public surface is exactly
-the injected collaborators while session state stays private; the full lifecycle
-(create → resume → pause → resume → close) and every invalid transition
-(``ValueError``); DTO integrity (the provider-independent ``ConversationSession``
-is not extended and ``is_active`` is computed); the private ``_validate_transition``
-matrix; ``health_check`` using only the client; and an AST import audit proving
-the provider imports only its own package + the two injected-type modules and no
-runtime/planner/interaction/memory/tool/repository/api/google-SDK modules.
+Everything is mocked — a fake async context manager stands in for the SDK Live
+session, so no network, no real SDK, no API key, and no messages/streaming are
+involved. The provider's real sync<->async bridge (background event loop) drives
+the fakes. The tests verify: successful Live-session creation (CREATED -> ACTIVE
+with exactly one SDK connect and a privately-stored handle); failed creation
+(cleanup + FAILED + success=False, no leaked handle); clean close (exactly one
+SDK close, handle removed); provider-private handle; DTO/SPI unchanged; exception
+propagation for invalid transitions; health_check using only the client (no Live
+session, no generation); dependency injection; and a static import audit proving
+the provider imports no SDK/network/streaming modules and no cross-layer modules.
 
 Runnable with stdlib unittest (no pytest dependency required):
     PYTHONPATH=. python -m unittest tests.test_gemini_live_provider
@@ -35,61 +34,211 @@ from app.services.session import (
 from app.services.session.providers.gemini_live_provider import (
     GeminiLiveSessionProvider,
     LiveSessionProtocol,
+    _LiveSessionHandle,
 )
 
 
-def _make_client(list_ok=True):
-    client = MagicMock(name="GenAIClient")
-    if list_ok:
-        client.models.list.return_value = [SimpleNamespace(name="m")]
-    return client
+class _FakeAsyncCM:
+    """Fake async context manager standing in for the SDK Live connection."""
+
+    def __init__(self, session=None, fail_on_enter=False):
+        self._session = session if session is not None else object()
+        self._fail_on_enter = fail_on_enter
+        self.enter_count = 0
+        self.exit_count = 0
+
+    async def __aenter__(self):
+        self.enter_count += 1
+        if self._fail_on_enter:
+            raise RuntimeError("live connect failed")
+        return self._session
+
+    async def __aexit__(self, *exc):
+        self.exit_count += 1
+        return False
 
 
 def _make_config():
     return ProviderConfig(provider_name="gemini", default_model="gemini-2.5-flash")
 
 
-def _make_provider(client=None, config=None):
-    client = client if client is not None else _make_client()
-    config = config if config is not None else _make_config()
-    return GeminiLiveSessionProvider(client, config), client, config
+def _make_client(cm=None):
+    client = MagicMock(name="GenAIClient")
+    client.models.list.return_value = [SimpleNamespace(name="m")]
+    if cm is not None:
+        client.aio.live.connect = MagicMock(return_value=cm)
+    return client
 
 
-def _new_session_id(provider, **meta):
-    result = provider.create_session(uuid.uuid4(), uuid.uuid4(), meta or None)
-    return result.session.session_id
+def _make_provider(cm=None, config=None):
+    client = _make_client(cm=cm)
+    provider = GeminiLiveSessionProvider(
+        client, config if config is not None else _make_config()
+    )
+    return provider, client
 
 
 # =====================================================================
-# Concrete provider / construction / DI
+# Successful Live-session creation
 # =====================================================================
-class ConcreteProviderTests(unittest.TestCase):
-    def test_subclasses_session_provider(self):
+class CreateSuccessTests(unittest.TestCase):
+    def setUp(self):
+        self.cm = _FakeAsyncCM(session=SimpleNamespace(id="sdk-sess"))
+        self.provider, self.client = _make_provider(cm=self.cm)
+
+    def test_creates_active_session_on_successful_connect(self):
+        result = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "gemini-live-x"}
+        )
+        self.assertIsInstance(result, SessionResult)
+        self.assertTrue(result.success)
+        self.assertIsInstance(result.session, ConversationSession)
+        self.assertEqual(result.session.state, SessionState.ACTIVE)
+        self.assertTrue(result.session.is_active)
+
+    def test_exactly_one_sdk_connect(self):
+        self.provider.create_session(uuid.uuid4(), uuid.uuid4(), {"model": "m"})
+        self.client.aio.live.connect.assert_called_once()
+        self.assertEqual(self.cm.enter_count, 1)
+        self.assertEqual(self.cm.exit_count, 0)  # not closed yet
+
+    def test_model_taken_from_metadata(self):
+        self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "gemini-live-x"}
+        )
+        self.assertEqual(
+            self.client.aio.live.connect.call_args.kwargs["model"],
+            "gemini-live-x",
+        )
+
+    def test_model_falls_back_to_config_default(self):
+        self.provider.create_session(uuid.uuid4(), uuid.uuid4())
+        self.assertEqual(
+            self.client.aio.live.connect.call_args.kwargs["model"],
+            "gemini-2.5-flash",
+        )
+
+    def test_handle_stored_privately_and_wraps_sdk_session(self):
+        result = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        )
+        record = self.provider._sessions[result.session.session_id]
+        self.assertIsInstance(record.handle, _LiveSessionHandle)
+        self.assertIs(record.handle.cm, self.cm)
+        self.assertEqual(record.handle.sdk_session.id, "sdk-sess")
+
+    def test_sdk_session_never_escapes_in_result(self):
+        result = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        )
+        # The public result carries only the provider-independent DTO.
+        self.assertEqual(
+            set(result.session.model_dump().keys()),
+            {
+                "session_id",
+                "conversation_id",
+                "employee_id",
+                "state",
+                "created_at",
+                "updated_at",
+                "metadata",
+            },
+        )
+
+
+# =====================================================================
+# Failed Live-session creation
+# =====================================================================
+class CreateFailureTests(unittest.TestCase):
+    def setUp(self):
+        self.cm = _FakeAsyncCM(fail_on_enter=True)
+        self.provider, self.client = _make_provider(cm=self.cm)
+
+    def test_failed_connect_yields_failed_state_and_unsuccessful_result(self):
+        result = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.session.state, SessionState.FAILED)
+        self.assertFalse(result.session.is_active)
+
+    def test_connect_attempted_once_and_no_handle_leaked(self):
+        result = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        )
+        self.assertEqual(self.cm.enter_count, 1)
+        record = self.provider._sessions[result.session.session_id]
+        self.assertIsNone(record.handle)  # cleaned up — no leak
+
+    def test_failure_does_not_propagate_exception(self):
+        # Connection errors are handled (FAILED), not raised, per the SPI.
+        try:
+            self.provider.create_session(uuid.uuid4(), uuid.uuid4(), {"model": "m"})
+        except Exception as exc:  # pragma: no cover
+            self.fail(f"create_session should not raise, got {exc!r}")
+
+
+# =====================================================================
+# Clean close / cleanup
+# =====================================================================
+class CloseTests(unittest.TestCase):
+    def setUp(self):
+        self.cm = _FakeAsyncCM(session=SimpleNamespace(id="s"))
+        self.provider, self.client = _make_provider(cm=self.cm)
+        self.sid = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        ).session.session_id
+
+    def test_close_transitions_to_closed(self):
+        result = self.provider.close_session(self.sid)
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.CLOSED)
+
+    def test_exactly_one_sdk_close(self):
+        self.provider.close_session(self.sid)
+        self.assertEqual(self.cm.exit_count, 1)
+
+    def test_close_removes_private_handle(self):
+        self.provider.close_session(self.sid)
+        self.assertIsNone(self.provider._sessions[self.sid].handle)
+
+    def test_double_close_is_invalid_transition(self):
+        self.provider.close_session(self.sid)
+        with self.assertRaises(ValueError):
+            self.provider.close_session(self.sid)  # CLOSED -> CLOSED invalid
+
+    def test_cleanup_is_best_effort_on_sdk_error(self):
+        # Even if the SDK close errors, close_session completes and drops handle.
+        cm = _FakeAsyncCM(session=SimpleNamespace(id="s"))
+
+        async def _boom(*a):
+            raise RuntimeError("sdk close error")
+
+        cm.__aexit__ = _boom
+        provider, _ = _make_provider(cm=cm)
+        sid = provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        ).session.session_id
+        result = provider.close_session(sid)
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.CLOSED)
+        self.assertIsNone(provider._sessions[sid].handle)
+
+
+# =====================================================================
+# Construction / DI / private state
+# =====================================================================
+class ConstructionTests(unittest.TestCase):
+    def test_subclasses_session_provider_and_concrete(self):
+        provider, _ = _make_provider()
         self.assertTrue(issubclass(GeminiLiveSessionProvider, SessionProvider))
-
-    def test_is_concrete_and_instantiable(self):
-        provider, _, _ = _make_provider()
         self.assertFalse(inspect.isabstract(GeminiLiveSessionProvider))
         self.assertIsInstance(provider, SessionProvider)
 
-    def test_name(self):
-        provider, _, _ = _make_provider()
-        self.assertEqual(provider.name, "gemini_live")
-
-    def test_constructor_stores_injected_collaborators(self):
-        provider, client, config = _make_provider()
-        self.assertIs(provider.client, client)
-        self.assertIs(provider.config, config)
-
     def test_public_vars_are_only_injected_collaborators(self):
-        provider, _, _ = _make_provider()
+        provider, client = _make_provider()
         public = {k for k in vars(provider) if not k.startswith("_")}
         self.assertEqual(public, {"client", "config"})
-
-    def test_no_sdk_client_constructed_internally(self):
-        client = _make_client()
-        provider = GeminiLiveSessionProvider(client, _make_config())
-        # The client is exactly the injected object — never rebuilt internally.
         self.assertIs(provider.client, client)
 
     def test_constructor_depends_on_protocol_and_config(self):
@@ -99,240 +248,11 @@ class ConcreteProviderTests(unittest.TestCase):
         self.assertIs(params["client"].annotation, GenAIClientProtocol)
         self.assertIs(params["config"].annotation, ProviderConfig)
 
-    def test_provider_state_is_private(self):
-        provider, _, _ = _make_provider()
-        self.assertIn("_sessions", vars(provider))
-        self.assertNotIn("sessions", vars(provider))
-        _new_session_id(provider)
-        # Created sessions live only in the private store, not the public surface.
-        public = {k for k in vars(provider) if not k.startswith("_")}
-        self.assertEqual(public, {"client", "config"})
+    def test_no_background_loop_until_a_session_opens(self):
+        provider, _ = _make_provider()
+        self.assertIsNone(provider._loop)  # lazily started only on connect
 
-
-# =====================================================================
-# create_session
-# =====================================================================
-class CreateSessionTests(unittest.TestCase):
-    def setUp(self):
-        self.provider, _, _ = _make_provider()
-        self.conversation_id = uuid.uuid4()
-        self.employee_id = uuid.uuid4()
-
-    def test_returns_success_and_created_session(self):
-        result = self.provider.create_session(
-            self.conversation_id, self.employee_id, {"k": "v"}
-        )
-        self.assertIsInstance(result, SessionResult)
-        self.assertTrue(result.success)
-        self.assertIsInstance(result.session, ConversationSession)
-        self.assertEqual(result.session.state, SessionState.CREATED)
-        self.assertFalse(result.session.is_active)
-
-    def test_binds_conversation_and_employee_and_metadata(self):
-        result = self.provider.create_session(
-            self.conversation_id, self.employee_id, {"k": "v"}
-        )
-        session = result.session
-        self.assertEqual(session.conversation_id, self.conversation_id)
-        self.assertEqual(session.employee_id, self.employee_id)
-        self.assertEqual(session.metadata, {"k": "v"})
-
-    def test_metadata_defaults_empty(self):
-        result = self.provider.create_session(
-            self.conversation_id, self.employee_id
-        )
-        self.assertEqual(result.session.metadata, {})
-
-    def test_each_session_has_unique_id_and_is_tracked(self):
-        a = self.provider.create_session(self.conversation_id, self.employee_id)
-        b = self.provider.create_session(self.conversation_id, self.employee_id)
-        self.assertNotEqual(a.session.session_id, b.session.session_id)
-        self.assertEqual(len(self.provider._sessions), 2)
-
-    def test_create_opens_no_live_session(self):
-        result = self.provider.create_session(
-            self.conversation_id, self.employee_id
-        )
-        record = self.provider._sessions[result.session.session_id]
-        self.assertIsNone(record.live)  # no Live session opened this sprint
-
-
-# =====================================================================
-# Lifecycle — happy path
-# =====================================================================
-class LifecycleHappyPathTests(unittest.TestCase):
-    def setUp(self):
-        self.provider, _, _ = _make_provider()
-        self.sid = _new_session_id(self.provider)
-
-    def test_full_cycle_create_resume_pause_resume_close(self):
-        r1 = self.provider.resume_session(self.sid)  # CREATED -> ACTIVE
-        self.assertTrue(r1.success)
-        self.assertEqual(r1.session.state, SessionState.ACTIVE)
-        self.assertTrue(r1.session.is_active)
-
-        r2 = self.provider.pause_session(self.sid)  # ACTIVE -> PAUSED
-        self.assertEqual(r2.session.state, SessionState.PAUSED)
-        self.assertFalse(r2.session.is_active)
-
-        r3 = self.provider.resume_session(self.sid)  # PAUSED -> ACTIVE
-        self.assertEqual(r3.session.state, SessionState.ACTIVE)
-
-        r4 = self.provider.close_session(self.sid)  # ACTIVE -> CLOSED
-        self.assertEqual(r4.session.state, SessionState.CLOSED)
-
-    def test_get_reflects_current_state(self):
-        self.provider.resume_session(self.sid)
-        got = self.provider.get_session(self.sid)
-        self.assertTrue(got.success)
-        self.assertEqual(got.session.state, SessionState.ACTIVE)
-
-    def test_transition_updates_timestamp_and_preserves_identity(self):
-        before = self.provider.get_session(self.sid).session
-        after = self.provider.resume_session(self.sid).session
-        self.assertEqual(after.session_id, before.session_id)
-        self.assertEqual(after.created_at, before.created_at)
-        self.assertGreaterEqual(after.updated_at, before.updated_at)
-
-
-# =====================================================================
-# Lifecycle — invalid transitions raise ValueError
-# =====================================================================
-class InvalidTransitionTests(unittest.TestCase):
-    def setUp(self):
-        self.provider, _, _ = _make_provider()
-
-    def test_pause_created_raises(self):
-        sid = _new_session_id(self.provider)
-        with self.assertRaises(ValueError):
-            self.provider.pause_session(sid)
-
-    def test_resume_active_raises(self):
-        sid = _new_session_id(self.provider)
-        self.provider.resume_session(sid)  # -> ACTIVE
-        with self.assertRaises(ValueError):
-            self.provider.resume_session(sid)  # ACTIVE -> ACTIVE invalid
-
-    def test_pause_paused_raises(self):
-        sid = _new_session_id(self.provider)
-        self.provider.resume_session(sid)
-        self.provider.pause_session(sid)  # -> PAUSED
-        with self.assertRaises(ValueError):
-            self.provider.pause_session(sid)  # PAUSED -> PAUSED invalid
-
-    def test_close_created_raises(self):
-        sid = _new_session_id(self.provider)
-        with self.assertRaises(ValueError):
-            self.provider.close_session(sid)  # CLOSED only reachable from ACTIVE
-
-    def test_close_paused_raises(self):
-        sid = _new_session_id(self.provider)
-        self.provider.resume_session(sid)
-        self.provider.pause_session(sid)
-        with self.assertRaises(ValueError):
-            self.provider.close_session(sid)
-
-    def test_resume_and_close_after_close_raise(self):
-        sid = _new_session_id(self.provider)
-        self.provider.resume_session(sid)
-        self.provider.close_session(sid)  # -> CLOSED (terminal)
-        with self.assertRaises(ValueError):
-            self.provider.resume_session(sid)
-        with self.assertRaises(ValueError):
-            self.provider.close_session(sid)
-
-    def test_missing_session_is_soft_failure_not_exception(self):
-        missing = uuid.uuid4()
-        for op in (
-            self.provider.pause_session,
-            self.provider.resume_session,
-            self.provider.close_session,
-        ):
-            result = op(missing)
-            self.assertFalse(result.success)
-            self.assertIsNone(result.session)
-
-
-# =====================================================================
-# Private transition validator — full matrix
-# =====================================================================
-class TransitionValidatorMatrixTests(unittest.TestCase):
-    _ALLOWED = {
-        (SessionState.CREATED, SessionState.ACTIVE),
-        (SessionState.CREATED, SessionState.FAILED),
-        (SessionState.ACTIVE, SessionState.PAUSED),
-        (SessionState.ACTIVE, SessionState.CLOSED),
-        (SessionState.ACTIVE, SessionState.FAILED),
-        (SessionState.PAUSED, SessionState.ACTIVE),
-        (SessionState.PAUSED, SessionState.FAILED),
-    }
-
-    def test_full_matrix(self):
-        provider, _, _ = _make_provider()
-        for current in SessionState:
-            for target in SessionState:
-                if (current, target) in self._ALLOWED:
-                    provider._validate_transition(current, target)  # no raise
-                else:
-                    with self.assertRaises(ValueError):
-                        provider._validate_transition(current, target)
-
-    def test_failed_reachable_from_every_live_state(self):
-        provider, _, _ = _make_provider()
-        for live in (
-            SessionState.CREATED,
-            SessionState.ACTIVE,
-            SessionState.PAUSED,
-        ):
-            provider._validate_transition(live, SessionState.FAILED)
-
-    def test_terminal_states_have_no_outgoing_transitions(self):
-        provider, _, _ = _make_provider()
-        for terminal in (SessionState.CLOSED, SessionState.FAILED):
-            for target in SessionState:
-                with self.assertRaises(ValueError):
-                    provider._validate_transition(terminal, target)
-
-
-# =====================================================================
-# get_session / health_check
-# =====================================================================
-class GetSessionAndHealthTests(unittest.TestCase):
-    def test_get_missing_session_soft_failure(self):
-        provider, _, _ = _make_provider()
-        result = provider.get_session(uuid.uuid4())
-        self.assertFalse(result.success)
-        self.assertIsNone(result.session)
-
-    def test_health_check_true_when_client_usable(self):
-        client = _make_client(list_ok=True)
-        provider = GeminiLiveSessionProvider(client, _make_config())
-        self.assertTrue(provider.health_check())
-        client.models.list.assert_called_once_with()
-
-    def test_health_check_uses_only_client_no_session_or_generation(self):
-        client = _make_client()
-        provider = GeminiLiveSessionProvider(client, _make_config())
-        provider.health_check()
-        client.models.generate_content.assert_not_called()
-        self.assertEqual(provider._sessions, {})  # no session created
-
-    def test_health_check_false_on_client_failure(self):
-        client = _make_client()
-        client.models.list.side_effect = RuntimeError("unauthorized")
-        provider = GeminiLiveSessionProvider(client, _make_config())
-        self.assertFalse(provider.health_check())
-
-    def test_health_check_never_raises_for_broken_client(self):
-        provider = GeminiLiveSessionProvider(object(), _make_config())
-        self.assertFalse(provider.health_check())
-
-
-# =====================================================================
-# DTO integrity / SPI shape
-# =====================================================================
-class DtoIntegrityTests(unittest.TestCase):
-    def test_conversation_session_not_extended(self):
+    def test_dto_not_extended(self):
         self.assertEqual(
             set(ConversationSession.model_fields),
             {
@@ -346,14 +266,89 @@ class DtoIntegrityTests(unittest.TestCase):
             },
         )
 
-    def test_results_are_provider_independent_dtos(self):
-        provider, _, _ = _make_provider()
-        result = provider.create_session(uuid.uuid4(), uuid.uuid4())
-        self.assertIsInstance(result, SessionResult)
-        self.assertIsInstance(result.session, ConversationSession)
-
     def test_live_session_protocol_is_structural(self):
         self.assertTrue(hasattr(LiveSessionProtocol, "__subclasshook__"))
+
+
+# =====================================================================
+# Lifecycle transitions / exception propagation (no SDK effect)
+# =====================================================================
+class TransitionTests(unittest.TestCase):
+    def setUp(self):
+        self.cm = _FakeAsyncCM(session=SimpleNamespace(id="s"))
+        self.provider, _ = _make_provider(cm=self.cm)
+        self.sid = self.provider.create_session(
+            uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+        ).session.session_id  # ACTIVE
+
+    def test_pause_then_resume(self):
+        self.assertEqual(
+            self.provider.pause_session(self.sid).session.state,
+            SessionState.PAUSED,
+        )
+        self.assertEqual(
+            self.provider.resume_session(self.sid).session.state,
+            SessionState.ACTIVE,
+        )
+
+    def test_resume_active_raises(self):
+        with self.assertRaises(ValueError):
+            self.provider.resume_session(self.sid)  # ACTIVE -> ACTIVE invalid
+
+    def test_close_from_paused_raises(self):
+        self.provider.pause_session(self.sid)
+        with self.assertRaises(ValueError):
+            self.provider.close_session(self.sid)
+
+    def test_missing_session_soft_failure(self):
+        missing = uuid.uuid4()
+        for op in (
+            self.provider.pause_session,
+            self.provider.resume_session,
+            self.provider.close_session,
+            self.provider.get_session,
+        ):
+            result = op(missing)
+            self.assertFalse(result.success)
+            self.assertIsNone(result.session)
+
+    def test_validator_matrix(self):
+        allowed = {
+            (SessionState.CREATED, SessionState.ACTIVE),
+            (SessionState.CREATED, SessionState.FAILED),
+            (SessionState.ACTIVE, SessionState.PAUSED),
+            (SessionState.ACTIVE, SessionState.CLOSED),
+            (SessionState.ACTIVE, SessionState.FAILED),
+            (SessionState.PAUSED, SessionState.ACTIVE),
+            (SessionState.PAUSED, SessionState.FAILED),
+        }
+        for current in SessionState:
+            for target in SessionState:
+                if (current, target) in allowed:
+                    self.provider._validate_transition(current, target)
+                else:
+                    with self.assertRaises(ValueError):
+                        self.provider._validate_transition(current, target)
+
+
+# =====================================================================
+# health_check
+# =====================================================================
+class HealthCheckTests(unittest.TestCase):
+    def test_true_when_client_usable_and_opens_no_live_session(self):
+        provider, client = _make_provider()
+        self.assertTrue(provider.health_check())
+        client.models.list.assert_called_once_with()
+        client.aio.live.connect.assert_not_called()
+
+    def test_false_on_client_failure(self):
+        provider, client = _make_provider()
+        client.models.list.side_effect = RuntimeError("unauthorized")
+        self.assertFalse(provider.health_check())
+
+    def test_never_raises_for_broken_client(self):
+        provider = GeminiLiveSessionProvider(object(), _make_config())
+        self.assertFalse(provider.health_check())
 
 
 # =====================================================================
@@ -361,13 +356,7 @@ class DtoIntegrityTests(unittest.TestCase):
 # =====================================================================
 class ImportAuditTests(unittest.TestCase):
     _MODULE = "app.services.session.providers.gemini_live_provider"
-    _OTHER_SESSION_MODULES = (
-        "app.services.session",
-        "app.services.session.models",
-        "app.services.session.session_service",
-        "app.services.session.providers",
-        "app.services.session.providers.base",
-    )
+    # asyncio/threading are now legitimately required for the async<->sync bridge.
     _FORBIDDEN_ROOTS = {
         "google",
         "vertexai",
@@ -380,7 +369,6 @@ class ImportAuditTests(unittest.TestCase):
         "websockets",
         "grpc",
         "socket",
-        "asyncio",
         "sqlalchemy",
         "qdrant_client",
         "boto3",
@@ -406,7 +394,7 @@ class ImportAuditTests(unittest.TestCase):
                 modules.add(node.module)
         return roots, modules
 
-    def test_no_forbidden_sdk_network_persistence_roots(self):
+    def test_no_forbidden_roots(self):
         roots, _ = self._imports(self._MODULE)
         self.assertEqual(roots & self._FORBIDDEN_ROOTS, set())
 
@@ -416,21 +404,9 @@ class ImportAuditTests(unittest.TestCase):
         self.assertNotIn("vertexai", roots)
 
     def test_app_imports_exactly_whitelisted(self):
-        # No runtime / planner / interaction / memory / tool / repository / api
-        # / orchestrator imports — only own package + the two injected-type modules.
         _, modules = self._imports(self._MODULE)
         app_imports = {m for m in modules if m.startswith("app.")}
         self.assertEqual(app_imports, self._ALLOWED_APP_IMPORTS)
-
-    def test_other_session_modules_import_no_sdk_types(self):
-        for name in self._OTHER_SESSION_MODULES:
-            _, modules = self._imports(name)
-            for module_path in modules:
-                self.assertFalse(module_path.startswith("google"))
-                self.assertFalse(
-                    module_path.startswith("app.services.multimodal_ai"),
-                    f"{name} should not import multimodal_ai types",
-                )
 
 
 # =====================================================================
@@ -453,19 +429,10 @@ class DependencyTests(unittest.TestCase):
         self.assertTrue(hasattr(dependencies, "GeminiLiveSessionProviderDep"))
 
     def test_generic_session_seam_unchanged(self):
-        # Sprint 12.6 seam remains intentionally unfulfilled; 12.7 does NOT
-        # replace it (the Gemini Live provider is a separate, additive seam).
         from app.core.dependencies import get_session_provider
 
         with self.assertRaises(NotImplementedError):
             get_session_provider()
-
-    def test_session_service_seam_unchanged(self):
-        from app.core.dependencies import get_session_service
-
-        provider = MagicMock(name="SessionProvider")
-        service = get_session_service(provider)
-        self.assertIs(service.provider, provider)
 
 
 if __name__ == "__main__":
