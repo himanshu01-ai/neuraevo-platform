@@ -306,11 +306,14 @@ class GeminiProviderDependencyTests(unittest.TestCase):
         self.assertTrue(hasattr(dependencies, "GeminiProviderDep"))
         self.assertTrue(hasattr(dependencies, "ProviderConfigDep"))
 
-    def test_adapter_seam_still_unfulfilled(self):
+    def test_adapter_seam_fulfilled_in_sprint_12_5(self):
+        # The 12.3/12.4-era seam raised NotImplementedError; Sprint 12.5
+        # fulfilled it with the Gemini adapter, so the provider chain is now
+        # resolvable. The seam itself stays a pure pass-through.
         from app.core.dependencies import get_multimodal_ai_adapter
 
-        with self.assertRaises(NotImplementedError):
-            get_multimodal_ai_adapter()
+        adapter = MagicMock(name="MultimodalAIAdapter")
+        self.assertIs(get_multimodal_ai_adapter(adapter), adapter)
 
 
 if __name__ == "__main__":
