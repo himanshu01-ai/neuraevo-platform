@@ -32,6 +32,10 @@ from app.services.planning.execution_workflow_models import (
     WorkflowStatus,
 )
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.task_lifecycle_models import (
+    TaskLifecycle,
+    TaskLifecycleState,
+)
 
 # User-language message per decision status (no implementation terms).
 _DECISION_MESSAGES = {
@@ -264,6 +268,36 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_task_lifecycles(
+        self, plan: ExecutionPlan, lifecycles: List[TaskLifecycle]
+    ) -> str:
+        """Explain ``plan`` and the lifecycles tracking its tasks (no execution).
+
+        Sprint 13.8 extension. Reuses :meth:`build` for the step narration, then
+        summarises how many tasks are being tracked and how many are ready or
+        waiting — in everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        if not lifecycles:
+            segments.append("There are no tasks to track yet.")
+            return " ".join(segments)
+
+        ready = sum(
+            1
+            for lifecycle in lifecycles
+            if lifecycle.current_state == TaskLifecycleState.READY.value
+        )
+        waiting = sum(
+            1
+            for lifecycle in lifecycles
+            if lifecycle.current_state == TaskLifecycleState.WAITING.value
+        )
+        segments.append(
+            f"I'm tracking {len(lifecycles)} tasks: {ready} ready to start and "
+            f"{waiting} waiting."
+        )
         return " ".join(segments)
 
     def build_with_execution_queue(

@@ -36,6 +36,12 @@ from app.services.planning.execution_workflow_models import (
     WorkflowStatus,
 )
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.task_lifecycle_models import (
+    TASK_LIFECYCLE_TRANSITIONS,
+    TERMINAL_TASK_STATES,
+    TaskLifecycle,
+    TaskLifecycleState,
+)
 
 # The only execution strategies a well-formed preparation may carry.
 _VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
@@ -58,6 +64,11 @@ _VALID_EXECUTION_MODES = frozenset(mode.value for mode in ExecutionMode)
 _VALID_QUEUE_STATUSES = frozenset(status.value for status in QueueStatus)
 _VALID_UNIT_STATUSES = frozenset(
     status.value for status in ExecutionUnitStatus
+)
+
+# The only states a well-formed task lifecycle may carry.
+_VALID_LIFECYCLE_STATES = frozenset(
+    state.value for state in TaskLifecycleState
 )
 
 
@@ -383,6 +394,79 @@ class PlanValidator:
             raise PlanValidationError(
                 "blocked_units does not match the number of BLOCKED units."
             )
+
+    def validate_task_lifecycles(
+        self, lifecycles: "list[TaskLifecycle]"
+    ) -> None:
+        """Raise :class:`PlanValidationError` if any lifecycle is not well-formed.
+
+        Sprint 13.8 extension. For each lifecycle, rejects an empty unit id, an
+        unknown current/previous state, allowed next states that disagree with
+        the canonical transition table, an ``is_terminal`` flag inconsistent with
+        that table, an empty history, a history not ending at the current state, a
+        history that violates the transition table, a ``previous_state``
+        inconsistent with the history, and (across the list) duplicate unit ids.
+        Inspects only plain data — no execution, provider, or AI work.
+        """
+        unit_ids: list = []
+        for lifecycle in lifecycles:
+            if not lifecycle.unit_id.strip():
+                raise PlanValidationError("unit_id must not be empty.")
+            if lifecycle.current_state not in _VALID_LIFECYCLE_STATES:
+                raise PlanValidationError(
+                    f"Invalid lifecycle state: {lifecycle.current_state!r}."
+                )
+            if lifecycle.previous_state is not None and (
+                lifecycle.previous_state not in _VALID_LIFECYCLE_STATES
+            ):
+                raise PlanValidationError(
+                    f"Invalid previous state: {lifecycle.previous_state!r}."
+                )
+
+            expected_next = set(
+                TASK_LIFECYCLE_TRANSITIONS[lifecycle.current_state]
+            )
+            if set(lifecycle.allowed_next_states) != expected_next:
+                raise PlanValidationError(
+                    f"allowed_next_states for {lifecycle.current_state} must be "
+                    f"{sorted(expected_next)}."
+                )
+            expected_terminal = (
+                lifecycle.current_state in TERMINAL_TASK_STATES
+            )
+            if lifecycle.is_terminal != expected_terminal:
+                raise PlanValidationError(
+                    f"is_terminal for {lifecycle.current_state} must be "
+                    f"{expected_terminal}."
+                )
+
+            history = lifecycle.state_history
+            if not history:
+                raise PlanValidationError("state_history must not be empty.")
+            for state in history:
+                if state not in _VALID_LIFECYCLE_STATES:
+                    raise PlanValidationError(
+                        f"Invalid state in history: {state!r}."
+                    )
+            if history[-1] != lifecycle.current_state:
+                raise PlanValidationError(
+                    "state_history must end at the current state."
+                )
+            for earlier, later in zip(history, history[1:]):
+                if later not in TASK_LIFECYCLE_TRANSITIONS[earlier]:
+                    raise PlanValidationError(
+                        f"Invalid history transition {earlier} -> {later}."
+                    )
+            expected_previous = history[-2] if len(history) >= 2 else None
+            if lifecycle.previous_state != expected_previous:
+                raise PlanValidationError(
+                    "previous_state must match the state before current in "
+                    "history."
+                )
+            unit_ids.append(lifecycle.unit_id)
+
+        if len(set(unit_ids)) != len(unit_ids):
+            raise PlanValidationError("Duplicate task lifecycle unit ids.")
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:

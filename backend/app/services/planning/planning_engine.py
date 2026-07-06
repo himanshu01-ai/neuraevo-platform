@@ -14,7 +14,7 @@ is valid, and can explain it. The output of the engine is a validated
 :class:`ExecutionPlan`; nothing downstream is triggered here.
 """
 
-from typing import Optional
+from typing import List, Optional
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_engine import DecisionEngine
@@ -31,6 +31,8 @@ from app.services.planning.execution_preparation_models import (
 )
 from app.services.planning.execution_queue_models import ExecutionQueue
 from app.services.planning.execution_workflow_models import ExecutionWorkflow
+from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
+from app.services.planning.task_lifecycle_models import TaskLifecycle
 from app.services.planning.models import ExecutionPlan, PlanningRequest
 from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.planning.plan_explanation_builder import (
@@ -62,19 +64,20 @@ class PlanningEngine:
         intent_engine: Optional[ExecutionIntentEngine] = None,
         orchestrator: Optional[ExecutionOrchestrator] = None,
         coordinator: Optional[ExecutionCoordinator] = None,
+        lifecycle_engine: Optional[TaskLifecycleEngine] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.7: the analyzer, preparation engine, decision engine,
-        # execution-intent engine, execution orchestrator, and execution
-        # coordinator are optional, additive collaborators. Each is stored only
-        # when injected so that earlier-sprint construction (three to eight
-        # arguments) keeps exactly its original attributes and its tests pass
-        # unchanged. ``analyze``/``prepare``/``decide``/
-        # ``create_execution_intent``/``create_execution_workflow``/
-        # ``create_execution_queue`` each require their collaborator;
-        # ``create_plan``/``explain`` require none.
+        # Sprint 13.2–13.8: the analyzer, preparation engine, decision engine,
+        # execution-intent engine, execution orchestrator, execution
+        # coordinator, and task-lifecycle engine are optional, additive
+        # collaborators. Each is stored only when injected so that earlier-sprint
+        # construction (three to nine arguments) keeps exactly its original
+        # attributes and its tests pass unchanged. ``analyze``/``prepare``/
+        # ``decide``/``create_execution_intent``/``create_execution_workflow``/
+        # ``create_execution_queue``/``create_task_lifecycles`` each require
+        # their collaborator; ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
@@ -87,6 +90,8 @@ class PlanningEngine:
             self.orchestrator = orchestrator
         if coordinator is not None:
             self.coordinator = coordinator
+        if lifecycle_engine is not None:
+            self.lifecycle_engine = lifecycle_engine
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -262,3 +267,28 @@ class PlanningEngine:
         queue = coordinator.create_queue(workflow)
         self.validator.validate_execution_queue(queue)
         return queue
+
+    def create_task_lifecycles(
+        self, queue: ExecutionQueue
+    ) -> List[TaskLifecycle]:
+        """Manage lifecycles for ``queue``'s units (STATE ONLY — no execution).
+
+        Sprint 13.8 addition. Delegates to the injected
+        :class:`TaskLifecycleEngine` to build one immutable :class:`TaskLifecycle`
+        per execution unit — starting state, allowed transitions, terminal flag,
+        and immutable history — then validates the result via the injected
+        :class:`PlanValidator`. This represents execution state only; it executes,
+        resolves, and acquires nothing and never mutates the queue. Raises
+        :class:`RuntimeError` if no lifecycle engine was injected and
+        :class:`PlanValidationError` if a lifecycle is malformed; engine
+        exceptions propagate unchanged.
+        """
+        lifecycle_engine = getattr(self, "lifecycle_engine", None)
+        if lifecycle_engine is None:
+            raise RuntimeError(
+                "PlanningEngine has no TaskLifecycleEngine injected; provide "
+                "one to call create_task_lifecycles()."
+            )
+        lifecycles = lifecycle_engine.create_lifecycles(queue)
+        self.validator.validate_task_lifecycles(lifecycles)
+        return lifecycles
