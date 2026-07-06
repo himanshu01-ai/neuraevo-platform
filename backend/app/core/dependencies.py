@@ -64,6 +64,7 @@ from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
 )
 from app.services.planning.decision_engine import DecisionEngine
+from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -627,6 +628,21 @@ def get_decision_engine() -> DecisionEngine:
 DecisionEngineDep = Annotated[DecisionEngine, Depends(get_decision_engine)]
 
 
+def get_execution_intent_engine() -> ExecutionIntentEngine:
+    """Provide the stateless :class:`ExecutionIntentEngine` (Sprint 13.5).
+
+    Deterministic, offline conversion of an :class:`ExecutionDecision` into an
+    :class:`ExecutionIntent`. INTENT ONLY — no AI, network, SDK, Runtime,
+    Session, Registry, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionIntentEngine()
+
+
+ExecutionIntentEngineDep = Annotated[
+    ExecutionIntentEngine, Depends(get_execution_intent_engine)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -634,17 +650,20 @@ def get_planning_engine(
     analyzer: PlanAnalyzerDep = None,
     preparation_engine: ExecutionPreparationEngineDep = None,
     decision_engine: DecisionEngineDep = None,
+    intent_engine: ExecutionIntentEngineDep = None,
 ) -> PlanningEngine:
-    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide).
+    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent).
 
     Composes the injected planning provider, plan validator, explanation builder,
     (Sprint 13.2) the :class:`PlanAnalyzer`, (Sprint 13.3) the
-    :class:`ExecutionPreparationEngine`, and (Sprint 13.4) the
-    :class:`DecisionEngine` — constructor injection only; it instantiates nothing
-    itself. The engine reasons, validates, analyses, prepares, and decides but
-    never executes and holds no session. The ``analyzer``, ``preparation_engine``,
-    and ``decision_engine`` defaults of ``None`` keep earlier-sprint
-    three-/four-/five-argument construction working unchanged; FastAPI still
+    :class:`ExecutionPreparationEngine`, (Sprint 13.4) the
+    :class:`DecisionEngine`, and (Sprint 13.5) the
+    :class:`ExecutionIntentEngine` — constructor injection only; it instantiates
+    nothing itself. The engine reasons, validates, analyses, prepares, decides,
+    and forms an execution intent but never executes and holds no session. The
+    ``analyzer``, ``preparation_engine``, ``decision_engine``, and
+    ``intent_engine`` defaults of ``None`` keep earlier-sprint
+    three-/four-/five-/six-argument construction working unchanged; FastAPI still
     resolves each via ``Depends`` when routed. Not yet wired into the Conversation
     Runtime — that integration belongs to a later sprint; this composition-root
     seam makes the engine resolvable and ready.
@@ -656,6 +675,7 @@ def get_planning_engine(
         analyzer,
         preparation_engine,
         decision_engine,
+        intent_engine,
     )
 
 

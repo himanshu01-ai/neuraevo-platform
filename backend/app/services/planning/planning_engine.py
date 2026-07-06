@@ -19,6 +19,8 @@ from typing import Optional
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.decision_models import ExecutionDecision
+from app.services.planning.execution_intent_engine import ExecutionIntentEngine
+from app.services.planning.execution_intent_models import ExecutionIntent
 from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
 )
@@ -53,15 +55,17 @@ class PlanningEngine:
         analyzer: Optional[PlanAnalyzer] = None,
         preparation_engine: Optional[ExecutionPreparationEngine] = None,
         decision_engine: Optional[DecisionEngine] = None,
+        intent_engine: Optional[ExecutionIntentEngine] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2/13.3/13.4: the analyzer, preparation engine, and decision
-        # engine are optional, additive collaborators. Each is stored only when
-        # injected so that earlier-sprint construction (three to five arguments)
-        # keeps exactly its original attributes and its tests pass unchanged.
-        # ``analyze``/``prepare``/``decide`` each require their collaborator;
+        # Sprint 13.2–13.5: the analyzer, preparation engine, decision engine,
+        # and execution-intent engine are optional, additive collaborators. Each
+        # is stored only when injected so that earlier-sprint construction (three
+        # to six arguments) keeps exactly its original attributes and its tests
+        # pass unchanged. ``analyze``/``prepare``/``decide``/
+        # ``create_execution_intent`` each require their collaborator;
         # ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
@@ -69,6 +73,8 @@ class PlanningEngine:
             self.preparation_engine = preparation_engine
         if decision_engine is not None:
             self.decision_engine = decision_engine
+        if intent_engine is not None:
+            self.intent_engine = intent_engine
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -159,3 +165,33 @@ class PlanningEngine:
         decision = decision_engine.decide(plan, analysis, preparation)
         self.validator.validate_decision(decision)
         return decision
+
+    def create_execution_intent(
+        self,
+        plan: ExecutionPlan,
+        analysis: PlanAnalysis,
+        preparation: ExecutionPreparation,
+        decision: ExecutionDecision,
+    ) -> ExecutionIntent:
+        """Convert ``decision`` into an :class:`ExecutionIntent` (no execution).
+
+        Sprint 13.5 addition. Delegates to the injected
+        :class:`ExecutionIntentEngine` to turn the decision (with its plan,
+        analysis, and preparation as context) into a single provider-independent
+        intent, then validates the result via the injected
+        :class:`PlanValidator`. This only records an intention — it executes,
+        resolves, and acquires nothing. Raises :class:`RuntimeError` if no intent
+        engine was injected and :class:`PlanValidationError` if the intent is
+        malformed; engine exceptions propagate unchanged.
+        """
+        intent_engine = getattr(self, "intent_engine", None)
+        if intent_engine is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionIntentEngine injected; provide "
+                "one to call create_execution_intent()."
+            )
+        intent = intent_engine.create_intent(
+            plan, analysis, preparation, decision
+        )
+        self.validator.validate_execution_intent(intent)
+        return intent

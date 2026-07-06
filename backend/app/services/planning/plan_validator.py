@@ -17,6 +17,10 @@ Rules enforced:
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_intent_models import (
+    ExecutionIntent,
+    ExecutionIntentType,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
@@ -28,6 +32,11 @@ _VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
 
 # The only statuses a well-formed decision may carry.
 _VALID_DECISION_STATUSES = frozenset(status.value for status in DecisionStatus)
+
+# The only intents a well-formed execution intent may carry.
+_VALID_INTENT_TYPES = frozenset(
+    intent.value for intent in ExecutionIntentType
+)
 
 
 class PlanValidationError(ValueError):
@@ -202,6 +211,50 @@ class PlanValidator:
         self._reject_empty_or_duplicate(
             decision.blocking_reasons, "blocking reason"
         )
+
+    def validate_execution_intent(self, intent: ExecutionIntent) -> None:
+        """Raise :class:`PlanValidationError` if ``intent`` is not well-formed.
+
+        Sprint 13.5 extension. Rejects an unknown intent, an empty recommended
+        next step, a negative execution priority, an inconsistent
+        ``should_execute`` (true only for ``EXECUTE_NOW``) or
+        ``requires_user_action`` (true only for ``WAIT_FOR_USER``), and a
+        ``DEFER`` intent with no defer reason. Inspects only the intent's plain
+        data — no execution, provider, or AI work.
+        """
+        if intent.intent not in _VALID_INTENT_TYPES:
+            raise PlanValidationError(
+                f"Invalid execution intent: {intent.intent!r}."
+            )
+        if not intent.recommended_next_step.strip():
+            raise PlanValidationError(
+                "Recommended next step must not be empty."
+            )
+        if intent.execution_priority < 0:
+            raise PlanValidationError(
+                "execution_priority cannot be negative "
+                f"({intent.execution_priority})."
+            )
+        if intent.should_execute and (
+            intent.intent != ExecutionIntentType.EXECUTE_NOW.value
+        ):
+            raise PlanValidationError(
+                "should_execute may be true only when the intent is "
+                "EXECUTE_NOW."
+            )
+        if intent.requires_user_action and (
+            intent.intent != ExecutionIntentType.WAIT_FOR_USER.value
+        ):
+            raise PlanValidationError(
+                "requires_user_action may be true only when the intent is "
+                "WAIT_FOR_USER."
+            )
+        if intent.intent == ExecutionIntentType.DEFER.value and (
+            not intent.defer_reason.strip()
+        ):
+            raise PlanValidationError(
+                "A DEFER intent must include a defer reason."
+            )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:

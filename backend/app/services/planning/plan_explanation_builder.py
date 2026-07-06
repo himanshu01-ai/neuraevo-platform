@@ -15,6 +15,10 @@ from typing import List
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_intent_models import (
+    ExecutionIntent,
+    ExecutionIntentType,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
@@ -34,6 +38,22 @@ _DECISION_MESSAGES = {
     ),
     DecisionStatus.REJECTED.value: (
         "I can't carry out this plan as it stands."
+    ),
+}
+
+# User-language message per execution intent (no implementation terms).
+_INTENT_MESSAGES = {
+    ExecutionIntentType.EXECUTE_NOW.value: (
+        "I'm ready to carry this out now."
+    ),
+    ExecutionIntentType.WAIT_FOR_USER.value: (
+        "I need something from you before I can continue."
+    ),
+    ExecutionIntentType.DEFER.value: (
+        "I'll set this aside until the requirements are met."
+    ),
+    ExecutionIntentType.CANCEL.value: (
+        "I won't pursue this plan."
     ),
 }
 
@@ -156,6 +176,26 @@ class PlanningExplanationBuilder:
                 for item in decision.blocking_reasons
             ]
             segments.append(f"Outstanding items: {self._join(readable)}.")
+        return " ".join(segments)
+
+    def build_with_execution_intent(
+        self, plan: ExecutionPlan, intent: ExecutionIntent
+    ) -> str:
+        """Explain ``plan`` and the intent formed about it (no execution).
+
+        Sprint 13.5 extension. Reuses :meth:`build` for the step narration, then
+        adds a plain-language statement of the intent and, when deferring, the
+        reason — in everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _INTENT_MESSAGES.get(intent.intent, intent.recommended_next_step)
+        )
+        if (
+            intent.intent == ExecutionIntentType.DEFER.value
+            and intent.defer_reason.strip()
+        ):
+            segments.append(intent.defer_reason)
         return " ".join(segments)
 
     @staticmethod
