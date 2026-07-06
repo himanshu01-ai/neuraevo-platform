@@ -15,10 +15,31 @@ from typing import List
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_intent_models import (
+    ExecutionIntent,
+    ExecutionIntentType,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
+from app.services.planning.execution_queue_models import (
+    ExecutionQueue,
+    QueueStatus,
+)
+from app.services.planning.execution_state_models import (
+    ExecutionState,
+    ExecutionStateType,
+)
+from app.services.planning.execution_workflow_models import (
+    ExecutionMode,
+    ExecutionWorkflow,
+    WorkflowStatus,
+)
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.task_lifecycle_models import (
+    TaskLifecycle,
+    TaskLifecycleState,
+)
 
 # User-language message per decision status (no implementation terms).
 _DECISION_MESSAGES = {
@@ -34,6 +55,67 @@ _DECISION_MESSAGES = {
     ),
     DecisionStatus.REJECTED.value: (
         "I can't carry out this plan as it stands."
+    ),
+}
+
+# User-language message per execution intent (no implementation terms).
+_INTENT_MESSAGES = {
+    ExecutionIntentType.EXECUTE_NOW.value: (
+        "I'm ready to carry this out now."
+    ),
+    ExecutionIntentType.WAIT_FOR_USER.value: (
+        "I need something from you before I can continue."
+    ),
+    ExecutionIntentType.DEFER.value: (
+        "I'll set this aside until the requirements are met."
+    ),
+    ExecutionIntentType.CANCEL.value: (
+        "I won't pursue this plan."
+    ),
+}
+
+# User-language message per workflow status (no implementation terms).
+_WORKFLOW_STATUS_MESSAGES = {
+    WorkflowStatus.READY.value: "The workflow is ready to run.",
+    WorkflowStatus.WAITING.value: (
+        "The workflow is waiting and will continue once you respond."
+    ),
+    WorkflowStatus.BLOCKED.value: (
+        "The workflow is on hold until its requirements are met."
+    ),
+    WorkflowStatus.PLANNED.value: (
+        "The workflow is planned but won't proceed."
+    ),
+}
+
+# User-language phrasing per execution mode.
+_WORKFLOW_MODE_PHRASES = {
+    ExecutionMode.SEQUENTIAL.value: "one step at a time",
+    ExecutionMode.PARALLEL.value: "several steps at once",
+    ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
+}
+
+# User-language message per overall execution state (no implementation terms).
+_EXECUTION_STATE_MESSAGES = {
+    ExecutionStateType.READY.value: "Execution is ready to begin.",
+    ExecutionStateType.WAITING.value: "Execution is waiting.",
+    ExecutionStateType.RUNNING.value: "Execution is in progress.",
+    ExecutionStateType.PARTIALLY_COMPLETED.value: (
+        "Execution is partly done."
+    ),
+    ExecutionStateType.COMPLETED.value: "Execution is complete.",
+    ExecutionStateType.FAILED.value: "Execution ran into a problem.",
+    ExecutionStateType.CANCELLED.value: "Execution was cancelled.",
+}
+
+# User-language message per queue status (no implementation terms).
+_QUEUE_STATUS_MESSAGES = {
+    QueueStatus.READY.value: "The execution queue is ready to begin.",
+    QueueStatus.WAITING.value: (
+        "The execution queue is waiting for you before anything can start."
+    ),
+    QueueStatus.BLOCKED.value: (
+        "The execution queue is blocked; nothing can start yet."
     ),
 }
 
@@ -156,6 +238,125 @@ class PlanningExplanationBuilder:
                 for item in decision.blocking_reasons
             ]
             segments.append(f"Outstanding items: {self._join(readable)}.")
+        return " ".join(segments)
+
+    def build_with_execution_intent(
+        self, plan: ExecutionPlan, intent: ExecutionIntent
+    ) -> str:
+        """Explain ``plan`` and the intent formed about it (no execution).
+
+        Sprint 13.5 extension. Reuses :meth:`build` for the step narration, then
+        adds a plain-language statement of the intent and, when deferring, the
+        reason — in everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _INTENT_MESSAGES.get(intent.intent, intent.recommended_next_step)
+        )
+        if (
+            intent.intent == ExecutionIntentType.DEFER.value
+            and intent.defer_reason.strip()
+        ):
+            segments.append(intent.defer_reason)
+        return " ".join(segments)
+
+    def build_with_execution_workflow(
+        self, plan: ExecutionPlan, workflow: ExecutionWorkflow
+    ) -> str:
+        """Explain ``plan`` and the workflow coordinating it (no execution).
+
+        Sprint 13.6 extension. Reuses :meth:`build` for the step narration, then
+        describes the workflow's status, how its steps are organised, and whether
+        it can be resumed — in everyday user language, never implementation
+        terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _WORKFLOW_STATUS_MESSAGES.get(
+                workflow.workflow_status, "The workflow is planned."
+            )
+        )
+        phrase = _WORKFLOW_MODE_PHRASES.get(
+            workflow.execution_mode, "in order"
+        )
+        segments.append(
+            f"It's organised to run {phrase} across "
+            f"{workflow.estimated_total_steps} steps."
+        )
+        if workflow.resumable:
+            segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_state(
+        self, plan: ExecutionPlan, state: ExecutionState
+    ) -> str:
+        """Explain ``plan`` and the overall execution state (no execution).
+
+        Sprint 13.9 extension. Reuses :meth:`build` for the step narration, then
+        states the overall progress in everyday user language, never
+        implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _EXECUTION_STATE_MESSAGES.get(
+                state.overall_state, "Execution is planned."
+            )
+        )
+        segments.append(
+            f"Progress: {state.progress_percentage:.0f}% "
+            f"({state.completed_tasks} of {state.total_tasks} tasks complete)."
+        )
+        return " ".join(segments)
+
+    def build_with_task_lifecycles(
+        self, plan: ExecutionPlan, lifecycles: List[TaskLifecycle]
+    ) -> str:
+        """Explain ``plan`` and the lifecycles tracking its tasks (no execution).
+
+        Sprint 13.8 extension. Reuses :meth:`build` for the step narration, then
+        summarises how many tasks are being tracked and how many are ready or
+        waiting — in everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        if not lifecycles:
+            segments.append("There are no tasks to track yet.")
+            return " ".join(segments)
+
+        ready = sum(
+            1
+            for lifecycle in lifecycles
+            if lifecycle.current_state == TaskLifecycleState.READY.value
+        )
+        waiting = sum(
+            1
+            for lifecycle in lifecycles
+            if lifecycle.current_state == TaskLifecycleState.WAITING.value
+        )
+        segments.append(
+            f"I'm tracking {len(lifecycles)} tasks: {ready} ready to start and "
+            f"{waiting} waiting."
+        )
+        return " ".join(segments)
+
+    def build_with_execution_queue(
+        self, plan: ExecutionPlan, queue: ExecutionQueue
+    ) -> str:
+        """Explain ``plan`` and the queue organising its steps (no execution).
+
+        Sprint 13.7 extension. Reuses :meth:`build` for the step narration, then
+        describes the queue's status and how many items are ready or blocked — in
+        everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _QUEUE_STATUS_MESSAGES.get(
+                queue.status, "The execution queue is planned."
+            )
+        )
+        segments.append(
+            f"It has {queue.total_units} items — {queue.ready_units} ready and "
+            f"{queue.blocked_units} blocked."
+        )
         return " ".join(segments)
 
     @staticmethod

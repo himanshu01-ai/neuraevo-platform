@@ -69,6 +69,11 @@ from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
 )
 from app.services.planning.decision_engine import DecisionEngine
+from app.services.planning.execution_intent_engine import ExecutionIntentEngine
+from app.services.planning.execution_orchestrator import ExecutionOrchestrator
+from app.services.planning.execution_coordinator import ExecutionCoordinator
+from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
+from app.services.planning.execution_state_manager import ExecutionStateManager
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -649,6 +654,83 @@ def get_decision_engine() -> DecisionEngine:
 DecisionEngineDep = Annotated[DecisionEngine, Depends(get_decision_engine)]
 
 
+def get_execution_intent_engine() -> ExecutionIntentEngine:
+    """Provide the stateless :class:`ExecutionIntentEngine` (Sprint 13.5).
+
+    Deterministic, offline conversion of an :class:`ExecutionDecision` into an
+    :class:`ExecutionIntent`. INTENT ONLY — no AI, network, SDK, Runtime,
+    Session, Registry, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionIntentEngine()
+
+
+ExecutionIntentEngineDep = Annotated[
+    ExecutionIntentEngine, Depends(get_execution_intent_engine)
+]
+
+
+def get_execution_orchestrator() -> ExecutionOrchestrator:
+    """Provide the stateless :class:`ExecutionOrchestrator` (Sprint 13.6).
+
+    Deterministic, offline construction of an :class:`ExecutionWorkflow` from an
+    :class:`ExecutionIntent` and its context. COORDINATION PLANNING ONLY — no AI,
+    network, SDK, Runtime, Registry, Permission, Tool execution, Memory, Gemini,
+    session, or execution.
+    """
+    return ExecutionOrchestrator()
+
+
+ExecutionOrchestratorDep = Annotated[
+    ExecutionOrchestrator, Depends(get_execution_orchestrator)
+]
+
+
+def get_execution_coordinator() -> ExecutionCoordinator:
+    """Provide the stateless :class:`ExecutionCoordinator` (Sprint 13.7).
+
+    Deterministic, offline conversion of an :class:`ExecutionWorkflow` into an
+    :class:`ExecutionQueue`. ORGANISATION ONLY — no AI, network, SDK, Runtime,
+    Session, Registry, Permission, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionCoordinator()
+
+
+ExecutionCoordinatorDep = Annotated[
+    ExecutionCoordinator, Depends(get_execution_coordinator)
+]
+
+
+def get_task_lifecycle_engine() -> TaskLifecycleEngine:
+    """Provide the stateless :class:`TaskLifecycleEngine` (Sprint 13.8).
+
+    Deterministic, offline construction of one :class:`TaskLifecycle` per
+    execution unit in an :class:`ExecutionQueue`. STATE ONLY — no AI, network,
+    SDK, Runtime, Session, Registry, Permission, Tool framework, Memory, Gemini,
+    or execution.
+    """
+    return TaskLifecycleEngine()
+
+
+TaskLifecycleEngineDep = Annotated[
+    TaskLifecycleEngine, Depends(get_task_lifecycle_engine)
+]
+
+
+def get_execution_state_manager() -> ExecutionStateManager:
+    """Provide the stateless :class:`ExecutionStateManager` (Sprint 13.9).
+
+    Deterministic, offline aggregation of ``List[TaskLifecycle]`` into an
+    :class:`ExecutionState`. STATE ONLY — no AI, network, SDK, Runtime, Session,
+    Registry, Permission, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionStateManager()
+
+
+ExecutionStateManagerDep = Annotated[
+    ExecutionStateManager, Depends(get_execution_state_manager)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -656,20 +738,28 @@ def get_planning_engine(
     analyzer: PlanAnalyzerDep = None,
     preparation_engine: ExecutionPreparationEngineDep = None,
     decision_engine: DecisionEngineDep = None,
+    intent_engine: ExecutionIntentEngineDep = None,
+    orchestrator: ExecutionOrchestratorDep = None,
+    coordinator: ExecutionCoordinatorDep = None,
+    lifecycle_engine: TaskLifecycleEngineDep = None,
+    state_manager: ExecutionStateManagerDep = None,
 ) -> PlanningEngine:
-    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide).
+    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
     Composes the injected planning provider, plan validator, explanation builder,
     (Sprint 13.2) the :class:`PlanAnalyzer`, (Sprint 13.3) the
-    :class:`ExecutionPreparationEngine`, and (Sprint 13.4) the
-    :class:`DecisionEngine` — constructor injection only; it instantiates nothing
-    itself. The engine reasons, validates, analyses, prepares, and decides but
-    never executes and holds no session. The ``analyzer``, ``preparation_engine``,
-    and ``decision_engine`` defaults of ``None`` keep earlier-sprint
-    three-/four-/five-argument construction working unchanged; FastAPI still
-    resolves each via ``Depends`` when routed. Not yet wired into the Conversation
-    Runtime — that integration belongs to a later sprint; this composition-root
-    seam makes the engine resolvable and ready.
+    :class:`ExecutionPreparationEngine`, (Sprint 13.4) the
+    :class:`DecisionEngine`, (Sprint 13.5) the
+    :class:`ExecutionIntentEngine`, and (Sprint 13.6) the
+    :class:`ExecutionOrchestrator` — constructor injection only; it instantiates
+    nothing itself. The engine reasons, validates, analyses, prepares, decides,
+    forms an execution intent, and coordinates a workflow but never executes and
+    holds no session. The ``analyzer``, ``preparation_engine``,
+    ``decision_engine``, ``intent_engine``, and ``orchestrator`` defaults of
+    ``None`` keep earlier-sprint three-through-seven-argument construction working
+    unchanged; FastAPI still resolves each via ``Depends`` when routed. Not yet
+    wired into the Conversation Runtime — that integration belongs to a later
+    sprint; this composition-root seam makes the engine resolvable and ready.
     """
     return PlanningEngine(
         provider,
@@ -678,6 +768,11 @@ def get_planning_engine(
         analyzer,
         preparation_engine,
         decision_engine,
+        intent_engine,
+        orchestrator,
+        coordinator,
+        lifecycle_engine,
+        state_manager,
     )
 
 

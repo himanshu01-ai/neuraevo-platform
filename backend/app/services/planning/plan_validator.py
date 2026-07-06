@@ -17,17 +17,76 @@ Rules enforced:
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_intent_models import (
+    ExecutionIntent,
+    ExecutionIntentType,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
 )
+from app.services.planning.execution_queue_models import (
+    ExecutionQueue,
+    ExecutionUnitStatus,
+    QueueStatus,
+)
+from app.services.planning.execution_state_models import (
+    ExecutionState,
+    ExecutionStateType,
+)
+from app.services.planning.execution_workflow_models import (
+    ExecutionMode,
+    ExecutionWorkflow,
+    WorkflowStatus,
+)
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.task_lifecycle_models import (
+    TASK_LIFECYCLE_TRANSITIONS,
+    TERMINAL_TASK_STATES,
+    TaskLifecycle,
+    TaskLifecycleState,
+)
 
 # The only execution strategies a well-formed preparation may carry.
 _VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
 
 # The only statuses a well-formed decision may carry.
 _VALID_DECISION_STATUSES = frozenset(status.value for status in DecisionStatus)
+
+# The only intents a well-formed execution intent may carry.
+_VALID_INTENT_TYPES = frozenset(
+    intent.value for intent in ExecutionIntentType
+)
+
+# The only statuses/modes a well-formed execution workflow may carry.
+_VALID_WORKFLOW_STATUSES = frozenset(
+    status.value for status in WorkflowStatus
+)
+_VALID_EXECUTION_MODES = frozenset(mode.value for mode in ExecutionMode)
+
+# The only statuses a well-formed queue / execution unit may carry.
+_VALID_QUEUE_STATUSES = frozenset(status.value for status in QueueStatus)
+_VALID_UNIT_STATUSES = frozenset(
+    status.value for status in ExecutionUnitStatus
+)
+
+# The only states a well-formed task lifecycle may carry.
+_VALID_LIFECYCLE_STATES = frozenset(
+    state.value for state in TaskLifecycleState
+)
+
+# The only overall states a well-formed execution state may carry.
+_VALID_EXECUTION_STATES = frozenset(
+    state.value for state in ExecutionStateType
+)
+# The overall states that represent a fully terminated execution.
+_TERMINAL_EXECUTION_STATES = frozenset(
+    {
+        ExecutionStateType.COMPLETED.value,
+        ExecutionStateType.FAILED.value,
+        ExecutionStateType.CANCELLED.value,
+    }
+)
 
 
 class PlanValidationError(ValueError):
@@ -202,6 +261,298 @@ class PlanValidator:
         self._reject_empty_or_duplicate(
             decision.blocking_reasons, "blocking reason"
         )
+
+    def validate_execution_intent(self, intent: ExecutionIntent) -> None:
+        """Raise :class:`PlanValidationError` if ``intent`` is not well-formed.
+
+        Sprint 13.5 extension. Rejects an unknown intent, an empty recommended
+        next step, a negative execution priority, an inconsistent
+        ``should_execute`` (true only for ``EXECUTE_NOW``) or
+        ``requires_user_action`` (true only for ``WAIT_FOR_USER``), and a
+        ``DEFER`` intent with no defer reason. Inspects only the intent's plain
+        data — no execution, provider, or AI work.
+        """
+        if intent.intent not in _VALID_INTENT_TYPES:
+            raise PlanValidationError(
+                f"Invalid execution intent: {intent.intent!r}."
+            )
+        if not intent.recommended_next_step.strip():
+            raise PlanValidationError(
+                "Recommended next step must not be empty."
+            )
+        if intent.execution_priority < 0:
+            raise PlanValidationError(
+                "execution_priority cannot be negative "
+                f"({intent.execution_priority})."
+            )
+        if intent.should_execute and (
+            intent.intent != ExecutionIntentType.EXECUTE_NOW.value
+        ):
+            raise PlanValidationError(
+                "should_execute may be true only when the intent is "
+                "EXECUTE_NOW."
+            )
+        if intent.requires_user_action and (
+            intent.intent != ExecutionIntentType.WAIT_FOR_USER.value
+        ):
+            raise PlanValidationError(
+                "requires_user_action may be true only when the intent is "
+                "WAIT_FOR_USER."
+            )
+        if intent.intent == ExecutionIntentType.DEFER.value and (
+            not intent.defer_reason.strip()
+        ):
+            raise PlanValidationError(
+                "A DEFER intent must include a defer reason."
+            )
+
+    def validate_execution_workflow(self, workflow: ExecutionWorkflow) -> None:
+        """Raise :class:`PlanValidationError` if ``workflow`` is not well-formed.
+
+        Sprint 13.6 extension. Rejects an empty workflow id, an unknown status or
+        execution mode, a negative or inconsistent step count, duplicate step
+        numbers, and a non-positive group index. Inspects only the workflow's
+        plain data — no execution, provider, or AI work.
+        """
+        if not workflow.workflow_id.strip():
+            raise PlanValidationError("workflow_id must not be empty.")
+        if workflow.workflow_status not in _VALID_WORKFLOW_STATUSES:
+            raise PlanValidationError(
+                f"Invalid workflow status: {workflow.workflow_status!r}."
+            )
+        if workflow.execution_mode not in _VALID_EXECUTION_MODES:
+            raise PlanValidationError(
+                f"Invalid execution mode: {workflow.execution_mode!r}."
+            )
+        if workflow.estimated_total_steps < 0:
+            raise PlanValidationError(
+                "estimated_total_steps cannot be negative "
+                f"({workflow.estimated_total_steps})."
+            )
+        if workflow.estimated_total_steps != len(workflow.ordered_steps):
+            raise PlanValidationError(
+                "estimated_total_steps must equal the number of ordered steps."
+            )
+        step_numbers = [step.step_number for step in workflow.ordered_steps]
+        if len(set(step_numbers)) != len(step_numbers):
+            raise PlanValidationError(
+                f"Duplicate workflow step numbers: {step_numbers}."
+            )
+        for step in workflow.ordered_steps:
+            if step.group < 1:
+                raise PlanValidationError(
+                    f"Workflow step {step.step_number} has a non-positive "
+                    f"group ({step.group})."
+                )
+
+    def validate_execution_queue(self, queue: ExecutionQueue) -> None:
+        """Raise :class:`PlanValidationError` if ``queue`` is not well-formed.
+
+        Sprint 13.7 extension. Rejects an empty queue or workflow id, an unknown
+        queue status, an unknown unit status, an empty unit id, a non-positive
+        unit group, negative counts, a total that disagrees with the number of
+        units, duplicate unit ids or step numbers, and ready/blocked counts that
+        do not match the units. Inspects only the queue's plain data — no
+        execution, provider, or AI work.
+        """
+        if not queue.queue_id.strip():
+            raise PlanValidationError("queue_id must not be empty.")
+        if not queue.workflow_id.strip():
+            raise PlanValidationError("workflow_id must not be empty.")
+        if queue.status not in _VALID_QUEUE_STATUSES:
+            raise PlanValidationError(
+                f"Invalid queue status: {queue.status!r}."
+            )
+        if (
+            queue.total_units < 0
+            or queue.ready_units < 0
+            or queue.blocked_units < 0
+        ):
+            raise PlanValidationError("Queue counts cannot be negative.")
+        if queue.total_units != len(queue.execution_units):
+            raise PlanValidationError(
+                "total_units must equal the number of execution units."
+            )
+
+        unit_ids: list = []
+        step_numbers: list = []
+        ready = 0
+        blocked = 0
+        for unit in queue.execution_units:
+            if unit.status not in _VALID_UNIT_STATUSES:
+                raise PlanValidationError(
+                    f"Invalid execution unit status: {unit.status!r}."
+                )
+            if not unit.unit_id.strip():
+                raise PlanValidationError("unit_id must not be empty.")
+            if unit.execution_group < 1:
+                raise PlanValidationError(
+                    f"Execution unit {unit.step_number} has a non-positive "
+                    f"group ({unit.execution_group})."
+                )
+            unit_ids.append(unit.unit_id)
+            step_numbers.append(unit.step_number)
+            if unit.status == ExecutionUnitStatus.READY.value:
+                ready += 1
+            elif unit.status == ExecutionUnitStatus.BLOCKED.value:
+                blocked += 1
+
+        if len(set(unit_ids)) != len(unit_ids):
+            raise PlanValidationError("Duplicate execution unit ids.")
+        if len(set(step_numbers)) != len(step_numbers):
+            raise PlanValidationError(
+                f"Duplicate execution unit step numbers: {step_numbers}."
+            )
+        if queue.ready_units != ready:
+            raise PlanValidationError(
+                "ready_units does not match the number of READY units."
+            )
+        if queue.blocked_units != blocked:
+            raise PlanValidationError(
+                "blocked_units does not match the number of BLOCKED units."
+            )
+
+    def validate_task_lifecycles(
+        self, lifecycles: "list[TaskLifecycle]"
+    ) -> None:
+        """Raise :class:`PlanValidationError` if any lifecycle is not well-formed.
+
+        Sprint 13.8 extension. For each lifecycle, rejects an empty unit id, an
+        unknown current/previous state, allowed next states that disagree with
+        the canonical transition table, an ``is_terminal`` flag inconsistent with
+        that table, an empty history, a history not ending at the current state, a
+        history that violates the transition table, a ``previous_state``
+        inconsistent with the history, and (across the list) duplicate unit ids.
+        Inspects only plain data — no execution, provider, or AI work.
+        """
+        unit_ids: list = []
+        for lifecycle in lifecycles:
+            if not lifecycle.unit_id.strip():
+                raise PlanValidationError("unit_id must not be empty.")
+            if lifecycle.current_state not in _VALID_LIFECYCLE_STATES:
+                raise PlanValidationError(
+                    f"Invalid lifecycle state: {lifecycle.current_state!r}."
+                )
+            if lifecycle.previous_state is not None and (
+                lifecycle.previous_state not in _VALID_LIFECYCLE_STATES
+            ):
+                raise PlanValidationError(
+                    f"Invalid previous state: {lifecycle.previous_state!r}."
+                )
+
+            expected_next = set(
+                TASK_LIFECYCLE_TRANSITIONS[lifecycle.current_state]
+            )
+            if set(lifecycle.allowed_next_states) != expected_next:
+                raise PlanValidationError(
+                    f"allowed_next_states for {lifecycle.current_state} must be "
+                    f"{sorted(expected_next)}."
+                )
+            expected_terminal = (
+                lifecycle.current_state in TERMINAL_TASK_STATES
+            )
+            if lifecycle.is_terminal != expected_terminal:
+                raise PlanValidationError(
+                    f"is_terminal for {lifecycle.current_state} must be "
+                    f"{expected_terminal}."
+                )
+
+            history = lifecycle.state_history
+            if not history:
+                raise PlanValidationError("state_history must not be empty.")
+            for state in history:
+                if state not in _VALID_LIFECYCLE_STATES:
+                    raise PlanValidationError(
+                        f"Invalid state in history: {state!r}."
+                    )
+            if history[-1] != lifecycle.current_state:
+                raise PlanValidationError(
+                    "state_history must end at the current state."
+                )
+            for earlier, later in zip(history, history[1:]):
+                if later not in TASK_LIFECYCLE_TRANSITIONS[earlier]:
+                    raise PlanValidationError(
+                        f"Invalid history transition {earlier} -> {later}."
+                    )
+            expected_previous = history[-2] if len(history) >= 2 else None
+            if lifecycle.previous_state != expected_previous:
+                raise PlanValidationError(
+                    "previous_state must match the state before current in "
+                    "history."
+                )
+            unit_ids.append(lifecycle.unit_id)
+
+        if len(set(unit_ids)) != len(unit_ids):
+            raise PlanValidationError("Duplicate task lifecycle unit ids.")
+
+    def validate_execution_state(self, state: ExecutionState) -> None:
+        """Raise :class:`PlanValidationError` if ``state`` is not well-formed.
+
+        Sprint 13.9 extension. Rejects an empty execution id, an unknown overall
+        state, negative counts, per-state counts that exceed the total, a
+        progress percentage outside ``0``–``100``, a ``terminal`` flag
+        inconsistent with the terminal counts, an overall state that disagrees
+        with a terminal execution, and empty, duplicate, or miscounted active
+        task ids. Inspects only the state's plain data — no execution, provider,
+        or AI work.
+        """
+        if not state.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if state.overall_state not in _VALID_EXECUTION_STATES:
+            raise PlanValidationError(
+                f"Invalid overall state: {state.overall_state!r}."
+            )
+
+        counts = (
+            state.ready_tasks,
+            state.waiting_tasks,
+            state.running_tasks,
+            state.completed_tasks,
+            state.failed_tasks,
+            state.cancelled_tasks,
+            state.skipped_tasks,
+        )
+        if state.total_tasks < 0 or any(count < 0 for count in counts):
+            raise PlanValidationError("Execution counts cannot be negative.")
+        if sum(counts) > state.total_tasks:
+            raise PlanValidationError(
+                "Per-state task counts cannot exceed total_tasks."
+            )
+        if not 0.0 <= state.progress_percentage <= 100.0:
+            raise PlanValidationError(
+                f"progress_percentage {state.progress_percentage} is outside "
+                "0..100."
+            )
+
+        terminal_count = (
+            state.completed_tasks
+            + state.failed_tasks
+            + state.cancelled_tasks
+            + state.skipped_tasks
+        )
+        expected_terminal = (
+            state.total_tasks > 0 and terminal_count == state.total_tasks
+        )
+        if state.terminal != expected_terminal:
+            raise PlanValidationError(
+                "terminal must be true exactly when every task is terminal."
+            )
+        if state.terminal and (
+            state.overall_state not in _TERMINAL_EXECUTION_STATES
+        ):
+            raise PlanValidationError(
+                "A terminal execution state must be COMPLETED, FAILED, or "
+                "CANCELLED."
+            )
+
+        if any(not task_id.strip() for task_id in state.active_task_ids):
+            raise PlanValidationError("active_task_ids must not be empty.")
+        if len(set(state.active_task_ids)) != len(state.active_task_ids):
+            raise PlanValidationError("Duplicate active task ids.")
+        if len(state.active_task_ids) != state.total_tasks - terminal_count:
+            raise PlanValidationError(
+                "active_task_ids count must equal the non-terminal task count."
+            )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:
