@@ -13,7 +13,29 @@ execution, provider, AI, or runtime work.
 
 from typing import List
 
+from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_preparation_models import (
+    ExecutionPreparation,
+)
 from app.services.planning.models import ExecutionPlan
+
+# User-language message per decision status (no implementation terms).
+_DECISION_MESSAGES = {
+    DecisionStatus.APPROVED.value: "Everything's in place, so I can go ahead.",
+    DecisionStatus.WAITING_FOR_INFORMATION.value: (
+        "I'm waiting on some details before I can proceed."
+    ),
+    DecisionStatus.WAITING_FOR_CONFIRMATION.value: (
+        "I'm ready, but I'll wait for your confirmation before proceeding."
+    ),
+    DecisionStatus.BLOCKED.value: (
+        "I can't proceed yet — some requirements still need to be met."
+    ),
+    DecisionStatus.REJECTED.value: (
+        "I can't carry out this plan as it stands."
+    ),
+}
 
 
 class PlanningExplanationBuilder:
@@ -46,6 +68,101 @@ class PlanningExplanationBuilder:
             sentence += f" First, I'll need a few details from you: {needs}."
 
         return sentence
+
+    def build_with_analysis(
+        self, plan: ExecutionPlan, analysis: PlanAnalysis
+    ) -> str:
+        """Explain ``plan`` and fold in the ``analysis`` conclusions (no execution).
+
+        Sprint 13.2 extension that reuses :meth:`build` for the step narration,
+        then, per the analysis: prepends a clarification note when clarification
+        is required, appends a confirmation note when confirmation is required,
+        and appends a readiness note when the plan is ready. Explanation only —
+        nothing is executed.
+        """
+        segments: List[str] = []
+        if analysis.requires_clarification:
+            segments.append(
+                "I need a little more information before I can continue."
+            )
+        segments.append(self.build(plan))
+        if analysis.requires_confirmation:
+            segments.append(
+                "I'll wait for your confirmation before executing."
+            )
+        if analysis.ready_for_execution:
+            segments.append("The plan is ready for execution.")
+        return " ".join(segments)
+
+    def build_with_preparation(
+        self, plan: ExecutionPlan, preparation: ExecutionPreparation
+    ) -> str:
+        """Explain ``plan`` and what it would take to carry it out (no execution).
+
+        Sprint 13.3 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — which
+        capabilities and services would be used, which permissions would be
+        needed, and whether it can start now or what still stands in the way.
+        """
+        segments: List[str] = [self.build(plan)]
+
+        if preparation.required_capabilities:
+            segments.append(
+                "To do this I'll use "
+                f"{self._join(preparation.required_capabilities)}."
+            )
+        if preparation.external_services:
+            segments.append(
+                "It connects to "
+                f"{self._join(preparation.external_services)}."
+            )
+        if preparation.permissions_required:
+            segments.append(
+                "I'll need your permission for "
+                f"{self._join(preparation.permissions_required)}."
+            )
+        if preparation.can_execute_immediately:
+            segments.append("I can start on this right away.")
+        else:
+            outstanding = self._join(
+                [self._readable_blocker(item) for item in preparation.blocked_by]
+            )
+            segments.append(
+                f"Before I can start, these still need to be resolved: "
+                f"{outstanding}."
+            )
+        return " ".join(segments)
+
+    def build_with_decision(
+        self, plan: ExecutionPlan, decision: ExecutionDecision
+    ) -> str:
+        """Explain ``plan`` and the decision reached about it (no execution).
+
+        Sprint 13.4 extension. Reuses :meth:`build` for the step narration, then
+        adds a plain-language statement of the decision and, when the plan cannot
+        proceed, the outstanding items — in everyday user language, never
+        implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _DECISION_MESSAGES.get(decision.status, decision.reason)
+        )
+        if (
+            decision.blocking_reasons
+            and decision.status != DecisionStatus.APPROVED.value
+        ):
+            readable = [
+                self._readable_blocker(item)
+                for item in decision.blocking_reasons
+            ]
+            segments.append(f"Outstanding items: {self._join(readable)}.")
+        return " ".join(segments)
+
+    @staticmethod
+    def _readable_blocker(blocker: str) -> str:
+        """Render a ``Need X`` blocker as user-friendly ``X`` (else unchanged)."""
+        prefix = "Need "
+        return blocker[len(prefix):] if blocker.startswith(prefix) else blocker
 
     @staticmethod
     def _narrate(phrases: List[str]) -> str:

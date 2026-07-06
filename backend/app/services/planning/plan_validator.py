@@ -15,7 +15,19 @@ Rules enforced:
   step that exists; no step depends on itself or on a later step.
 """
 
+from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
+from app.services.planning.execution_preparation_models import (
+    ExecutionPreparation,
+    ExecutionStrategy,
+)
 from app.services.planning.models import ExecutionPlan
+
+# The only execution strategies a well-formed preparation may carry.
+_VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
+
+# The only statuses a well-formed decision may carry.
+_VALID_DECISION_STATUSES = frozenset(status.value for status in DecisionStatus)
 
 
 class PlanValidationError(ValueError):
@@ -106,3 +118,99 @@ class PlanValidator:
         except PlanValidationError:
             return False
         return True
+
+    def validate_analysis(self, analysis: PlanAnalysis) -> None:
+        """Raise :class:`PlanValidationError` if ``analysis`` is not well-formed.
+
+        Sprint 13.2 extension. Rejects a confidence outside ``0.0``–``1.0``
+        (defence-in-depth; the DTO also enforces this and would reject it at
+        construction), and empty or duplicate entries in either
+        ``missing_information`` or ``clarification_questions``. Inspects only the
+        analysis's plain data — no execution, provider, or AI work.
+        """
+        if not 0.0 <= analysis.confidence <= 1.0:
+            raise PlanValidationError(
+                f"Confidence {analysis.confidence} is outside 0.0..1.0."
+            )
+        self._reject_empty_or_duplicate(
+            analysis.missing_information, "missing information"
+        )
+        self._reject_empty_or_duplicate(
+            analysis.clarification_questions, "clarification question"
+        )
+
+    def validate_preparation(self, preparation: ExecutionPreparation) -> None:
+        """Raise :class:`PlanValidationError` if ``preparation`` is not well-formed.
+
+        Sprint 13.3 extension. Rejects a negative step count, an execution
+        strategy outside the allowed set, and empty or duplicate entries in the
+        capability, permission, external-service, or blocker lists. Inspects only
+        the preparation's plain data — no execution, provider, or AI work.
+        """
+        if preparation.estimated_execution_steps < 0:
+            raise PlanValidationError(
+                "estimated_execution_steps cannot be negative "
+                f"({preparation.estimated_execution_steps})."
+            )
+        if preparation.execution_strategy not in _VALID_STRATEGIES:
+            raise PlanValidationError(
+                f"Invalid execution strategy: "
+                f"{preparation.execution_strategy!r}."
+            )
+        self._reject_empty_or_duplicate(
+            preparation.required_capabilities, "capability"
+        )
+        self._reject_empty_or_duplicate(
+            preparation.permissions_required, "permission"
+        )
+        self._reject_empty_or_duplicate(
+            preparation.external_services, "external service"
+        )
+        self._reject_empty_or_duplicate(preparation.blocked_by, "blocker")
+
+    def validate_decision(self, decision: ExecutionDecision) -> None:
+        """Raise :class:`PlanValidationError` if ``decision`` is not well-formed.
+
+        Sprint 13.4 extension. Rejects an unknown status, an empty reason, a
+        confidence outside ``0.0``–``1.0``, an inconsistent ``can_execute`` (true
+        only when ``APPROVED``), an ``APPROVED`` decision that still lists
+        blockers, and empty or duplicate blocking reasons. Inspects only the
+        decision's plain data — no execution, provider, or AI work.
+        """
+        if decision.status not in _VALID_DECISION_STATUSES:
+            raise PlanValidationError(
+                f"Invalid decision status: {decision.status!r}."
+            )
+        if not decision.reason.strip():
+            raise PlanValidationError("Decision reason must not be empty.")
+        if not 0.0 <= decision.confidence <= 1.0:
+            raise PlanValidationError(
+                f"Confidence {decision.confidence} is outside 0.0..1.0."
+            )
+        if decision.can_execute and (
+            decision.status != DecisionStatus.APPROVED.value
+        ):
+            raise PlanValidationError(
+                "can_execute may be true only when the decision is APPROVED."
+            )
+        if decision.status == DecisionStatus.APPROVED.value and (
+            decision.blocking_reasons
+        ):
+            raise PlanValidationError(
+                "An APPROVED decision must have no blocking reasons."
+            )
+        self._reject_empty_or_duplicate(
+            decision.blocking_reasons, "blocking reason"
+        )
+
+    @staticmethod
+    def _reject_empty_or_duplicate(items: list, label: str) -> None:
+        """Reject empty/whitespace entries and case-insensitive duplicates."""
+        cleaned = [item.strip() for item in items]
+        if any(not item for item in cleaned):
+            raise PlanValidationError(f"Empty {label} entry is not allowed.")
+        lowered = [item.lower() for item in cleaned]
+        if len(set(lowered)) != len(lowered):
+            raise PlanValidationError(
+                f"Duplicate {label} entries are not allowed."
+            )

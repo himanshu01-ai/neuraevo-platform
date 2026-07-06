@@ -64,6 +64,11 @@ from app.services.planning import (
     PlanningProvider,
     PlanValidator,
 )
+from app.services.planning.plan_analyzer import PlanAnalyzer
+from app.services.planning.execution_preparation_engine import (
+    ExecutionPreparationEngine,
+)
+from app.services.planning.decision_engine import DecisionEngine
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -601,21 +606,79 @@ PlanningExplanationBuilderDep = Annotated[
 ]
 
 
+def get_plan_analyzer() -> PlanAnalyzer:
+    """Provide the stateless :class:`PlanAnalyzer` (Sprint 13.2).
+
+    Deterministic, offline analysis of an :class:`ExecutionPlan` (readiness,
+    confirmation, clarification, missing information, risk, confidence). No AI,
+    network, SDK, session, or execution.
+    """
+    return PlanAnalyzer()
+
+
+PlanAnalyzerDep = Annotated[PlanAnalyzer, Depends(get_plan_analyzer)]
+
+
+def get_execution_preparation_engine() -> ExecutionPreparationEngine:
+    """Provide the stateless :class:`ExecutionPreparationEngine` (Sprint 13.3).
+
+    Deterministic, offline preparation of an :class:`ExecutionPlan` (required
+    capabilities, external services, permissions, step count, execution strategy,
+    and blockers). PREPARATION ONLY — no AI, network, SDK, Runtime, Registry,
+    Permission, Tool execution, session, or execution.
+    """
+    return ExecutionPreparationEngine()
+
+
+ExecutionPreparationEngineDep = Annotated[
+    ExecutionPreparationEngine, Depends(get_execution_preparation_engine)
+]
+
+
+def get_decision_engine() -> DecisionEngine:
+    """Provide the stateless :class:`DecisionEngine` (Sprint 13.4).
+
+    Deterministic, offline classification of an :class:`ExecutionPlan` (plus its
+    analysis and preparation) into an :class:`ExecutionDecision`. DECISION ONLY —
+    no AI, network, SDK, Runtime, Registry, Permission, Tool execution, session,
+    or execution.
+    """
+    return DecisionEngine()
+
+
+DecisionEngineDep = Annotated[DecisionEngine, Depends(get_decision_engine)]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
     explanation_builder: PlanningExplanationBuilderDep,
+    analyzer: PlanAnalyzerDep = None,
+    preparation_engine: ExecutionPreparationEngineDep = None,
+    decision_engine: DecisionEngineDep = None,
 ) -> PlanningEngine:
-    """Provide the Sprint 13.1 :class:`PlanningEngine` (reason -> validate -> explain).
+    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide).
 
-    Composes the injected planning provider, plan validator, and explanation
-    builder (constructor injection only — it instantiates nothing itself). The
-    engine reasons and validates but never executes and holds no session. It is
-    not yet wired into the Conversation Runtime: the runtime -> planning ->
-    execution integration belongs to a later sprint; this composition-root seam
-    makes the engine resolvable and ready.
+    Composes the injected planning provider, plan validator, explanation builder,
+    (Sprint 13.2) the :class:`PlanAnalyzer`, (Sprint 13.3) the
+    :class:`ExecutionPreparationEngine`, and (Sprint 13.4) the
+    :class:`DecisionEngine` — constructor injection only; it instantiates nothing
+    itself. The engine reasons, validates, analyses, prepares, and decides but
+    never executes and holds no session. The ``analyzer``, ``preparation_engine``,
+    and ``decision_engine`` defaults of ``None`` keep earlier-sprint
+    three-/four-/five-argument construction working unchanged; FastAPI still
+    resolves each via ``Depends`` when routed. Not yet wired into the Conversation
+    Runtime — that integration belongs to a later sprint; this composition-root
+    seam makes the engine resolvable and ready.
     """
-    return PlanningEngine(provider, validator, explanation_builder)
+    return PlanningEngine(
+        provider,
+        validator,
+        explanation_builder,
+        analyzer,
+        preparation_engine,
+        decision_engine,
+    )
 
 
 PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]
