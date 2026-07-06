@@ -25,6 +25,11 @@ from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
 )
+from app.services.planning.execution_queue_models import (
+    ExecutionQueue,
+    ExecutionUnitStatus,
+    QueueStatus,
+)
 from app.services.planning.execution_workflow_models import (
     ExecutionMode,
     ExecutionWorkflow,
@@ -48,6 +53,12 @@ _VALID_WORKFLOW_STATUSES = frozenset(
     status.value for status in WorkflowStatus
 )
 _VALID_EXECUTION_MODES = frozenset(mode.value for mode in ExecutionMode)
+
+# The only statuses a well-formed queue / execution unit may carry.
+_VALID_QUEUE_STATUSES = frozenset(status.value for status in QueueStatus)
+_VALID_UNIT_STATUSES = frozenset(
+    status.value for status in ExecutionUnitStatus
+)
 
 
 class PlanValidationError(ValueError):
@@ -305,6 +316,73 @@ class PlanValidator:
                     f"Workflow step {step.step_number} has a non-positive "
                     f"group ({step.group})."
                 )
+
+    def validate_execution_queue(self, queue: ExecutionQueue) -> None:
+        """Raise :class:`PlanValidationError` if ``queue`` is not well-formed.
+
+        Sprint 13.7 extension. Rejects an empty queue or workflow id, an unknown
+        queue status, an unknown unit status, an empty unit id, a non-positive
+        unit group, negative counts, a total that disagrees with the number of
+        units, duplicate unit ids or step numbers, and ready/blocked counts that
+        do not match the units. Inspects only the queue's plain data — no
+        execution, provider, or AI work.
+        """
+        if not queue.queue_id.strip():
+            raise PlanValidationError("queue_id must not be empty.")
+        if not queue.workflow_id.strip():
+            raise PlanValidationError("workflow_id must not be empty.")
+        if queue.status not in _VALID_QUEUE_STATUSES:
+            raise PlanValidationError(
+                f"Invalid queue status: {queue.status!r}."
+            )
+        if (
+            queue.total_units < 0
+            or queue.ready_units < 0
+            or queue.blocked_units < 0
+        ):
+            raise PlanValidationError("Queue counts cannot be negative.")
+        if queue.total_units != len(queue.execution_units):
+            raise PlanValidationError(
+                "total_units must equal the number of execution units."
+            )
+
+        unit_ids: list = []
+        step_numbers: list = []
+        ready = 0
+        blocked = 0
+        for unit in queue.execution_units:
+            if unit.status not in _VALID_UNIT_STATUSES:
+                raise PlanValidationError(
+                    f"Invalid execution unit status: {unit.status!r}."
+                )
+            if not unit.unit_id.strip():
+                raise PlanValidationError("unit_id must not be empty.")
+            if unit.execution_group < 1:
+                raise PlanValidationError(
+                    f"Execution unit {unit.step_number} has a non-positive "
+                    f"group ({unit.execution_group})."
+                )
+            unit_ids.append(unit.unit_id)
+            step_numbers.append(unit.step_number)
+            if unit.status == ExecutionUnitStatus.READY.value:
+                ready += 1
+            elif unit.status == ExecutionUnitStatus.BLOCKED.value:
+                blocked += 1
+
+        if len(set(unit_ids)) != len(unit_ids):
+            raise PlanValidationError("Duplicate execution unit ids.")
+        if len(set(step_numbers)) != len(step_numbers):
+            raise PlanValidationError(
+                f"Duplicate execution unit step numbers: {step_numbers}."
+            )
+        if queue.ready_units != ready:
+            raise PlanValidationError(
+                "ready_units does not match the number of READY units."
+            )
+        if queue.blocked_units != blocked:
+            raise PlanValidationError(
+                "blocked_units does not match the number of BLOCKED units."
+            )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:

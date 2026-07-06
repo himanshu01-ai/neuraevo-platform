@@ -22,6 +22,10 @@ from app.services.planning.execution_intent_models import (
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
+from app.services.planning.execution_queue_models import (
+    ExecutionQueue,
+    QueueStatus,
+)
 from app.services.planning.execution_workflow_models import (
     ExecutionMode,
     ExecutionWorkflow,
@@ -81,6 +85,17 @@ _WORKFLOW_MODE_PHRASES = {
     ExecutionMode.SEQUENTIAL.value: "one step at a time",
     ExecutionMode.PARALLEL.value: "several steps at once",
     ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
+}
+
+# User-language message per queue status (no implementation terms).
+_QUEUE_STATUS_MESSAGES = {
+    QueueStatus.READY.value: "The execution queue is ready to begin.",
+    QueueStatus.WAITING.value: (
+        "The execution queue is waiting for you before anything can start."
+    ),
+    QueueStatus.BLOCKED.value: (
+        "The execution queue is blocked; nothing can start yet."
+    ),
 }
 
 
@@ -249,6 +264,27 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_queue(
+        self, plan: ExecutionPlan, queue: ExecutionQueue
+    ) -> str:
+        """Explain ``plan`` and the queue organising its steps (no execution).
+
+        Sprint 13.7 extension. Reuses :meth:`build` for the step narration, then
+        describes the queue's status and how many items are ready or blocked — in
+        everyday user language, never implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _QUEUE_STATUS_MESSAGES.get(
+                queue.status, "The execution queue is planned."
+            )
+        )
+        segments.append(
+            f"It has {queue.total_units} items — {queue.ready_units} ready and "
+            f"{queue.blocked_units} blocked."
+        )
         return " ".join(segments)
 
     @staticmethod

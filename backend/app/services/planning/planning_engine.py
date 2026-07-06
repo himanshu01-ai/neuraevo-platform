@@ -19,6 +19,7 @@ from typing import Optional
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.decision_models import ExecutionDecision
+from app.services.planning.execution_coordinator import ExecutionCoordinator
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_intent_models import ExecutionIntent
 from app.services.planning.execution_orchestrator import ExecutionOrchestrator
@@ -28,6 +29,7 @@ from app.services.planning.execution_preparation_engine import (
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
+from app.services.planning.execution_queue_models import ExecutionQueue
 from app.services.planning.execution_workflow_models import ExecutionWorkflow
 from app.services.planning.models import ExecutionPlan, PlanningRequest
 from app.services.planning.plan_analyzer import PlanAnalyzer
@@ -59,17 +61,19 @@ class PlanningEngine:
         decision_engine: Optional[DecisionEngine] = None,
         intent_engine: Optional[ExecutionIntentEngine] = None,
         orchestrator: Optional[ExecutionOrchestrator] = None,
+        coordinator: Optional[ExecutionCoordinator] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.6: the analyzer, preparation engine, decision engine,
-        # execution-intent engine, and execution orchestrator are optional,
-        # additive collaborators. Each is stored only when injected so that
-        # earlier-sprint construction (three to seven arguments) keeps exactly
-        # its original attributes and its tests pass unchanged. ``analyze``/
-        # ``prepare``/``decide``/``create_execution_intent``/
-        # ``create_execution_workflow`` each require their collaborator;
+        # Sprint 13.2–13.7: the analyzer, preparation engine, decision engine,
+        # execution-intent engine, execution orchestrator, and execution
+        # coordinator are optional, additive collaborators. Each is stored only
+        # when injected so that earlier-sprint construction (three to eight
+        # arguments) keeps exactly its original attributes and its tests pass
+        # unchanged. ``analyze``/``prepare``/``decide``/
+        # ``create_execution_intent``/``create_execution_workflow``/
+        # ``create_execution_queue`` each require their collaborator;
         # ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
@@ -81,6 +85,8 @@ class PlanningEngine:
             self.intent_engine = intent_engine
         if orchestrator is not None:
             self.orchestrator = orchestrator
+        if coordinator is not None:
+            self.coordinator = coordinator
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -232,3 +238,27 @@ class PlanningEngine:
         )
         self.validator.validate_execution_workflow(workflow)
         return workflow
+
+    def create_execution_queue(
+        self, workflow: ExecutionWorkflow
+    ) -> ExecutionQueue:
+        """Organise ``workflow`` into an :class:`ExecutionQueue` (no execution).
+
+        Sprint 13.7 addition. Delegates to the injected
+        :class:`ExecutionCoordinator` to convert the workflow's steps into
+        ordered execution units with deterministic statuses and counts, then
+        validates the result via the injected :class:`PlanValidator`. This
+        organises execution only — it executes, resolves, and acquires nothing.
+        Raises :class:`RuntimeError` if no coordinator was injected and
+        :class:`PlanValidationError` if the queue is malformed; coordinator
+        exceptions propagate unchanged.
+        """
+        coordinator = getattr(self, "coordinator", None)
+        if coordinator is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionCoordinator injected; provide "
+                "one to call create_execution_queue()."
+            )
+        queue = coordinator.create_queue(workflow)
+        self.validator.validate_execution_queue(queue)
+        return queue

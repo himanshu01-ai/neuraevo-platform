@@ -66,6 +66,7 @@ from app.services.planning.execution_preparation_engine import (
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_orchestrator import ExecutionOrchestrator
+from app.services.planning.execution_coordinator import ExecutionCoordinator
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -660,6 +661,21 @@ ExecutionOrchestratorDep = Annotated[
 ]
 
 
+def get_execution_coordinator() -> ExecutionCoordinator:
+    """Provide the stateless :class:`ExecutionCoordinator` (Sprint 13.7).
+
+    Deterministic, offline conversion of an :class:`ExecutionWorkflow` into an
+    :class:`ExecutionQueue`. ORGANISATION ONLY — no AI, network, SDK, Runtime,
+    Session, Registry, Permission, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionCoordinator()
+
+
+ExecutionCoordinatorDep = Annotated[
+    ExecutionCoordinator, Depends(get_execution_coordinator)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -669,6 +685,7 @@ def get_planning_engine(
     decision_engine: DecisionEngineDep = None,
     intent_engine: ExecutionIntentEngineDep = None,
     orchestrator: ExecutionOrchestratorDep = None,
+    coordinator: ExecutionCoordinatorDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -696,6 +713,7 @@ def get_planning_engine(
         decision_engine,
         intent_engine,
         orchestrator,
+        coordinator,
     )
 
 
