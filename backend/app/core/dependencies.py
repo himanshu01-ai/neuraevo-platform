@@ -65,6 +65,7 @@ from app.services.planning.execution_preparation_engine import (
 )
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
+from app.services.planning.execution_orchestrator import ExecutionOrchestrator
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -643,6 +644,22 @@ ExecutionIntentEngineDep = Annotated[
 ]
 
 
+def get_execution_orchestrator() -> ExecutionOrchestrator:
+    """Provide the stateless :class:`ExecutionOrchestrator` (Sprint 13.6).
+
+    Deterministic, offline construction of an :class:`ExecutionWorkflow` from an
+    :class:`ExecutionIntent` and its context. COORDINATION PLANNING ONLY — no AI,
+    network, SDK, Runtime, Registry, Permission, Tool execution, Memory, Gemini,
+    session, or execution.
+    """
+    return ExecutionOrchestrator()
+
+
+ExecutionOrchestratorDep = Annotated[
+    ExecutionOrchestrator, Depends(get_execution_orchestrator)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -651,22 +668,24 @@ def get_planning_engine(
     preparation_engine: ExecutionPreparationEngineDep = None,
     decision_engine: DecisionEngineDep = None,
     intent_engine: ExecutionIntentEngineDep = None,
+    orchestrator: ExecutionOrchestratorDep = None,
 ) -> PlanningEngine:
-    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent).
+    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
     Composes the injected planning provider, plan validator, explanation builder,
     (Sprint 13.2) the :class:`PlanAnalyzer`, (Sprint 13.3) the
     :class:`ExecutionPreparationEngine`, (Sprint 13.4) the
-    :class:`DecisionEngine`, and (Sprint 13.5) the
-    :class:`ExecutionIntentEngine` — constructor injection only; it instantiates
+    :class:`DecisionEngine`, (Sprint 13.5) the
+    :class:`ExecutionIntentEngine`, and (Sprint 13.6) the
+    :class:`ExecutionOrchestrator` — constructor injection only; it instantiates
     nothing itself. The engine reasons, validates, analyses, prepares, decides,
-    and forms an execution intent but never executes and holds no session. The
-    ``analyzer``, ``preparation_engine``, ``decision_engine``, and
-    ``intent_engine`` defaults of ``None`` keep earlier-sprint
-    three-/four-/five-/six-argument construction working unchanged; FastAPI still
-    resolves each via ``Depends`` when routed. Not yet wired into the Conversation
-    Runtime — that integration belongs to a later sprint; this composition-root
-    seam makes the engine resolvable and ready.
+    forms an execution intent, and coordinates a workflow but never executes and
+    holds no session. The ``analyzer``, ``preparation_engine``,
+    ``decision_engine``, ``intent_engine``, and ``orchestrator`` defaults of
+    ``None`` keep earlier-sprint three-through-seven-argument construction working
+    unchanged; FastAPI still resolves each via ``Depends`` when routed. Not yet
+    wired into the Conversation Runtime — that integration belongs to a later
+    sprint; this composition-root seam makes the engine resolvable and ready.
     """
     return PlanningEngine(
         provider,
@@ -676,6 +695,7 @@ def get_planning_engine(
         preparation_engine,
         decision_engine,
         intent_engine,
+        orchestrator,
     )
 
 

@@ -22,6 +22,11 @@ from app.services.planning.execution_intent_models import (
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
+from app.services.planning.execution_workflow_models import (
+    ExecutionMode,
+    ExecutionWorkflow,
+    WorkflowStatus,
+)
 from app.services.planning.models import ExecutionPlan
 
 # User-language message per decision status (no implementation terms).
@@ -55,6 +60,27 @@ _INTENT_MESSAGES = {
     ExecutionIntentType.CANCEL.value: (
         "I won't pursue this plan."
     ),
+}
+
+# User-language message per workflow status (no implementation terms).
+_WORKFLOW_STATUS_MESSAGES = {
+    WorkflowStatus.READY.value: "The workflow is ready to run.",
+    WorkflowStatus.WAITING.value: (
+        "The workflow is waiting and will continue once you respond."
+    ),
+    WorkflowStatus.BLOCKED.value: (
+        "The workflow is on hold until its requirements are met."
+    ),
+    WorkflowStatus.PLANNED.value: (
+        "The workflow is planned but won't proceed."
+    ),
+}
+
+# User-language phrasing per execution mode.
+_WORKFLOW_MODE_PHRASES = {
+    ExecutionMode.SEQUENTIAL.value: "one step at a time",
+    ExecutionMode.PARALLEL.value: "several steps at once",
+    ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
 }
 
 
@@ -196,6 +222,33 @@ class PlanningExplanationBuilder:
             and intent.defer_reason.strip()
         ):
             segments.append(intent.defer_reason)
+        return " ".join(segments)
+
+    def build_with_execution_workflow(
+        self, plan: ExecutionPlan, workflow: ExecutionWorkflow
+    ) -> str:
+        """Explain ``plan`` and the workflow coordinating it (no execution).
+
+        Sprint 13.6 extension. Reuses :meth:`build` for the step narration, then
+        describes the workflow's status, how its steps are organised, and whether
+        it can be resumed — in everyday user language, never implementation
+        terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _WORKFLOW_STATUS_MESSAGES.get(
+                workflow.workflow_status, "The workflow is planned."
+            )
+        )
+        phrase = _WORKFLOW_MODE_PHRASES.get(
+            workflow.execution_mode, "in order"
+        )
+        segments.append(
+            f"It's organised to run {phrase} across "
+            f"{workflow.estimated_total_steps} steps."
+        )
+        if workflow.resumable:
+            segments.append("It can be paused and resumed.")
         return " ".join(segments)
 
     @staticmethod

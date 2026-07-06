@@ -21,12 +21,14 @@ from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.decision_models import ExecutionDecision
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_intent_models import ExecutionIntent
+from app.services.planning.execution_orchestrator import ExecutionOrchestrator
 from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
 )
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
+from app.services.planning.execution_workflow_models import ExecutionWorkflow
 from app.services.planning.models import ExecutionPlan, PlanningRequest
 from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.planning.plan_explanation_builder import (
@@ -56,16 +58,18 @@ class PlanningEngine:
         preparation_engine: Optional[ExecutionPreparationEngine] = None,
         decision_engine: Optional[DecisionEngine] = None,
         intent_engine: Optional[ExecutionIntentEngine] = None,
+        orchestrator: Optional[ExecutionOrchestrator] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.5: the analyzer, preparation engine, decision engine,
-        # and execution-intent engine are optional, additive collaborators. Each
-        # is stored only when injected so that earlier-sprint construction (three
-        # to six arguments) keeps exactly its original attributes and its tests
-        # pass unchanged. ``analyze``/``prepare``/``decide``/
-        # ``create_execution_intent`` each require their collaborator;
+        # Sprint 13.2–13.6: the analyzer, preparation engine, decision engine,
+        # execution-intent engine, and execution orchestrator are optional,
+        # additive collaborators. Each is stored only when injected so that
+        # earlier-sprint construction (three to seven arguments) keeps exactly
+        # its original attributes and its tests pass unchanged. ``analyze``/
+        # ``prepare``/``decide``/``create_execution_intent``/
+        # ``create_execution_workflow`` each require their collaborator;
         # ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
@@ -75,6 +79,8 @@ class PlanningEngine:
             self.decision_engine = decision_engine
         if intent_engine is not None:
             self.intent_engine = intent_engine
+        if orchestrator is not None:
+            self.orchestrator = orchestrator
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -195,3 +201,34 @@ class PlanningEngine:
         )
         self.validator.validate_execution_intent(intent)
         return intent
+
+    def create_execution_workflow(
+        self,
+        plan: ExecutionPlan,
+        analysis: PlanAnalysis,
+        preparation: ExecutionPreparation,
+        decision: ExecutionDecision,
+        intent: ExecutionIntent,
+    ) -> ExecutionWorkflow:
+        """Coordinate ``plan`` into an :class:`ExecutionWorkflow` (no execution).
+
+        Sprint 13.6 addition. Delegates to the injected
+        :class:`ExecutionOrchestrator` to turn the intent (with its plan,
+        analysis, preparation, and decision as context) into a provider-
+        independent, ordered, grouped workflow, then validates the result via the
+        injected :class:`PlanValidator`. This coordinates planning only — it
+        executes, resolves, and acquires nothing. Raises :class:`RuntimeError` if
+        no orchestrator was injected and :class:`PlanValidationError` if the
+        workflow is malformed; orchestrator exceptions propagate unchanged.
+        """
+        orchestrator = getattr(self, "orchestrator", None)
+        if orchestrator is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionOrchestrator injected; provide "
+                "one to call create_execution_workflow()."
+            )
+        workflow = orchestrator.create_workflow(
+            plan, analysis, preparation, decision, intent
+        )
+        self.validator.validate_execution_workflow(workflow)
+        return workflow

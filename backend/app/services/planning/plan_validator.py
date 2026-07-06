@@ -25,6 +25,11 @@ from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
 )
+from app.services.planning.execution_workflow_models import (
+    ExecutionMode,
+    ExecutionWorkflow,
+    WorkflowStatus,
+)
 from app.services.planning.models import ExecutionPlan
 
 # The only execution strategies a well-formed preparation may carry.
@@ -37,6 +42,12 @@ _VALID_DECISION_STATUSES = frozenset(status.value for status in DecisionStatus)
 _VALID_INTENT_TYPES = frozenset(
     intent.value for intent in ExecutionIntentType
 )
+
+# The only statuses/modes a well-formed execution workflow may carry.
+_VALID_WORKFLOW_STATUSES = frozenset(
+    status.value for status in WorkflowStatus
+)
+_VALID_EXECUTION_MODES = frozenset(mode.value for mode in ExecutionMode)
 
 
 class PlanValidationError(ValueError):
@@ -255,6 +266,45 @@ class PlanValidator:
             raise PlanValidationError(
                 "A DEFER intent must include a defer reason."
             )
+
+    def validate_execution_workflow(self, workflow: ExecutionWorkflow) -> None:
+        """Raise :class:`PlanValidationError` if ``workflow`` is not well-formed.
+
+        Sprint 13.6 extension. Rejects an empty workflow id, an unknown status or
+        execution mode, a negative or inconsistent step count, duplicate step
+        numbers, and a non-positive group index. Inspects only the workflow's
+        plain data — no execution, provider, or AI work.
+        """
+        if not workflow.workflow_id.strip():
+            raise PlanValidationError("workflow_id must not be empty.")
+        if workflow.workflow_status not in _VALID_WORKFLOW_STATUSES:
+            raise PlanValidationError(
+                f"Invalid workflow status: {workflow.workflow_status!r}."
+            )
+        if workflow.execution_mode not in _VALID_EXECUTION_MODES:
+            raise PlanValidationError(
+                f"Invalid execution mode: {workflow.execution_mode!r}."
+            )
+        if workflow.estimated_total_steps < 0:
+            raise PlanValidationError(
+                "estimated_total_steps cannot be negative "
+                f"({workflow.estimated_total_steps})."
+            )
+        if workflow.estimated_total_steps != len(workflow.ordered_steps):
+            raise PlanValidationError(
+                "estimated_total_steps must equal the number of ordered steps."
+            )
+        step_numbers = [step.step_number for step in workflow.ordered_steps]
+        if len(set(step_numbers)) != len(step_numbers):
+            raise PlanValidationError(
+                f"Duplicate workflow step numbers: {step_numbers}."
+            )
+        for step in workflow.ordered_steps:
+            if step.group < 1:
+                raise PlanValidationError(
+                    f"Workflow step {step.step_number} has a non-positive "
+                    f"group ({step.group})."
+                )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:
