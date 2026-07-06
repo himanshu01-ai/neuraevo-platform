@@ -33,6 +33,10 @@ from app.services.planning.execution_queue_models import (
 from app.services.planning.execution_dependency_graph_models import (
     ExecutionDependencyGraph,
 )
+from app.services.planning.execution_schedule_models import (
+    ExecutionSchedule,
+    SchedulingStrategy,
+)
 from app.services.planning.execution_state_models import (
     ExecutionState,
     ExecutionStateType,
@@ -76,6 +80,11 @@ _VALID_UNIT_STATUSES = frozenset(
 # The only states a well-formed task lifecycle may carry.
 _VALID_LIFECYCLE_STATES = frozenset(
     state.value for state in TaskLifecycleState
+)
+
+# The only strategies a well-formed execution schedule may carry.
+_VALID_SCHEDULING_STRATEGIES = frozenset(
+    strategy.value for strategy in SchedulingStrategy
 )
 
 # The only overall states a well-formed execution state may carry.
@@ -628,6 +637,74 @@ class PlanValidator:
             {n.node_id for n in graph.nodes if n.blocked},
             "blocked",
         )
+
+    def validate_execution_schedule(self, schedule: ExecutionSchedule) -> None:
+        """Raise :class:`PlanValidationError` if ``schedule`` is not well-formed.
+
+        Sprint 13.11 extension. Rejects an empty schedule/execution id, an unknown
+        scheduling strategy, a scheduled node with an empty id, empty unit id,
+        negative priority, ``scheduled`` not true, or empty reason; duplicate
+        scheduled node ids; an execution order that does not match the scheduled
+        nodes; empty or duplicate deferred/blocked ids; and scheduled/deferred/
+        blocked sets that overlap. Inspects only the schedule's plain data — no
+        execution, provider, or AI work.
+        """
+        if not schedule.schedule_id.strip():
+            raise PlanValidationError("schedule_id must not be empty.")
+        if not schedule.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if schedule.scheduling_strategy not in _VALID_SCHEDULING_STRATEGIES:
+            raise PlanValidationError(
+                f"Invalid scheduling strategy: "
+                f"{schedule.scheduling_strategy!r}."
+            )
+
+        scheduled_ids: list = []
+        for node in schedule.scheduled_nodes:
+            if not node.node_id.strip():
+                raise PlanValidationError("scheduled node_id must not be empty.")
+            if not node.execution_unit_id.strip():
+                raise PlanValidationError("execution_unit_id must not be empty.")
+            if node.priority < 0:
+                raise PlanValidationError(
+                    f"Scheduled node {node.node_id} has negative priority."
+                )
+            if not node.scheduled:
+                raise PlanValidationError(
+                    "scheduled_nodes must have scheduled=True."
+                )
+            if not node.reason.strip():
+                raise PlanValidationError("scheduled node reason is empty.")
+            scheduled_ids.append(node.node_id)
+
+        if len(set(scheduled_ids)) != len(scheduled_ids):
+            raise PlanValidationError("Duplicate scheduled node ids.")
+
+        if len(schedule.execution_order) != len(scheduled_ids):
+            raise PlanValidationError(
+                "execution_order must list exactly the scheduled nodes."
+            )
+        if len(set(schedule.execution_order)) != len(schedule.execution_order):
+            raise PlanValidationError("Duplicate ids in execution_order.")
+        if set(schedule.execution_order) != set(scheduled_ids):
+            raise PlanValidationError(
+                "execution_order must match the scheduled nodes."
+            )
+
+        self._reject_empty_or_duplicate(schedule.deferred_nodes, "deferred node")
+        self._reject_empty_or_duplicate(schedule.blocked_nodes, "blocked node")
+
+        scheduled_set = set(scheduled_ids)
+        deferred_set = set(schedule.deferred_nodes)
+        blocked_set = set(schedule.blocked_nodes)
+        if (
+            scheduled_set & deferred_set
+            or scheduled_set & blocked_set
+            or deferred_set & blocked_set
+        ):
+            raise PlanValidationError(
+                "scheduled, deferred, and blocked nodes must be disjoint."
+            )
 
     @staticmethod
     def _reject_node_set(actual: list, expected: set, label: str) -> None:

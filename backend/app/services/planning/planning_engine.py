@@ -36,6 +36,8 @@ from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
 from app.services.planning.execution_queue_models import ExecutionQueue
+from app.services.planning.execution_schedule_models import ExecutionSchedule
+from app.services.planning.execution_scheduler import ExecutionScheduler
 from app.services.planning.execution_state_manager import ExecutionStateManager
 from app.services.planning.execution_state_models import ExecutionState
 from app.services.planning.execution_workflow_models import ExecutionWorkflow
@@ -77,21 +79,23 @@ class PlanningEngine:
         dependency_graph_builder: Optional[
             ExecutionDependencyGraphBuilder
         ] = None,
+        scheduler: Optional[ExecutionScheduler] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.10: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.11: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
-        # coordinator, task-lifecycle engine, execution-state manager, and
-        # dependency-graph builder are optional, additive collaborators. Each is
-        # stored only when injected so that earlier-sprint construction (three to
-        # eleven arguments) keeps exactly its original attributes and its tests
-        # pass unchanged. ``analyze``/``prepare``/``decide``/
-        # ``create_execution_intent``/``create_execution_workflow``/
-        # ``create_execution_queue``/``create_task_lifecycles``/
-        # ``create_execution_state``/``create_execution_dependency_graph`` each
-        # require their collaborator; ``create_plan``/``explain`` require none.
+        # coordinator, task-lifecycle engine, execution-state manager,
+        # dependency-graph builder, and execution scheduler are optional,
+        # additive collaborators. Each is stored only when injected so that
+        # earlier-sprint construction (three to twelve arguments) keeps exactly
+        # its original attributes and its tests pass unchanged. ``analyze``/
+        # ``prepare``/``decide``/``create_execution_intent``/
+        # ``create_execution_workflow``/``create_execution_queue``/
+        # ``create_task_lifecycles``/``create_execution_state``/
+        # ``create_execution_dependency_graph``/``create_execution_schedule``
+        # each require their collaborator; ``create_plan``/``explain`` need none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
@@ -110,6 +114,8 @@ class PlanningEngine:
             self.state_manager = state_manager
         if dependency_graph_builder is not None:
             self.dependency_graph_builder = dependency_graph_builder
+        if scheduler is not None:
+            self.scheduler = scheduler
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -362,3 +368,28 @@ class PlanningEngine:
         graph = dependency_graph_builder.build_graph(queue, lifecycles)
         self.validator.validate_execution_dependency_graph(graph)
         return graph
+
+    def create_execution_schedule(
+        self, graph: ExecutionDependencyGraph, state: ExecutionState
+    ) -> ExecutionSchedule:
+        """Determine what could run next as an :class:`ExecutionSchedule`.
+
+        Sprint 13.11 addition. Delegates to the injected
+        :class:`ExecutionScheduler` to select schedulable nodes, defer the rest,
+        keep blocked nodes blocked, and compute a deterministic execution order
+        from the dependency graph and execution state, then validates the result
+        via the injected :class:`PlanValidator`. This determines what could run
+        only; it executes, resolves, and acquires nothing and never mutates its
+        inputs. Raises :class:`RuntimeError` if no scheduler was injected and
+        :class:`PlanValidationError` if the schedule is malformed; scheduler
+        exceptions propagate unchanged.
+        """
+        scheduler = getattr(self, "scheduler", None)
+        if scheduler is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionScheduler injected; provide one "
+                "to call create_execution_schedule()."
+            )
+        schedule = scheduler.create_schedule(graph, state)
+        self.validator.validate_execution_schedule(schedule)
+        return schedule

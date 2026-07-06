@@ -29,6 +29,10 @@ from app.services.planning.execution_queue_models import (
 from app.services.planning.execution_dependency_graph_models import (
     ExecutionDependencyGraph,
 )
+from app.services.planning.execution_schedule_models import (
+    ExecutionSchedule,
+    SchedulingStrategy,
+)
 from app.services.planning.execution_state_models import (
     ExecutionState,
     ExecutionStateType,
@@ -96,6 +100,13 @@ _WORKFLOW_MODE_PHRASES = {
     ExecutionMode.SEQUENTIAL.value: "one step at a time",
     ExecutionMode.PARALLEL.value: "several steps at once",
     ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
+}
+
+# User-language phrasing per scheduling strategy (no implementation terms).
+_SCHEDULE_STRATEGY_PHRASES = {
+    SchedulingStrategy.SEQUENTIAL.value: "one after another",
+    SchedulingStrategy.PARALLEL.value: "at the same time",
+    SchedulingStrategy.HYBRID.value: "in a mix of order and parallel",
 }
 
 # User-language message per overall execution state (no implementation terms).
@@ -288,6 +299,34 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_schedule(
+        self, plan: ExecutionPlan, schedule: ExecutionSchedule
+    ) -> str:
+        """Explain ``plan`` and what could run next (no execution).
+
+        Sprint 13.11 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — how
+        many tasks are lined up to run and how, plus any ready tasks held back to
+        follow later.
+        """
+        segments: List[str] = [self.build(plan)]
+        scheduled = len(schedule.scheduled_nodes)
+        if scheduled == 0:
+            segments.append("Nothing is scheduled to run yet.")
+        else:
+            phrase = _SCHEDULE_STRATEGY_PHRASES.get(
+                schedule.scheduling_strategy, "in order"
+            )
+            segments.append(
+                f"I've lined up {scheduled} task(s) to run {phrase}."
+            )
+        if schedule.deferred_nodes:
+            segments.append(
+                f"{len(schedule.deferred_nodes)} more are ready and will "
+                "follow."
+            )
         return " ".join(segments)
 
     def build_with_execution_dependency_graph(

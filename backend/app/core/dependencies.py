@@ -72,6 +72,7 @@ from app.services.planning.execution_state_manager import ExecutionStateManager
 from app.services.planning.execution_dependency_graph import (
     ExecutionDependencyGraphBuilder,
 )
+from app.services.planning.execution_scheduler import ExecutionScheduler
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -731,6 +732,22 @@ ExecutionDependencyGraphBuilderDep = Annotated[
 ]
 
 
+def get_execution_scheduler() -> ExecutionScheduler:
+    """Provide the stateless :class:`ExecutionScheduler` (Sprint 13.11).
+
+    Deterministic, offline construction of an :class:`ExecutionSchedule` from an
+    :class:`ExecutionDependencyGraph` and an :class:`ExecutionState`. SCHEDULING
+    ONLY — no AI, network, SDK, Runtime, Session, Registry, Permission, Tool
+    framework, Memory, Gemini, or execution.
+    """
+    return ExecutionScheduler()
+
+
+ExecutionSchedulerDep = Annotated[
+    ExecutionScheduler, Depends(get_execution_scheduler)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -744,6 +761,7 @@ def get_planning_engine(
     lifecycle_engine: TaskLifecycleEngineDep = None,
     state_manager: ExecutionStateManagerDep = None,
     dependency_graph_builder: ExecutionDependencyGraphBuilderDep = None,
+    scheduler: ExecutionSchedulerDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -775,6 +793,7 @@ def get_planning_engine(
         lifecycle_engine,
         state_manager,
         dependency_graph_builder,
+        scheduler,
     )
 
 
