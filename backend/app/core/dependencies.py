@@ -68,6 +68,7 @@ from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_orchestrator import ExecutionOrchestrator
 from app.services.planning.execution_coordinator import ExecutionCoordinator
 from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
+from app.services.planning.execution_state_manager import ExecutionStateManager
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -693,6 +694,21 @@ TaskLifecycleEngineDep = Annotated[
 ]
 
 
+def get_execution_state_manager() -> ExecutionStateManager:
+    """Provide the stateless :class:`ExecutionStateManager` (Sprint 13.9).
+
+    Deterministic, offline aggregation of ``List[TaskLifecycle]`` into an
+    :class:`ExecutionState`. STATE ONLY — no AI, network, SDK, Runtime, Session,
+    Registry, Permission, Tool framework, Memory, Gemini, or execution.
+    """
+    return ExecutionStateManager()
+
+
+ExecutionStateManagerDep = Annotated[
+    ExecutionStateManager, Depends(get_execution_state_manager)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -704,6 +720,7 @@ def get_planning_engine(
     orchestrator: ExecutionOrchestratorDep = None,
     coordinator: ExecutionCoordinatorDep = None,
     lifecycle_engine: TaskLifecycleEngineDep = None,
+    state_manager: ExecutionStateManagerDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -733,6 +750,7 @@ def get_planning_engine(
         orchestrator,
         coordinator,
         lifecycle_engine,
+        state_manager,
     )
 
 

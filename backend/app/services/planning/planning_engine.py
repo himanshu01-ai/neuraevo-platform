@@ -30,6 +30,8 @@ from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
 from app.services.planning.execution_queue_models import ExecutionQueue
+from app.services.planning.execution_state_manager import ExecutionStateManager
+from app.services.planning.execution_state_models import ExecutionState
 from app.services.planning.execution_workflow_models import ExecutionWorkflow
 from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
 from app.services.planning.task_lifecycle_models import TaskLifecycle
@@ -65,18 +67,20 @@ class PlanningEngine:
         orchestrator: Optional[ExecutionOrchestrator] = None,
         coordinator: Optional[ExecutionCoordinator] = None,
         lifecycle_engine: Optional[TaskLifecycleEngine] = None,
+        state_manager: Optional[ExecutionStateManager] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.8: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.9: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
-        # coordinator, and task-lifecycle engine are optional, additive
-        # collaborators. Each is stored only when injected so that earlier-sprint
-        # construction (three to nine arguments) keeps exactly its original
-        # attributes and its tests pass unchanged. ``analyze``/``prepare``/
-        # ``decide``/``create_execution_intent``/``create_execution_workflow``/
-        # ``create_execution_queue``/``create_task_lifecycles`` each require
+        # coordinator, task-lifecycle engine, and execution-state manager are
+        # optional, additive collaborators. Each is stored only when injected so
+        # that earlier-sprint construction (three to ten arguments) keeps exactly
+        # its original attributes and its tests pass unchanged. ``analyze``/
+        # ``prepare``/``decide``/``create_execution_intent``/
+        # ``create_execution_workflow``/``create_execution_queue``/
+        # ``create_task_lifecycles``/``create_execution_state`` each require
         # their collaborator; ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
@@ -92,6 +96,8 @@ class PlanningEngine:
             self.coordinator = coordinator
         if lifecycle_engine is not None:
             self.lifecycle_engine = lifecycle_engine
+        if state_manager is not None:
+            self.state_manager = state_manager
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -292,3 +298,27 @@ class PlanningEngine:
         lifecycles = lifecycle_engine.create_lifecycles(queue)
         self.validator.validate_task_lifecycles(lifecycles)
         return lifecycles
+
+    def create_execution_state(
+        self, lifecycles: List[TaskLifecycle]
+    ) -> ExecutionState:
+        """Aggregate ``lifecycles`` into an :class:`ExecutionState` (STATE ONLY).
+
+        Sprint 13.9 addition. Delegates to the injected
+        :class:`ExecutionStateManager` to aggregate the task lifecycles into a
+        single overall state — counts, progress, active ids, and terminal flag —
+        then validates the result via the injected :class:`PlanValidator`. This
+        represents execution state only; it executes, resolves, and acquires
+        nothing and never mutates the lifecycles. Raises :class:`RuntimeError` if
+        no state manager was injected and :class:`PlanValidationError` if the
+        state is malformed; manager exceptions propagate unchanged.
+        """
+        state_manager = getattr(self, "state_manager", None)
+        if state_manager is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionStateManager injected; provide "
+                "one to call create_execution_state()."
+            )
+        state = state_manager.create_state(lifecycles)
+        self.validator.validate_execution_state(state)
+        return state

@@ -26,6 +26,10 @@ from app.services.planning.execution_queue_models import (
     ExecutionQueue,
     QueueStatus,
 )
+from app.services.planning.execution_state_models import (
+    ExecutionState,
+    ExecutionStateType,
+)
 from app.services.planning.execution_workflow_models import (
     ExecutionMode,
     ExecutionWorkflow,
@@ -89,6 +93,19 @@ _WORKFLOW_MODE_PHRASES = {
     ExecutionMode.SEQUENTIAL.value: "one step at a time",
     ExecutionMode.PARALLEL.value: "several steps at once",
     ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
+}
+
+# User-language message per overall execution state (no implementation terms).
+_EXECUTION_STATE_MESSAGES = {
+    ExecutionStateType.READY.value: "Execution is ready to begin.",
+    ExecutionStateType.WAITING.value: "Execution is waiting.",
+    ExecutionStateType.RUNNING.value: "Execution is in progress.",
+    ExecutionStateType.PARTIALLY_COMPLETED.value: (
+        "Execution is partly done."
+    ),
+    ExecutionStateType.COMPLETED.value: "Execution is complete.",
+    ExecutionStateType.FAILED.value: "Execution ran into a problem.",
+    ExecutionStateType.CANCELLED.value: "Execution was cancelled.",
 }
 
 # User-language message per queue status (no implementation terms).
@@ -268,6 +285,27 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_state(
+        self, plan: ExecutionPlan, state: ExecutionState
+    ) -> str:
+        """Explain ``plan`` and the overall execution state (no execution).
+
+        Sprint 13.9 extension. Reuses :meth:`build` for the step narration, then
+        states the overall progress in everyday user language, never
+        implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _EXECUTION_STATE_MESSAGES.get(
+                state.overall_state, "Execution is planned."
+            )
+        )
+        segments.append(
+            f"Progress: {state.progress_percentage:.0f}% "
+            f"({state.completed_tasks} of {state.total_tasks} tasks complete)."
+        )
         return " ".join(segments)
 
     def build_with_task_lifecycles(

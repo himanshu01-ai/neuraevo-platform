@@ -30,6 +30,10 @@ from app.services.planning.execution_queue_models import (
     ExecutionUnitStatus,
     QueueStatus,
 )
+from app.services.planning.execution_state_models import (
+    ExecutionState,
+    ExecutionStateType,
+)
 from app.services.planning.execution_workflow_models import (
     ExecutionMode,
     ExecutionWorkflow,
@@ -69,6 +73,19 @@ _VALID_UNIT_STATUSES = frozenset(
 # The only states a well-formed task lifecycle may carry.
 _VALID_LIFECYCLE_STATES = frozenset(
     state.value for state in TaskLifecycleState
+)
+
+# The only overall states a well-formed execution state may carry.
+_VALID_EXECUTION_STATES = frozenset(
+    state.value for state in ExecutionStateType
+)
+# The overall states that represent a fully terminated execution.
+_TERMINAL_EXECUTION_STATES = frozenset(
+    {
+        ExecutionStateType.COMPLETED.value,
+        ExecutionStateType.FAILED.value,
+        ExecutionStateType.CANCELLED.value,
+    }
 )
 
 
@@ -467,6 +484,75 @@ class PlanValidator:
 
         if len(set(unit_ids)) != len(unit_ids):
             raise PlanValidationError("Duplicate task lifecycle unit ids.")
+
+    def validate_execution_state(self, state: ExecutionState) -> None:
+        """Raise :class:`PlanValidationError` if ``state`` is not well-formed.
+
+        Sprint 13.9 extension. Rejects an empty execution id, an unknown overall
+        state, negative counts, per-state counts that exceed the total, a
+        progress percentage outside ``0``–``100``, a ``terminal`` flag
+        inconsistent with the terminal counts, an overall state that disagrees
+        with a terminal execution, and empty, duplicate, or miscounted active
+        task ids. Inspects only the state's plain data — no execution, provider,
+        or AI work.
+        """
+        if not state.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if state.overall_state not in _VALID_EXECUTION_STATES:
+            raise PlanValidationError(
+                f"Invalid overall state: {state.overall_state!r}."
+            )
+
+        counts = (
+            state.ready_tasks,
+            state.waiting_tasks,
+            state.running_tasks,
+            state.completed_tasks,
+            state.failed_tasks,
+            state.cancelled_tasks,
+            state.skipped_tasks,
+        )
+        if state.total_tasks < 0 or any(count < 0 for count in counts):
+            raise PlanValidationError("Execution counts cannot be negative.")
+        if sum(counts) > state.total_tasks:
+            raise PlanValidationError(
+                "Per-state task counts cannot exceed total_tasks."
+            )
+        if not 0.0 <= state.progress_percentage <= 100.0:
+            raise PlanValidationError(
+                f"progress_percentage {state.progress_percentage} is outside "
+                "0..100."
+            )
+
+        terminal_count = (
+            state.completed_tasks
+            + state.failed_tasks
+            + state.cancelled_tasks
+            + state.skipped_tasks
+        )
+        expected_terminal = (
+            state.total_tasks > 0 and terminal_count == state.total_tasks
+        )
+        if state.terminal != expected_terminal:
+            raise PlanValidationError(
+                "terminal must be true exactly when every task is terminal."
+            )
+        if state.terminal and (
+            state.overall_state not in _TERMINAL_EXECUTION_STATES
+        ):
+            raise PlanValidationError(
+                "A terminal execution state must be COMPLETED, FAILED, or "
+                "CANCELLED."
+            )
+
+        if any(not task_id.strip() for task_id in state.active_task_ids):
+            raise PlanValidationError("active_task_ids must not be empty.")
+        if len(set(state.active_task_ids)) != len(state.active_task_ids):
+            raise PlanValidationError("Duplicate active task ids.")
+        if len(state.active_task_ids) != state.total_tasks - terminal_count:
+            raise PlanValidationError(
+                "active_task_ids count must equal the non-terminal task count."
+            )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:
