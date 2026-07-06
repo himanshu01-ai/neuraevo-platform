@@ -57,6 +57,13 @@ from app.services.tools import ToolExecutionService, ToolProvider
 from app.services.tools.registry import ToolRegistry
 from app.services.permissions import PermissionProvider, PermissionService
 from app.services.planner import PlannerProvider, PlannerService
+from app.services.planning import (
+    HeuristicPlanningProvider,
+    PlanningEngine,
+    PlanningExplanationBuilder,
+    PlanningProvider,
+    PlanValidator,
+)
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -556,6 +563,62 @@ def get_planner_service(
 PlannerServiceDep = Annotated[
     PlannerService, Depends(get_planner_service)
 ]
+
+
+def get_planning_provider() -> PlanningProvider:
+    """Provide the active planning provider (Sprint 13.1 — Planning Engine).
+
+    Unlike the Sprint 11.3/11.4 framework seams (which raise until a provider
+    exists), Sprint 13.1 ships a concrete, provider-independent default: the
+    deterministic :class:`HeuristicPlanningProvider`, which reasons from the
+    request text alone (no AI/SDK/network). Swapping in an LLM-backed planner
+    later is a one-line change here, with no impact on the
+    :class:`PlanningEngine` or its consumers.
+    """
+    return HeuristicPlanningProvider()
+
+
+PlanningProviderDep = Annotated[
+    PlanningProvider, Depends(get_planning_provider)
+]
+
+
+def get_plan_validator() -> PlanValidator:
+    """Provide the stateless :class:`PlanValidator` (structural/logical checks)."""
+    return PlanValidator()
+
+
+PlanValidatorDep = Annotated[PlanValidator, Depends(get_plan_validator)]
+
+
+def get_planning_explanation_builder() -> PlanningExplanationBuilder:
+    """Provide the stateless :class:`PlanningExplanationBuilder` (narration)."""
+    return PlanningExplanationBuilder()
+
+
+PlanningExplanationBuilderDep = Annotated[
+    PlanningExplanationBuilder, Depends(get_planning_explanation_builder)
+]
+
+
+def get_planning_engine(
+    provider: PlanningProviderDep,
+    validator: PlanValidatorDep,
+    explanation_builder: PlanningExplanationBuilderDep,
+) -> PlanningEngine:
+    """Provide the Sprint 13.1 :class:`PlanningEngine` (reason -> validate -> explain).
+
+    Composes the injected planning provider, plan validator, and explanation
+    builder (constructor injection only — it instantiates nothing itself). The
+    engine reasons and validates but never executes and holds no session. It is
+    not yet wired into the Conversation Runtime: the runtime -> planning ->
+    execution integration belongs to a later sprint; this composition-root seam
+    makes the engine resolvable and ready.
+    """
+    return PlanningEngine(provider, validator, explanation_builder)
+
+
+PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]
 
 
 def get_interaction_provider() -> InteractionProvider:
