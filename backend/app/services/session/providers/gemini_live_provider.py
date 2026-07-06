@@ -6,12 +6,19 @@ Sprint 12.9 it supports bidirectional **text** messaging (one user text turn +
 aggregated streamed text response), Sprint 12.10 bidirectional **audio
 transport** (send/receive raw PCM audio chunks), and as of Sprint 12.11
 **visual input messaging** (send a supported image and aggregate the streamed
-textual explanation). It intentionally stops before native document processing
-(PDF/DOCX/PPTX/XLSX — Sprint 12.12), OCR, image editing, microphone/speaker/UI,
-and tool execution. Audio crosses the boundary as ``bytes`` and visual input as
-the provider-independent :class:`VisualInput`; the SDK's audio/visual
-structures and mime types stay hidden inside the private ``_AudioTransport`` /
-``_VisualTransport``.
+textual explanation), and as of Sprint 12.12 **document intelligence** (send a
+supported document and aggregate the streamed explanation), and as of Sprint
+12.13 an **action execution layer** that translates Gemini Live tool/function
+requests into provider-independent :class:`ActionRequest`s and forwards them into
+the existing Sprint 11 execution pipeline (planner -> registry -> permission ->
+tool execution) via the private ``_ActionBridge`` — the provider never executes a
+tool itself. It intentionally stops before Runtime integration, autonomous
+planning, background execution, memory, multi-step reasoning, OCR, embeddings,
+retrieval, image editing, and microphone/speaker/UI. Audio crosses the boundary
+as ``bytes``, visual input as :class:`VisualInput`, and documents as
+:class:`DocumentInput`; the SDK's audio/visual/document structures and mime types
+stay hidden inside the private ``_AudioTransport`` / ``_VisualTransport`` /
+``_DocumentTransport``.
 
 The Live API is async-only (``client.aio.live.connect``), while the Session SPI
 is synchronous; the provider bridges the two through a provider-private
@@ -35,12 +42,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import Any, Dict, Iterator, List, Optional, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.multimodal_ai.adapters import GenAIClientProtocol
 from app.services.multimodal_ai.providers import ProviderConfig
+from app.services.permissions import PermissionRequest
+from app.services.tools import ToolExecutionRequest
 from app.services.session.models import (
     ConversationSession,
     SessionResult,
@@ -87,6 +96,71 @@ class VisualInput(BaseModel):
     payload: bytes
     mime_type: str
     source: VisualSource
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class DocumentType(str, Enum):
+    """The kind of a document. Exists ONLY as metadata — the provider's behavior
+    never branches on it; behavior is determined only by payload + MIME type.
+    """
+
+    PDF = "pdf"
+    DOCX = "docx"
+    PPTX = "pptx"
+    XLSX = "xlsx"
+    TXT = "txt"
+    MARKDOWN = "markdown"
+    CSV = "csv"
+    JSON = "json"
+    OTHER = "other"
+
+
+class DocumentInput(BaseModel):
+    """Immutable, provider-independent document input (never carries SDK objects).
+
+    ``payload`` is the raw document bytes; ``mime_type`` is the document MIME type
+    (only the Sprint 12.12 supported set is accepted); ``document_type`` tags the
+    kind (metadata only — behavior never depends on it); ``metadata`` is opaque
+    caller context (an optional ``prompt`` entry accompanies the document, exactly
+    like Sprint 12.11). ``frozen=True`` makes instances immutable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    payload: bytes
+    mime_type: str
+    document_type: DocumentType
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionRequest(BaseModel):
+    """Immutable, provider-independent request to run a tool/action.
+
+    Normalized from a Gemini Live function/tool call — never carries SDK
+    structures. ``tool_name`` names the tool; ``arguments`` are its inputs;
+    ``metadata`` carries opaque call context (e.g. the SDK ``call_id``, kept only
+    to correlate the response). ``frozen=True`` makes instances immutable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tool_name: str
+    arguments: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ActionResult(BaseModel):
+    """Immutable, provider-independent result of running a tool/action.
+
+    ``success`` is the outcome; ``result`` is the plain-text result (never an SDK
+    object); ``metadata`` carries any extra plain context. ``frozen=True`` makes
+    instances immutable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    success: bool
+    result: str
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -236,6 +310,221 @@ class _VisualTransport:
         return None
 
 
+class _DocumentTransport:
+    """Provider-PRIVATE document (de)serialization; hides SDK document structures.
+
+    Owns the supported document MIME types, checks a MIME type, encodes ordered
+    document chunks into SDK content parts (inline-data parts plus an optional
+    caller-supplied text prompt from ``metadata['prompt']``), and decodes an SDK
+    response message into plain text. No other module knows SDK document formats —
+    only :class:`DocumentInput` in and ``str`` out.
+    """
+
+    SUPPORTED_MIME_TYPES = frozenset(
+        {
+            "application/pdf",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "text/plain",
+            "text/markdown",
+            "text/csv",
+            "application/json",
+        }
+    )
+    _PROMPT_METADATA_KEY = "prompt"
+
+    def is_supported_mime(self, mime_type: Any) -> bool:
+        """Whether ``mime_type`` is a supported document MIME type."""
+        return mime_type in self.SUPPORTED_MIME_TYPES
+
+    def encode_parts(
+        self, document_input: "DocumentInput", chunks: List[bytes]
+    ) -> List[Dict[str, Any]]:
+        """Encode ordered document chunks into SDK content parts (+ optional prompt)."""
+        parts: List[Dict[str, Any]] = [
+            {
+                "inline_data": {
+                    "mime_type": document_input.mime_type,
+                    "data": bytes(chunk),
+                }
+            }
+            for chunk in chunks
+        ]
+        prompt = document_input.metadata.get(self._PROMPT_METADATA_KEY)
+        if isinstance(prompt, str) and prompt.strip():
+            parts.append({"text": prompt})
+        return parts
+
+    def decode_response_text(self, message: Any) -> Optional[str]:
+        """Extract plain text from one SDK response message (never the SDK object).
+
+        Prefers a text part; falls back to the server-side output transcription.
+        """
+        text = getattr(message, "text", None)
+        if text:
+            return text
+        server_content = getattr(message, "server_content", None)
+        transcription = getattr(server_content, "output_transcription", None)
+        if transcription is not None:
+            return getattr(transcription, "text", None)
+        return None
+
+
+class _DocumentChunker:
+    """Provider-PRIVATE document chunking extension point (single chunk for now).
+
+    Determines whether a document needs chunking and exposes an ordered iterator
+    of logical chunks. This sprint always yields exactly ONE chunk (the whole
+    payload) for supported documents — large-document chunking, semantic
+    chunking, and embeddings are intentionally NOT implemented. It exists only as
+    a future extension seam.
+    """
+
+    def requires_chunking(self, document_input: "DocumentInput") -> bool:
+        """Whether the document needs splitting (always ``False`` this sprint)."""
+        return False
+
+    def iter_chunks(self, document_input: "DocumentInput") -> Iterator[bytes]:
+        """Yield ordered logical chunks — currently the single whole payload."""
+        yield bytes(document_input.payload)
+
+
+class _ActionBridge:
+    """Provider-PRIVATE bridge: Gemini Live tool calls <-> Sprint 11 execution.
+
+    The provider NEVER executes a tool. This bridge only translates and forwards:
+
+    * detects Gemini Live tool/function requests in an SDK message and normalizes
+      them into provider-independent :class:`ActionRequest`s (hiding SDK
+      structures),
+    * forwards an :class:`ActionRequest` into the EXISTING Sprint 11 execution
+      pipeline — planner -> tool registry -> permission service -> tool execution
+      service — all injected and reused unchanged (no new execution framework),
+    * receives the Sprint 11 ``ToolExecutionResult`` and maps it to an
+      :class:`ActionResult`, and
+    * converts an :class:`ActionResult` back into a Gemini-compatible function
+      response (hiding SDK structures).
+
+    Because the model already selected the concrete tool + arguments (Gemini
+    function calling), the planner is invoked as the pipeline's planning gate
+    while the concrete tool + arguments flow unchanged through registry ->
+    permission -> execution — so the model's arguments are never lost. The four
+    Sprint 11 collaborators remain the single source of execution; nothing here
+    plans, resolves, permissions, or executes a tool itself.
+    """
+
+    def __init__(
+        self, planner, tool_registry, permissions, tool_execution
+    ) -> None:
+        self._planner = planner
+        self._tool_registry = tool_registry
+        self._permissions = permissions
+        self._tool_execution = tool_execution
+
+    def is_configured(self) -> bool:
+        """Whether the full Sprint 11 execution pipeline is available."""
+        return None not in (
+            self._planner,
+            self._tool_registry,
+            self._permissions,
+            self._tool_execution,
+        )
+
+    def extract_action_requests(self, message: Any) -> List["ActionRequest"]:
+        """Detect Gemini Live function calls in one SDK message -> ActionRequests.
+
+        Returns an empty list when the message carries no tool call. No SDK tool
+        structure escapes — only provider-independent :class:`ActionRequest`s.
+        """
+        tool_call = getattr(message, "tool_call", None)
+        if tool_call is None:
+            return []
+        function_calls = getattr(tool_call, "function_calls", None) or []
+        requests: List["ActionRequest"] = []
+        for call in function_calls:
+            name = getattr(call, "name", None)
+            if not isinstance(name, str) or not name:
+                continue
+            args = getattr(call, "args", None) or {}
+            call_id = getattr(call, "id", None)
+            requests.append(
+                ActionRequest(
+                    tool_name=name,
+                    arguments=dict(args),
+                    metadata={"call_id": call_id} if call_id else {},
+                )
+            )
+        return requests
+
+    def to_function_response(
+        self, action_request: "ActionRequest", action_result: "ActionResult"
+    ) -> Dict[str, Any]:
+        """Convert an ActionResult into a Gemini-compatible function response.
+
+        A plain dict (never an SDK object) suitable for ``send_tool_response``.
+        """
+        function_response: Dict[str, Any] = {
+            "name": action_request.tool_name,
+            "response": {
+                "success": action_result.success,
+                "result": action_result.result,
+            },
+        }
+        call_id = action_request.metadata.get("call_id")
+        if call_id:
+            function_response["id"] = call_id
+        return {"function_responses": [function_response]}
+
+    def execute(self, action_request: "ActionRequest") -> "ActionResult":
+        """Forward an ActionRequest through the Sprint 11 pipeline; return ActionResult.
+
+        The provider never executes: each step delegates to the reused Sprint 11
+        service. Order is exact: planner -> registry -> permission -> execution.
+        A permission denial short-circuits to an unsuccessful ActionResult; every
+        service exception propagates unchanged.
+        """
+        if not self.is_configured():
+            raise RuntimeError(
+                "Action execution is unavailable: the Sprint 11 execution "
+                "pipeline (planner/registry/permission/tool-execution) is not "
+                "configured on this provider."
+            )
+
+        # 1. Planner (Sprint 11.4) — planning gate for the requested action.
+        self._planner.create_plan(action_request.tool_name)
+
+        # 2. Tool Registry (Sprint 11.2) — resolve the tool (KeyError if unknown).
+        self._tool_registry.get_tool(action_request.tool_name)
+
+        # 3. Permission Service (Sprint 11.3) — gate the tool + arguments.
+        permission = self._permissions.check_permission(
+            PermissionRequest(
+                tool_name=action_request.tool_name,
+                arguments=action_request.arguments,
+            )
+        )
+        if not permission.approved or permission.requires_user_confirmation:
+            return ActionResult(
+                success=False,
+                result=permission.reason or "permission denied",
+                metadata={"permission_denied": True},
+            )
+
+        # 4. Tool Execution (Sprint 11.1) — the ONLY executor (never the provider).
+        tool_result = self._tool_execution.execute(
+            ToolExecutionRequest(
+                tool_name=action_request.tool_name,
+                arguments=action_request.arguments,
+            )
+        )
+        return ActionResult(
+            success=bool(tool_result.success),
+            result="" if tool_result.output is None else str(tool_result.output),
+            metadata={},
+        )
+
+
 class GeminiLiveSessionProvider(SessionProvider):
     """Concrete :class:`SessionProvider` opening a real Gemini Live session.
 
@@ -280,7 +569,13 @@ class GeminiLiveSessionProvider(SessionProvider):
     }
 
     def __init__(
-        self, client: GenAIClientProtocol, config: ProviderConfig
+        self,
+        client: GenAIClientProtocol,
+        config: ProviderConfig,
+        planner: Any = None,
+        tool_registry: Any = None,
+        permissions: Any = None,
+        tool_execution: Any = None,
     ) -> None:
         self.client = client
         self.config = config
@@ -294,6 +589,14 @@ class GeminiLiveSessionProvider(SessionProvider):
         self._audio_transport = _AudioTransport()
         # Provider-private visual (de)serialization; hides SDK visual structures.
         self._visual_transport = _VisualTransport()
+        # Provider-private document (de)serialization + chunking extension point.
+        self._document_transport = _DocumentTransport()
+        self._document_chunker = _DocumentChunker()
+        # Provider-private bridge to the existing Sprint 11 execution pipeline.
+        # The provider only translates/forwards — it never executes tools itself.
+        self._action_bridge = _ActionBridge(
+            planner, tool_registry, permissions, tool_execution
+        )
 
     # ------------------------------------------------------------------
     # Session SPI
@@ -487,6 +790,65 @@ class GeminiLiveSessionProvider(SessionProvider):
             self._acollect_visual(record.handle.sdk_session),
             self._RECEIVE_TIMEOUT_SECONDS,
         )
+
+    # ------------------------------------------------------------------
+    # Live document intelligence (provider-specific; NOT part of the SPI)
+    # ------------------------------------------------------------------
+    def send_document(
+        self, session_id: uuid.UUID, document_input: "DocumentInput"
+    ) -> SessionResult:
+        """Send exactly ONE document over an ACTIVE Live session.
+
+        Validates the session is present and ACTIVE and validates the
+        :class:`DocumentInput` via the single :meth:`_validate_document_input`
+        helper, then sends exactly one content turn built from the ordered
+        chunk(s) (currently one) — the SDK document format is hidden by
+        ``_DocumentTransport``. An optional ``metadata['prompt']`` accompanies the
+        document (exactly like Sprint 12.11). No retries, buffering, prompt
+        engineering, planner, memory, or runtime. Returns the unchanged ACTIVE
+        snapshot; SDK exceptions propagate unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        validated = self._validate_document_input(document_input)
+        chunks = list(self._document_chunker.iter_chunks(validated))
+        self._run_async(
+            self._asend_document(record.handle.sdk_session, validated, chunks),
+            self._SEND_TIMEOUT_SECONDS,
+        )
+        return SessionResult(success=True, session=record.session)
+
+    def receive_document_response(self, session_id: uuid.UUID) -> str:
+        """Aggregate the streamed textual explanation into one complete string.
+
+        Validates the session is present and ACTIVE, consumes the streamed
+        response exactly once (order preserved, empty chunks ignored), and returns
+        the joined text. No SDK object is ever exposed; SDK exceptions propagate
+        unchanged.
+        """
+        record = self._validate_active_session(session_id)
+        return self._run_async(
+            self._acollect_document(record.handle.sdk_session),
+            self._RECEIVE_TIMEOUT_SECONDS,
+        )
+
+    # ------------------------------------------------------------------
+    # Action execution (provider-specific; translation only — NOT the SPI)
+    # ------------------------------------------------------------------
+    def execute_action(
+        self, session_id: uuid.UUID, action_request: "ActionRequest"
+    ) -> "ActionResult":
+        """Translate + forward an action into the Sprint 11 pipeline; return ActionResult.
+
+        The provider ONLY translates and forwards: it validates the ACTIVE session
+        and the :class:`ActionRequest` (single :meth:`_validate_action_request`
+        helper), then hands the request to the private ``_ActionBridge``, which
+        drives the existing Sprint 11 pipeline (planner -> registry -> permission
+        -> tool execution). The provider never plans, permissions, or executes a
+        tool itself; every Sprint 11 exception propagates unchanged.
+        """
+        self._validate_active_session(session_id)
+        validated = self._validate_action_request(action_request)
+        return self._action_bridge.execute(validated)
 
     # ------------------------------------------------------------------
     # Internals — lifecycle state (provider-private)
@@ -727,3 +1089,77 @@ class GeminiLiveSessionProvider(SessionProvider):
         async for message in sdk_session.receive():
             aggregator.add(self._visual_transport.decode_response_text(message))
         return aggregator.result()
+
+    # ------------------------------------------------------------------
+    # Internals — document intelligence (provider-private)
+    # ------------------------------------------------------------------
+    def _validate_document_input(self, document_input: Any) -> "DocumentInput":
+        """Validate an outgoing DocumentInput; the single document-send validator.
+
+        Ensures the input is a :class:`DocumentInput` with bytes-like, non-empty
+        payload, a supported document MIME type, and a valid :class:`DocumentType`.
+        Raises ``TypeError`` for wrong types and ``ValueError`` for empty payloads
+        or unsupported MIME types. ``metadata`` is left untouched. All document
+        sending routes through here, so the validation is never duplicated.
+        """
+        if not isinstance(document_input, DocumentInput):
+            raise TypeError("document_input must be a DocumentInput")
+        if not isinstance(document_input.payload, (bytes, bytearray)):
+            raise TypeError("DocumentInput.payload must be bytes")
+        if len(document_input.payload) == 0:
+            raise ValueError("DocumentInput.payload must not be empty")
+        if not self._document_transport.is_supported_mime(
+            document_input.mime_type
+        ):
+            raise ValueError(
+                f"Unsupported document MIME type: {document_input.mime_type}"
+            )
+        if not isinstance(document_input.document_type, DocumentType):
+            raise ValueError(
+                "DocumentInput.document_type must be a DocumentType"
+            )
+        return document_input
+
+    async def _asend_document(
+        self, sdk_session: Any, document_input: "DocumentInput", chunks: List[bytes]
+    ) -> None:
+        """Send exactly one document content turn over the SDK Live session."""
+        await sdk_session.send_client_content(
+            turns={
+                "role": "user",
+                "parts": self._document_transport.encode_parts(
+                    document_input, chunks
+                ),
+            },
+            turn_complete=True,
+        )
+
+    async def _acollect_document(self, sdk_session: Any) -> str:
+        """Consume the streamed document explanation once and aggregate its text."""
+        aggregator = _StreamAggregator()
+        async for message in sdk_session.receive():
+            aggregator.add(
+                self._document_transport.decode_response_text(message)
+            )
+        return aggregator.result()
+
+    # ------------------------------------------------------------------
+    # Internals — action execution (provider-private)
+    # ------------------------------------------------------------------
+    def _validate_action_request(self, action_request: Any) -> "ActionRequest":
+        """Validate an ActionRequest; the single action-request validator.
+
+        Ensures the input is an :class:`ActionRequest` with a non-empty tool name
+        and a dict of arguments. Raises ``TypeError`` for wrong types and
+        ``ValueError`` for a missing/blank tool name. ``metadata`` is left
+        untouched. Every action routes through here, so validation is never
+        duplicated. Whether the tool actually exists is decided by the reused
+        Sprint 11 tool registry (a ``KeyError`` from ``get_tool``), not here.
+        """
+        if not isinstance(action_request, ActionRequest):
+            raise TypeError("action_request must be an ActionRequest")
+        if not action_request.tool_name or not action_request.tool_name.strip():
+            raise ValueError("ActionRequest.tool_name must be a non-empty string")
+        if not isinstance(action_request.arguments, dict):
+            raise TypeError("ActionRequest.arguments must be a dict")
+        return action_request

@@ -32,16 +32,26 @@ from app.services.session import (
     SessionState,
 )
 from app.services.session.providers.gemini_live_provider import (
+    ActionRequest,
+    ActionResult,
+    DocumentInput,
+    DocumentType,
     GeminiLiveSessionProvider,
     LiveSessionProtocol,
     VisualInput,
     VisualSource,
+    _ActionBridge,
     _AudioTransport,
+    _DocumentChunker,
+    _DocumentTransport,
     _LiveSessionHandle,
     _StreamAggregator,
     _VisualTransport,
 )
 from pydantic import ValidationError
+
+from app.services.permissions import PermissionRequest, PermissionResult
+from app.services.tools import ToolExecutionRequest, ToolExecutionResult
 
 
 class _FakeAsyncCM:
@@ -384,6 +394,8 @@ class ImportAuditTests(unittest.TestCase):
         "app.services.session.providers.base",
         "app.services.multimodal_ai.adapters",   # GenAIClientProtocol (injected)
         "app.services.multimodal_ai.providers",  # ProviderConfig (injected)
+        "app.services.permissions",              # Sprint 11 PermissionRequest (reused)
+        "app.services.tools",                    # Sprint 11 ToolExecutionRequest (reused)
     }
 
     def _imports(self, module_name):
@@ -656,6 +668,9 @@ class MessagingConfigAndSpiTests(unittest.TestCase):
         self.assertFalse(hasattr(SPI, "receive_audio_chunk"))
         self.assertFalse(hasattr(SPI, "send_visual_input"))
         self.assertFalse(hasattr(SPI, "receive_visual_response"))
+        self.assertFalse(hasattr(SPI, "send_document"))
+        self.assertFalse(hasattr(SPI, "receive_document_response"))
+        self.assertFalse(hasattr(SPI, "execute_action"))
 
 
 # =====================================================================
@@ -1050,6 +1065,523 @@ class ReceiveVisualTests(unittest.TestCase):
         )
         with self.assertRaises(RuntimeError):
             provider.receive_visual_response(sid)
+
+
+# =====================================================================
+# Sprint 12.12 — Document intelligence
+# =====================================================================
+_DOC = b"NeuraEvo report: revenue grew twenty percent this quarter.\n"
+_SUPPORTED_DOC_MIMES = (
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "text/plain",
+    "text/markdown",
+    "text/csv",
+    "application/json",
+)
+
+
+def _make_doc(dtype=DocumentType.TXT, mime="text/plain", payload=None, metadata=None):
+    return DocumentInput(
+        payload=_DOC if payload is None else payload,
+        mime_type=mime,
+        document_type=dtype,
+        metadata={} if metadata is None else metadata,
+    )
+
+
+class DocumentTypeEnumTests(unittest.TestCase):
+    def test_all_members(self):
+        self.assertEqual(
+            {m.name for m in DocumentType},
+            {"PDF", "DOCX", "PPTX", "XLSX", "TXT", "MARKDOWN", "CSV", "JSON", "OTHER"},
+        )
+
+    def test_values(self):
+        self.assertEqual(DocumentType.PDF.value, "pdf")
+        self.assertEqual(DocumentType.MARKDOWN.value, "markdown")
+        self.assertEqual(DocumentType.XLSX.value, "xlsx")
+
+
+class DocumentInputDtoTests(unittest.TestCase):
+    def test_is_frozen(self):
+        doc = _make_doc()
+        with self.assertRaises(ValidationError):
+            doc.mime_type = "application/pdf"
+
+    def test_metadata_defaults_empty(self):
+        self.assertEqual(_make_doc().metadata, {})
+
+    def test_holds_fields(self):
+        doc = _make_doc(
+            dtype=DocumentType.CSV, mime="text/csv", metadata={"k": "v"}
+        )
+        self.assertEqual(doc.mime_type, "text/csv")
+        self.assertIs(doc.document_type, DocumentType.CSV)
+        self.assertEqual(doc.metadata, {"k": "v"})
+
+    def test_payload_must_be_bytes(self):
+        with self.assertRaises(ValidationError):
+            DocumentInput(payload=123, mime_type="text/plain", document_type=DocumentType.TXT)
+
+    def test_document_type_must_be_valid(self):
+        with self.assertRaises(ValidationError):
+            DocumentInput(payload=_DOC, mime_type="text/plain", document_type="bogus")
+
+    def test_accepts_document_type_value_string(self):
+        doc = DocumentInput(payload=_DOC, mime_type="text/plain", document_type="pdf")
+        self.assertIs(doc.document_type, DocumentType.PDF)
+
+
+class DocumentTransportTests(unittest.TestCase):
+    def test_all_supported_mimes(self):
+        transport = _DocumentTransport()
+        for mime in _SUPPORTED_DOC_MIMES:
+            self.assertTrue(transport.is_supported_mime(mime), mime)
+
+    def test_unsupported_mimes(self):
+        transport = _DocumentTransport()
+        for mime in ("image/png", "application/zip", "application/octet-stream", None):
+            self.assertFalse(transport.is_supported_mime(mime))
+
+    def test_encode_parts_single_chunk(self):
+        parts = _DocumentTransport().encode_parts(_make_doc(), [_DOC])
+        self.assertEqual(len(parts), 1)
+        self.assertEqual(parts[0]["inline_data"]["mime_type"], "text/plain")
+        self.assertEqual(parts[0]["inline_data"]["data"], _DOC)
+
+    def test_encode_parts_with_prompt(self):
+        parts = _DocumentTransport().encode_parts(
+            _make_doc(metadata={"prompt": "Summarize this"}), [_DOC]
+        )
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[-1]["text"], "Summarize this")
+
+    def test_decode_response_text(self):
+        transport = _DocumentTransport()
+        self.assertEqual(transport.decode_response_text(_text_msg("hi")), "hi")
+        self.assertEqual(transport.decode_response_text(_transcript_msg("yo")), "yo")
+
+    def test_is_a_private_module_member(self):
+        self.assertTrue(_DocumentTransport.__name__.startswith("_"))
+
+
+class DocumentChunkerTests(unittest.TestCase):
+    def test_requires_chunking_is_false(self):
+        self.assertFalse(_DocumentChunker().requires_chunking(_make_doc()))
+
+    def test_yields_exactly_one_chunk_equal_to_payload(self):
+        chunks = list(_DocumentChunker().iter_chunks(_make_doc(payload=_DOC)))
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0], _DOC)
+
+    def test_chunks_preserve_order(self):
+        # Single chunk == the whole payload, so ordering is trivially preserved.
+        payload = b"AAAA" + b"BBBB" + b"CCCC"
+        chunks = list(_DocumentChunker().iter_chunks(_make_doc(payload=payload)))
+        self.assertEqual(b"".join(chunks), payload)
+
+    def test_is_a_private_module_member(self):
+        self.assertTrue(_DocumentChunker.__name__.startswith("_"))
+
+
+class SendDocumentTests(unittest.TestCase):
+    def test_send_returns_success_and_session_stays_active(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        result = provider.send_document(sid, _make_doc())
+        self.assertTrue(result.success)
+        self.assertEqual(result.session.state, SessionState.ACTIVE)
+
+    def test_exactly_one_send_with_single_inline_data_part(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_document(sid, _make_doc(mime="application/pdf", dtype=DocumentType.PDF))
+        self.assertEqual(sdk.send_count, 1)
+        parts = sdk.sent[0]["turns"]["parts"]
+        inline_parts = [p for p in parts if "inline_data" in p]
+        self.assertEqual(len(inline_parts), 1)  # current chunk count == 1
+        self.assertEqual(inline_parts[0]["inline_data"]["mime_type"], "application/pdf")
+        self.assertEqual(inline_parts[0]["inline_data"]["data"], _DOC)
+
+    def test_prompt_from_metadata_added_as_text_part(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.send_document(sid, _make_doc(metadata={"prompt": "Summarize this document."}))
+        parts = sdk.sent[0]["turns"]["parts"]
+        self.assertEqual(parts[-1]["text"], "Summarize this document.")
+
+    def test_every_supported_mime_accepted(self):
+        for mime in _SUPPORTED_DOC_MIMES:
+            provider, sdk, sid, _ = _messaging_provider()
+            result = provider.send_document(sid, _make_doc(mime=mime, dtype=DocumentType.OTHER))
+            self.assertTrue(result.success, mime)
+            self.assertEqual(sdk.send_count, 1)
+
+    def test_every_document_type_sends_successfully(self):
+        for dtype in DocumentType:
+            provider, sdk, sid, _ = _messaging_provider()
+            result = provider.send_document(sid, _make_doc(dtype=dtype))
+            self.assertTrue(result.success, dtype)
+            self.assertEqual(sdk.send_count, 1)
+
+    def test_unsupported_mime_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_document(sid, _make_doc(mime="application/zip"))
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_empty_payload_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_document(sid, _make_doc(payload=b""))
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_non_documentinput_rejected(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(TypeError):
+            provider.send_document(sid, "not-a-document")
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_send_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.send_document(uuid.uuid4(), _make_doc())
+
+    def test_send_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.send_document(sid, _make_doc())
+        self.assertEqual(sdk.send_count, 0)
+
+    def test_metadata_preserved(self):
+        provider, sdk, sid, _ = _messaging_provider()
+        doc = _make_doc(metadata={"prompt": "hi", "trace": "abc"})
+        provider.send_document(sid, doc)
+        self.assertEqual(doc.metadata, {"prompt": "hi", "trace": "abc"})
+
+    def test_send_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            send_error=RuntimeError("sdk document boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.send_document(sid, _make_doc())
+
+
+class ReceiveDocumentTests(unittest.TestCase):
+    def test_aggregates_explanation_text(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("Revenue "), _text_msg("grew 20%.")]
+        )
+        result = provider.receive_document_response(sid)
+        self.assertEqual(result, "Revenue grew 20%.")
+        self.assertIsInstance(result, str)
+
+    def test_aggregates_from_transcription(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_transcript_msg("Revenue "), _transcript_msg("grew.")]
+        )
+        self.assertEqual(provider.receive_document_response(sid), "Revenue grew.")
+
+    def test_exactly_one_receive(self):
+        provider, sdk, sid, _ = _messaging_provider(messages=[_text_msg("x")])
+        provider.receive_document_response(sid)
+        self.assertEqual(sdk.receive_count, 1)
+
+    def test_ignores_empty_chunks(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("A"), _text_msg(""), _text_msg(None), _text_msg("B")]
+        )
+        self.assertEqual(provider.receive_document_response(sid), "AB")
+
+    def test_preserves_order(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            messages=[_text_msg("1"), _text_msg("2"), _text_msg("3")]
+        )
+        self.assertEqual(provider.receive_document_response(sid), "123")
+
+    def test_receive_missing_session_raises(self):
+        provider, _, _, _ = _messaging_provider()
+        with self.assertRaises(ValueError):
+            provider.receive_document_response(uuid.uuid4())
+
+    def test_receive_inactive_session_raises(self):
+        provider, sdk, sid, _ = _messaging_provider(messages=[_text_msg("x")])
+        provider.pause_session(sid)
+        with self.assertRaises(ValueError):
+            provider.receive_document_response(sid)
+        self.assertEqual(sdk.receive_count, 0)
+
+    def test_receive_exception_propagates(self):
+        provider, sdk, sid, _ = _messaging_provider(
+            receive_error=RuntimeError("document stream boom")
+        )
+        with self.assertRaises(RuntimeError):
+            provider.receive_document_response(sid)
+
+
+# =====================================================================
+# Sprint 12.13 — Action execution layer (Sprint 11 pipeline)
+# =====================================================================
+def _action_setup(permission=None, tool_result=None):
+    """Provider wired to mocked Sprint 11 services, over an active session."""
+    planner = MagicMock(name="planner")
+    registry = MagicMock(name="tool_registry")
+    permissions = MagicMock(name="permissions")
+    permissions.check_permission.return_value = (
+        permission if permission is not None else PermissionResult(approved=True)
+    )
+    tool_execution = MagicMock(name="tool_execution")
+    tool_execution.execute.return_value = (
+        tool_result
+        if tool_result is not None
+        else ToolExecutionResult(success=True, output="22971")
+    )
+    cm = _FakeAsyncCM(session=MagicMock(name="sdk_session"))
+    client = _make_client(cm=cm)
+    provider = GeminiLiveSessionProvider(
+        client,
+        _make_config(),
+        planner=planner,
+        tool_registry=registry,
+        permissions=permissions,
+        tool_execution=tool_execution,
+    )
+    sid = provider.create_session(
+        uuid.uuid4(), uuid.uuid4(), {"model": "m"}
+    ).session.session_id
+    return provider, planner, registry, permissions, tool_execution, sid
+
+
+def _tool_call_message(*calls):
+    return SimpleNamespace(
+        tool_call=SimpleNamespace(
+            function_calls=[SimpleNamespace(**c) for c in calls]
+        )
+    )
+
+
+class ActionDtoTests(unittest.TestCase):
+    def test_action_request_frozen(self):
+        req = ActionRequest(tool_name="calc", arguments={"a": 1})
+        with self.assertRaises(ValidationError):
+            req.tool_name = "other"
+
+    def test_action_request_requires_tool_name_and_arguments(self):
+        with self.assertRaises(ValidationError):
+            ActionRequest(tool_name="calc")  # arguments required
+        with self.assertRaises(ValidationError):
+            ActionRequest(arguments={})  # tool_name required
+
+    def test_action_request_metadata_defaults_empty(self):
+        self.assertEqual(ActionRequest(tool_name="c", arguments={}).metadata, {})
+
+    def test_action_result_frozen(self):
+        res = ActionResult(success=True, result="ok")
+        with self.assertRaises(ValidationError):
+            res.success = False
+
+    def test_action_result_holds_fields(self):
+        res = ActionResult(success=True, result="42", metadata={"k": "v"})
+        self.assertTrue(res.success)
+        self.assertEqual(res.result, "42")
+        self.assertEqual(res.metadata, {"k": "v"})
+
+
+class ActionBridgeTranslationTests(unittest.TestCase):
+    def _bridge(self):
+        return _ActionBridge(MagicMock(), MagicMock(), MagicMock(), MagicMock())
+
+    def test_extract_action_requests_from_tool_call(self):
+        message = _tool_call_message(
+            {"name": "calculator", "args": {"a": 247, "b": 93}, "id": "c1"}
+        )
+        reqs = self._bridge().extract_action_requests(message)
+        self.assertEqual(len(reqs), 1)
+        self.assertIsInstance(reqs[0], ActionRequest)
+        self.assertEqual(reqs[0].tool_name, "calculator")
+        self.assertEqual(reqs[0].arguments, {"a": 247, "b": 93})
+        self.assertEqual(reqs[0].metadata, {"call_id": "c1"})
+
+    def test_extract_returns_empty_without_tool_call(self):
+        self.assertEqual(self._bridge().extract_action_requests(_text_msg("hi")), [])
+
+    def test_extract_skips_calls_without_name(self):
+        message = _tool_call_message({"name": None, "args": {}, "id": "x"})
+        self.assertEqual(self._bridge().extract_action_requests(message), [])
+
+    def test_to_function_response_is_plain_dict(self):
+        req = ActionRequest(tool_name="calc", arguments={}, metadata={"call_id": "c1"})
+        res = ActionResult(success=True, result="22971")
+        fr = self._bridge().to_function_response(req, res)
+        self.assertEqual(
+            fr,
+            {
+                "function_responses": [
+                    {
+                        "name": "calc",
+                        "response": {"success": True, "result": "22971"},
+                        "id": "c1",
+                    }
+                ]
+            },
+        )
+        self.assertIsInstance(fr, dict)
+
+    def test_bridge_is_private_module_member(self):
+        self.assertTrue(_ActionBridge.__name__.startswith("_"))
+
+
+class ActionExecutionPipelineTests(unittest.TestCase):
+    def setUp(self):
+        (
+            self.provider,
+            self.planner,
+            self.registry,
+            self.permissions,
+            self.tool_execution,
+            self.sid,
+        ) = _action_setup()
+        self.req = ActionRequest(
+            tool_name="calculator", arguments={"a": 247, "b": 93}
+        )
+
+    def test_planner_invoked_with_tool_name(self):
+        self.provider.execute_action(self.sid, self.req)
+        self.planner.create_plan.assert_called_once_with("calculator")
+
+    def test_registry_invoked_with_tool_name(self):
+        self.provider.execute_action(self.sid, self.req)
+        self.registry.get_tool.assert_called_once_with("calculator")
+
+    def test_permission_service_invoked_with_request(self):
+        self.provider.execute_action(self.sid, self.req)
+        self.permissions.check_permission.assert_called_once()
+        arg = self.permissions.check_permission.call_args.args[0]
+        self.assertIsInstance(arg, PermissionRequest)
+        self.assertEqual(arg.tool_name, "calculator")
+        self.assertEqual(arg.arguments, {"a": 247, "b": 93})
+
+    def test_tool_execution_invoked_with_request(self):
+        self.provider.execute_action(self.sid, self.req)
+        self.tool_execution.execute.assert_called_once()
+        arg = self.tool_execution.execute.call_args.args[0]
+        self.assertIsInstance(arg, ToolExecutionRequest)
+        self.assertEqual(arg.tool_name, "calculator")
+        self.assertEqual(arg.arguments, {"a": 247, "b": 93})
+
+    def test_pipeline_invoked_in_exact_order(self):
+        order = []
+        self.planner.create_plan.side_effect = lambda *a, **k: order.append("planner")
+        self.registry.get_tool.side_effect = lambda *a, **k: order.append("registry")
+
+        def _perm(*a, **k):
+            order.append("permission")
+            return PermissionResult(approved=True)
+
+        def _exec(*a, **k):
+            order.append("execution")
+            return ToolExecutionResult(success=True, output="ok")
+
+        self.permissions.check_permission.side_effect = _perm
+        self.tool_execution.execute.side_effect = _exec
+        self.provider.execute_action(self.sid, self.req)
+        self.assertEqual(order, ["planner", "registry", "permission", "execution"])
+
+    def test_result_comes_from_tool_execution(self):
+        result = self.provider.execute_action(self.sid, self.req)
+        self.assertIsInstance(result, ActionResult)
+        self.assertTrue(result.success)
+        self.assertEqual(result.result, "22971")  # from ToolExecutionResult.output
+
+    def test_provider_never_touches_sdk_for_execution(self):
+        sdk = self.provider._sessions[self.sid].handle.sdk_session
+        self.provider.execute_action(self.sid, self.req)
+        sdk.send_client_content.assert_not_called()
+        sdk.send_realtime_input.assert_not_called()
+        sdk.receive.assert_not_called()
+
+    def test_permission_denied_short_circuits_before_execution(self):
+        provider, planner, registry, permissions, tool_execution, sid = _action_setup(
+            permission=PermissionResult(approved=False, reason="not allowed")
+        )
+        result = provider.execute_action(sid, self.req)
+        self.assertFalse(result.success)
+        self.assertEqual(result.result, "not allowed")
+        tool_execution.execute.assert_not_called()  # never executed
+
+    def test_requires_confirmation_short_circuits(self):
+        provider, planner, registry, permissions, tool_execution, sid = _action_setup(
+            permission=PermissionResult(approved=True, requires_user_confirmation=True)
+        )
+        result = provider.execute_action(sid, self.req)
+        self.assertFalse(result.success)
+        tool_execution.execute.assert_not_called()
+
+    def test_unknown_tool_keyerror_propagates(self):
+        self.registry.get_tool.side_effect = KeyError("no such tool")
+        with self.assertRaises(KeyError):
+            self.provider.execute_action(self.sid, self.req)
+        self.tool_execution.execute.assert_not_called()
+
+    def test_tool_execution_failure_maps_to_unsuccessful_result(self):
+        provider, planner, registry, permissions, tool_execution, sid = _action_setup(
+            tool_result=ToolExecutionResult(success=False, error="bad args")
+        )
+        result = provider.execute_action(sid, self.req)
+        self.assertFalse(result.success)
+
+    def test_execution_exception_propagates(self):
+        self.tool_execution.execute.side_effect = RuntimeError("tool boom")
+        with self.assertRaises(RuntimeError):
+            self.provider.execute_action(self.sid, self.req)
+
+    def test_planner_exception_propagates(self):
+        self.planner.create_plan.side_effect = RuntimeError("plan boom")
+        with self.assertRaises(RuntimeError):
+            self.provider.execute_action(self.sid, self.req)
+
+    def test_non_action_request_rejected(self):
+        with self.assertRaises(TypeError):
+            self.provider.execute_action(self.sid, "not-an-action")
+
+    def test_blank_tool_name_rejected(self):
+        with self.assertRaises(ValueError):
+            self.provider.execute_action(self.sid, ActionRequest(tool_name="  ", arguments={}))
+
+    def test_missing_session_rejected(self):
+        with self.assertRaises(ValueError):
+            self.provider.execute_action(uuid.uuid4(), self.req)
+
+    def test_inactive_session_rejected(self):
+        self.provider.pause_session(self.sid)
+        with self.assertRaises(ValueError):
+            self.provider.execute_action(self.sid, self.req)
+
+    def test_unconfigured_pipeline_raises(self):
+        # A provider without the Sprint 11 services cannot execute actions.
+        provider, sdk, sid, _ = _messaging_provider()
+        with self.assertRaises(RuntimeError):
+            provider.execute_action(sid, self.req)
+
+
+class ActionDependencyTests(unittest.TestCase):
+    def test_provider_di_unchanged_returns_provider(self):
+        from app.core.dependencies import get_gemini_live_session_provider
+
+        provider = get_gemini_live_session_provider(_make_client(), _make_config())
+        self.assertIsInstance(provider, GeminiLiveSessionProvider)
+
+    def test_constructor_injects_sprint11_services_into_bridge(self):
+        provider, *_ = _action_setup()
+        self.assertTrue(provider._action_bridge.is_configured())
+
+    def test_public_vars_still_only_client_and_config(self):
+        provider, *_ = _action_setup()
+        self.assertEqual(
+            {k for k in vars(provider) if not k.startswith("_")},
+            {"client", "config"},
+        )
 
 
 if __name__ == "__main__":
