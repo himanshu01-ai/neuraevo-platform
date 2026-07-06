@@ -20,6 +20,12 @@ from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.decision_models import ExecutionDecision
 from app.services.planning.execution_coordinator import ExecutionCoordinator
+from app.services.planning.execution_dependency_graph import (
+    ExecutionDependencyGraphBuilder,
+)
+from app.services.planning.execution_dependency_graph_models import (
+    ExecutionDependencyGraph,
+)
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_intent_models import ExecutionIntent
 from app.services.planning.execution_orchestrator import ExecutionOrchestrator
@@ -68,20 +74,24 @@ class PlanningEngine:
         coordinator: Optional[ExecutionCoordinator] = None,
         lifecycle_engine: Optional[TaskLifecycleEngine] = None,
         state_manager: Optional[ExecutionStateManager] = None,
+        dependency_graph_builder: Optional[
+            ExecutionDependencyGraphBuilder
+        ] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.9: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.10: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
-        # coordinator, task-lifecycle engine, and execution-state manager are
-        # optional, additive collaborators. Each is stored only when injected so
-        # that earlier-sprint construction (three to ten arguments) keeps exactly
-        # its original attributes and its tests pass unchanged. ``analyze``/
-        # ``prepare``/``decide``/``create_execution_intent``/
-        # ``create_execution_workflow``/``create_execution_queue``/
-        # ``create_task_lifecycles``/``create_execution_state`` each require
-        # their collaborator; ``create_plan``/``explain`` require none.
+        # coordinator, task-lifecycle engine, execution-state manager, and
+        # dependency-graph builder are optional, additive collaborators. Each is
+        # stored only when injected so that earlier-sprint construction (three to
+        # eleven arguments) keeps exactly its original attributes and its tests
+        # pass unchanged. ``analyze``/``prepare``/``decide``/
+        # ``create_execution_intent``/``create_execution_workflow``/
+        # ``create_execution_queue``/``create_task_lifecycles``/
+        # ``create_execution_state``/``create_execution_dependency_graph`` each
+        # require their collaborator; ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
@@ -98,6 +108,8 @@ class PlanningEngine:
             self.lifecycle_engine = lifecycle_engine
         if state_manager is not None:
             self.state_manager = state_manager
+        if dependency_graph_builder is not None:
+            self.dependency_graph_builder = dependency_graph_builder
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -322,3 +334,31 @@ class PlanningEngine:
         state = state_manager.create_state(lifecycles)
         self.validator.validate_execution_state(state)
         return state
+
+    def create_execution_dependency_graph(
+        self, queue: ExecutionQueue, lifecycles: List[TaskLifecycle]
+    ) -> ExecutionDependencyGraph:
+        """Model task relationships as an :class:`ExecutionDependencyGraph`.
+
+        Sprint 13.10 addition. Delegates to the injected
+        :class:`ExecutionDependencyGraphBuilder` to build a deterministic
+        dependency graph from the queue and its lifecycles — nodes, edges, roots,
+        leaves, ready/blocked sets, and cycle detection — then validates the
+        result via the injected :class:`PlanValidator`. This models relationships
+        only; it executes, resolves, and acquires nothing and never mutates the
+        queue or lifecycles. Raises :class:`RuntimeError` if no builder was
+        injected and :class:`PlanValidationError` if the graph is malformed;
+        builder exceptions propagate unchanged.
+        """
+        dependency_graph_builder = getattr(
+            self, "dependency_graph_builder", None
+        )
+        if dependency_graph_builder is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionDependencyGraphBuilder "
+                "injected; provide one to call "
+                "create_execution_dependency_graph()."
+            )
+        graph = dependency_graph_builder.build_graph(queue, lifecycles)
+        self.validator.validate_execution_dependency_graph(graph)
+        return graph

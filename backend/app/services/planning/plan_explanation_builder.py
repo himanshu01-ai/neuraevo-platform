@@ -26,6 +26,9 @@ from app.services.planning.execution_queue_models import (
     ExecutionQueue,
     QueueStatus,
 )
+from app.services.planning.execution_dependency_graph_models import (
+    ExecutionDependencyGraph,
+)
 from app.services.planning.execution_state_models import (
     ExecutionState,
     ExecutionStateType,
@@ -285,6 +288,33 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_dependency_graph(
+        self, plan: ExecutionPlan, graph: ExecutionDependencyGraph
+    ) -> str:
+        """Explain ``plan`` and how its tasks depend on each other (no execution).
+
+        Sprint 13.10 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — how
+        the tasks relate: how many can start without waiting, how many are ready
+        now, and whether any depend on each other in a loop.
+        """
+        segments: List[str] = [self.build(plan)]
+        if not graph.nodes:
+            segments.append("There are no task dependencies to map yet.")
+            return " ".join(segments)
+        if graph.has_cycles:
+            segments.append(
+                "Some tasks depend on each other in a loop, which needs to be "
+                "resolved first."
+            )
+            return " ".join(segments)
+        segments.append(
+            f"I've mapped {len(graph.nodes)} tasks and how they rely on each "
+            f"other: {len(graph.root_nodes)} can start without waiting on "
+            f"anything, and {len(graph.ready_nodes)} are ready right now."
+        )
         return " ".join(segments)
 
     def build_with_execution_state(

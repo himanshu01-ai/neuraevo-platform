@@ -30,6 +30,9 @@ from app.services.planning.execution_queue_models import (
     ExecutionUnitStatus,
     QueueStatus,
 )
+from app.services.planning.execution_dependency_graph_models import (
+    ExecutionDependencyGraph,
+)
 from app.services.planning.execution_state_models import (
     ExecutionState,
     ExecutionStateType,
@@ -552,6 +555,88 @@ class PlanValidator:
         if len(state.active_task_ids) != state.total_tasks - terminal_count:
             raise PlanValidationError(
                 "active_task_ids count must equal the non-terminal task count."
+            )
+
+    def validate_execution_dependency_graph(
+        self, graph: ExecutionDependencyGraph
+    ) -> None:
+        """Raise :class:`PlanValidationError` if ``graph`` is not well-formed.
+
+        Sprint 13.10 extension. Rejects an empty graph id, duplicate node ids,
+        empty node/unit ids, a node marked both/neither ready and blocked,
+        dependency/dependent/edge references to unknown nodes, self-edges, and
+        root/leaf/ready/blocked sets that disagree with the nodes. Inspects only
+        the graph's plain data — no execution, provider, or AI work.
+        """
+        if not graph.graph_id.strip():
+            raise PlanValidationError("graph_id must not be empty.")
+
+        node_ids = [node.node_id for node in graph.nodes]
+        if len(set(node_ids)) != len(node_ids):
+            raise PlanValidationError("Duplicate graph node ids.")
+        known = set(node_ids)
+
+        for node in graph.nodes:
+            if not node.node_id.strip():
+                raise PlanValidationError("node_id must not be empty.")
+            if not node.execution_unit_id.strip():
+                raise PlanValidationError("execution_unit_id must not be empty.")
+            if node.ready == node.blocked:
+                raise PlanValidationError(
+                    f"Node {node.node_id} must be exactly one of ready/blocked."
+                )
+            for dependency in node.dependencies:
+                if dependency not in known:
+                    raise PlanValidationError(
+                        f"Node {node.node_id} depends on unknown node "
+                        f"{dependency}."
+                    )
+            for dependent in node.dependents:
+                if dependent not in known:
+                    raise PlanValidationError(
+                        f"Node {node.node_id} has unknown dependent "
+                        f"{dependent}."
+                    )
+
+        for edge in graph.edges:
+            if edge.source_node not in known or edge.target_node not in known:
+                raise PlanValidationError(
+                    "An edge references an unknown node."
+                )
+            if edge.source_node == edge.target_node:
+                raise PlanValidationError(
+                    f"Self-edge on node {edge.source_node} is not allowed."
+                )
+
+        self._reject_node_set(
+            graph.root_nodes,
+            {n.node_id for n in graph.nodes if not n.dependencies},
+            "root",
+        )
+        self._reject_node_set(
+            graph.leaf_nodes,
+            {n.node_id for n in graph.nodes if not n.dependents},
+            "leaf",
+        )
+        self._reject_node_set(
+            graph.ready_nodes,
+            {n.node_id for n in graph.nodes if n.ready},
+            "ready",
+        )
+        self._reject_node_set(
+            graph.blocked_nodes,
+            {n.node_id for n in graph.nodes if n.blocked},
+            "blocked",
+        )
+
+    @staticmethod
+    def _reject_node_set(actual: list, expected: set, label: str) -> None:
+        """Reject duplicate entries or a mismatch against ``expected`` node ids."""
+        if len(set(actual)) != len(actual):
+            raise PlanValidationError(f"Duplicate {label} node ids.")
+        if set(actual) != expected:
+            raise PlanValidationError(
+                f"{label}_nodes do not match the graph's {label} nodes."
             )
 
     @staticmethod

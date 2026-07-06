@@ -69,6 +69,9 @@ from app.services.planning.execution_orchestrator import ExecutionOrchestrator
 from app.services.planning.execution_coordinator import ExecutionCoordinator
 from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
 from app.services.planning.execution_state_manager import ExecutionStateManager
+from app.services.planning.execution_dependency_graph import (
+    ExecutionDependencyGraphBuilder,
+)
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -709,6 +712,25 @@ ExecutionStateManagerDep = Annotated[
 ]
 
 
+def get_execution_dependency_graph_builder() -> (
+    ExecutionDependencyGraphBuilder
+):
+    """Provide the stateless :class:`ExecutionDependencyGraphBuilder` (13.10).
+
+    Deterministic, offline construction of an :class:`ExecutionDependencyGraph`
+    from an :class:`ExecutionQueue` and its lifecycles. RELATIONSHIPS ONLY — no
+    AI, network, SDK, Runtime, Session, Registry, Permission, Tool framework,
+    Memory, Gemini, or execution.
+    """
+    return ExecutionDependencyGraphBuilder()
+
+
+ExecutionDependencyGraphBuilderDep = Annotated[
+    ExecutionDependencyGraphBuilder,
+    Depends(get_execution_dependency_graph_builder),
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -721,6 +743,7 @@ def get_planning_engine(
     coordinator: ExecutionCoordinatorDep = None,
     lifecycle_engine: TaskLifecycleEngineDep = None,
     state_manager: ExecutionStateManagerDep = None,
+    dependency_graph_builder: ExecutionDependencyGraphBuilderDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -751,6 +774,7 @@ def get_planning_engine(
         coordinator,
         lifecycle_engine,
         state_manager,
+        dependency_graph_builder,
     )
 
 
