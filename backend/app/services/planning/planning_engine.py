@@ -14,7 +14,11 @@ is valid, and can explain it. The output of the engine is a validated
 :class:`ExecutionPlan`; nothing downstream is triggered here.
 """
 
+from typing import Optional
+
+from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.models import ExecutionPlan, PlanningRequest
+from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.planning.plan_explanation_builder import (
     PlanningExplanationBuilder,
 )
@@ -38,10 +42,17 @@ class PlanningEngine:
         provider: PlanningProvider,
         validator: PlanValidator,
         explanation_builder: PlanningExplanationBuilder,
+        analyzer: Optional[PlanAnalyzer] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
+        # Sprint 13.2: the analyzer is an optional, additive collaborator. It is
+        # stored only when injected so that Sprint 13.1 three-argument
+        # construction keeps exactly its original attributes (and its tests pass
+        # unchanged). ``analyze`` requires it; ``create_plan``/``explain`` do not.
+        if analyzer is not None:
+            self.analyzer = analyzer
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -58,3 +69,24 @@ class PlanningEngine:
     def explain(self, plan: ExecutionPlan) -> str:
         """Return a plain-language explanation of ``plan`` (explanation only)."""
         return self.explanation_builder.build(plan)
+
+    def analyze(self, plan: ExecutionPlan) -> PlanAnalysis:
+        """Analyse ``plan`` into a validated :class:`PlanAnalysis` (reasoning only).
+
+        Sprint 13.2 addition. Delegates to the injected :class:`PlanAnalyzer`,
+        then validates the result via the injected :class:`PlanValidator` so
+        every analysis the engine returns is guaranteed well-formed. Determines
+        whether the plan is ready, needs confirmation, needs clarification, or is
+        missing information — but executes nothing. Raises :class:`RuntimeError`
+        if no analyzer was injected, and :class:`PlanValidationError` if the
+        analysis is malformed; analyzer exceptions propagate unchanged.
+        """
+        analyzer = getattr(self, "analyzer", None)
+        if analyzer is None:
+            raise RuntimeError(
+                "PlanningEngine has no PlanAnalyzer injected; provide one to "
+                "call analyze()."
+            )
+        analysis = analyzer.analyze(plan)
+        self.validator.validate_analysis(analysis)
+        return analysis

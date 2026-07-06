@@ -13,6 +13,7 @@ execution, provider, AI, or runtime work.
 
 from typing import List
 
+from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.models import ExecutionPlan
 
 
@@ -46,6 +47,31 @@ class PlanningExplanationBuilder:
             sentence += f" First, I'll need a few details from you: {needs}."
 
         return sentence
+
+    def build_with_analysis(
+        self, plan: ExecutionPlan, analysis: PlanAnalysis
+    ) -> str:
+        """Explain ``plan`` and fold in the ``analysis`` conclusions (no execution).
+
+        Sprint 13.2 extension that reuses :meth:`build` for the step narration,
+        then, per the analysis: prepends a clarification note when clarification
+        is required, appends a confirmation note when confirmation is required,
+        and appends a readiness note when the plan is ready. Explanation only —
+        nothing is executed.
+        """
+        segments: List[str] = []
+        if analysis.requires_clarification:
+            segments.append(
+                "I need a little more information before I can continue."
+            )
+        segments.append(self.build(plan))
+        if analysis.requires_confirmation:
+            segments.append(
+                "I'll wait for your confirmation before executing."
+            )
+        if analysis.ready_for_execution:
+            segments.append("The plan is ready for execution.")
+        return " ".join(segments)
 
     @staticmethod
     def _narrate(phrases: List[str]) -> str:

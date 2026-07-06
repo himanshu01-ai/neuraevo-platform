@@ -15,6 +15,7 @@ Rules enforced:
   step that exists; no step depends on itself or on a later step.
 """
 
+from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.models import ExecutionPlan
 
 
@@ -106,3 +107,35 @@ class PlanValidator:
         except PlanValidationError:
             return False
         return True
+
+    def validate_analysis(self, analysis: PlanAnalysis) -> None:
+        """Raise :class:`PlanValidationError` if ``analysis`` is not well-formed.
+
+        Sprint 13.2 extension. Rejects a confidence outside ``0.0``–``1.0``
+        (defence-in-depth; the DTO also enforces this and would reject it at
+        construction), and empty or duplicate entries in either
+        ``missing_information`` or ``clarification_questions``. Inspects only the
+        analysis's plain data — no execution, provider, or AI work.
+        """
+        if not 0.0 <= analysis.confidence <= 1.0:
+            raise PlanValidationError(
+                f"Confidence {analysis.confidence} is outside 0.0..1.0."
+            )
+        self._reject_empty_or_duplicate(
+            analysis.missing_information, "missing information"
+        )
+        self._reject_empty_or_duplicate(
+            analysis.clarification_questions, "clarification question"
+        )
+
+    @staticmethod
+    def _reject_empty_or_duplicate(items: list, label: str) -> None:
+        """Reject empty/whitespace entries and case-insensitive duplicates."""
+        cleaned = [item.strip() for item in items]
+        if any(not item for item in cleaned):
+            raise PlanValidationError(f"Empty {label} entry is not allowed.")
+        lowered = [item.lower() for item in cleaned]
+        if len(set(lowered)) != len(lowered):
+            raise PlanValidationError(
+                f"Duplicate {label} entries are not allowed."
+            )

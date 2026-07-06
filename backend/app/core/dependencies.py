@@ -59,6 +59,7 @@ from app.services.planning import (
     PlanningProvider,
     PlanValidator,
 )
+from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -579,21 +580,37 @@ PlanningExplanationBuilderDep = Annotated[
 ]
 
 
+def get_plan_analyzer() -> PlanAnalyzer:
+    """Provide the stateless :class:`PlanAnalyzer` (Sprint 13.2).
+
+    Deterministic, offline analysis of an :class:`ExecutionPlan` (readiness,
+    confirmation, clarification, missing information, risk, confidence). No AI,
+    network, SDK, session, or execution.
+    """
+    return PlanAnalyzer()
+
+
+PlanAnalyzerDep = Annotated[PlanAnalyzer, Depends(get_plan_analyzer)]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
     explanation_builder: PlanningExplanationBuilderDep,
+    analyzer: PlanAnalyzerDep = None,
 ) -> PlanningEngine:
-    """Provide the Sprint 13.1 :class:`PlanningEngine` (reason -> validate -> explain).
+    """Provide the :class:`PlanningEngine` (reason -> validate -> explain -> analyze).
 
-    Composes the injected planning provider, plan validator, and explanation
-    builder (constructor injection only — it instantiates nothing itself). The
-    engine reasons and validates but never executes and holds no session. It is
-    not yet wired into the Conversation Runtime: the runtime -> planning ->
-    execution integration belongs to a later sprint; this composition-root seam
-    makes the engine resolvable and ready.
+    Composes the injected planning provider, plan validator, explanation builder,
+    and (Sprint 13.2) the :class:`PlanAnalyzer` (constructor injection only — it
+    instantiates nothing itself). The engine reasons, validates, and analyses but
+    never executes and holds no session. The ``analyzer`` default of ``None``
+    keeps Sprint 13.1's three-argument construction working unchanged; FastAPI
+    still resolves the analyzer via ``Depends`` when routed. Not yet wired into
+    the Conversation Runtime — that integration belongs to a later sprint; this
+    composition-root seam makes the engine resolvable and ready.
     """
-    return PlanningEngine(provider, validator, explanation_builder)
+    return PlanningEngine(provider, validator, explanation_builder, analyzer)
 
 
 PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]
