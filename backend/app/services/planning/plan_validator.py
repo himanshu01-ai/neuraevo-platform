@@ -16,7 +16,14 @@ Rules enforced:
 """
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.execution_preparation_models import (
+    ExecutionPreparation,
+    ExecutionStrategy,
+)
 from app.services.planning.models import ExecutionPlan
+
+# The only execution strategies a well-formed preparation may carry.
+_VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
 
 
 class PlanValidationError(ValueError):
@@ -127,6 +134,35 @@ class PlanValidator:
         self._reject_empty_or_duplicate(
             analysis.clarification_questions, "clarification question"
         )
+
+    def validate_preparation(self, preparation: ExecutionPreparation) -> None:
+        """Raise :class:`PlanValidationError` if ``preparation`` is not well-formed.
+
+        Sprint 13.3 extension. Rejects a negative step count, an execution
+        strategy outside the allowed set, and empty or duplicate entries in the
+        capability, permission, external-service, or blocker lists. Inspects only
+        the preparation's plain data — no execution, provider, or AI work.
+        """
+        if preparation.estimated_execution_steps < 0:
+            raise PlanValidationError(
+                "estimated_execution_steps cannot be negative "
+                f"({preparation.estimated_execution_steps})."
+            )
+        if preparation.execution_strategy not in _VALID_STRATEGIES:
+            raise PlanValidationError(
+                f"Invalid execution strategy: "
+                f"{preparation.execution_strategy!r}."
+            )
+        self._reject_empty_or_duplicate(
+            preparation.required_capabilities, "capability"
+        )
+        self._reject_empty_or_duplicate(
+            preparation.permissions_required, "permission"
+        )
+        self._reject_empty_or_duplicate(
+            preparation.external_services, "external service"
+        )
+        self._reject_empty_or_duplicate(preparation.blocked_by, "blocker")
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:

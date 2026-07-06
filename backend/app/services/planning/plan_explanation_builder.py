@@ -14,6 +14,9 @@ execution, provider, AI, or runtime work.
 from typing import List
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.execution_preparation_models import (
+    ExecutionPreparation,
+)
 from app.services.planning.models import ExecutionPlan
 
 
@@ -72,6 +75,51 @@ class PlanningExplanationBuilder:
         if analysis.ready_for_execution:
             segments.append("The plan is ready for execution.")
         return " ".join(segments)
+
+    def build_with_preparation(
+        self, plan: ExecutionPlan, preparation: ExecutionPreparation
+    ) -> str:
+        """Explain ``plan`` and what it would take to carry it out (no execution).
+
+        Sprint 13.3 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — which
+        capabilities and services would be used, which permissions would be
+        needed, and whether it can start now or what still stands in the way.
+        """
+        segments: List[str] = [self.build(plan)]
+
+        if preparation.required_capabilities:
+            segments.append(
+                "To do this I'll use "
+                f"{self._join(preparation.required_capabilities)}."
+            )
+        if preparation.external_services:
+            segments.append(
+                "It connects to "
+                f"{self._join(preparation.external_services)}."
+            )
+        if preparation.permissions_required:
+            segments.append(
+                "I'll need your permission for "
+                f"{self._join(preparation.permissions_required)}."
+            )
+        if preparation.can_execute_immediately:
+            segments.append("I can start on this right away.")
+        else:
+            outstanding = self._join(
+                [self._readable_blocker(item) for item in preparation.blocked_by]
+            )
+            segments.append(
+                f"Before I can start, these still need to be resolved: "
+                f"{outstanding}."
+            )
+        return " ".join(segments)
+
+    @staticmethod
+    def _readable_blocker(blocker: str) -> str:
+        """Render a ``Need X`` blocker as user-friendly ``X`` (else unchanged)."""
+        prefix = "Need "
+        return blocker[len(prefix):] if blocker.startswith(prefix) else blocker
 
     @staticmethod
     def _narrate(phrases: List[str]) -> str:

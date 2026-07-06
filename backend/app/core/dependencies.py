@@ -60,6 +60,9 @@ from app.services.planning import (
     PlanValidator,
 )
 from app.services.planning.plan_analyzer import PlanAnalyzer
+from app.services.planning.execution_preparation_engine import (
+    ExecutionPreparationEngine,
+)
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -593,24 +596,49 @@ def get_plan_analyzer() -> PlanAnalyzer:
 PlanAnalyzerDep = Annotated[PlanAnalyzer, Depends(get_plan_analyzer)]
 
 
+def get_execution_preparation_engine() -> ExecutionPreparationEngine:
+    """Provide the stateless :class:`ExecutionPreparationEngine` (Sprint 13.3).
+
+    Deterministic, offline preparation of an :class:`ExecutionPlan` (required
+    capabilities, external services, permissions, step count, execution strategy,
+    and blockers). PREPARATION ONLY — no AI, network, SDK, Runtime, Registry,
+    Permission, Tool execution, session, or execution.
+    """
+    return ExecutionPreparationEngine()
+
+
+ExecutionPreparationEngineDep = Annotated[
+    ExecutionPreparationEngine, Depends(get_execution_preparation_engine)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
     explanation_builder: PlanningExplanationBuilderDep,
     analyzer: PlanAnalyzerDep = None,
+    preparation_engine: ExecutionPreparationEngineDep = None,
 ) -> PlanningEngine:
-    """Provide the :class:`PlanningEngine` (reason -> validate -> explain -> analyze).
+    """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare; no execution).
 
     Composes the injected planning provider, plan validator, explanation builder,
-    and (Sprint 13.2) the :class:`PlanAnalyzer` (constructor injection only — it
-    instantiates nothing itself). The engine reasons, validates, and analyses but
-    never executes and holds no session. The ``analyzer`` default of ``None``
-    keeps Sprint 13.1's three-argument construction working unchanged; FastAPI
-    still resolves the analyzer via ``Depends`` when routed. Not yet wired into
-    the Conversation Runtime — that integration belongs to a later sprint; this
-    composition-root seam makes the engine resolvable and ready.
+    (Sprint 13.2) the :class:`PlanAnalyzer`, and (Sprint 13.3) the
+    :class:`ExecutionPreparationEngine` — constructor injection only; it
+    instantiates nothing itself. The engine reasons, validates, analyses, and
+    prepares but never executes and holds no session. The ``analyzer`` and
+    ``preparation_engine`` defaults of ``None`` keep earlier-sprint
+    three-/four-argument construction working unchanged; FastAPI still resolves
+    both via ``Depends`` when routed. Not yet wired into the Conversation Runtime
+    — that integration belongs to a later sprint; this composition-root seam
+    makes the engine resolvable and ready.
     """
-    return PlanningEngine(provider, validator, explanation_builder, analyzer)
+    return PlanningEngine(
+        provider,
+        validator,
+        explanation_builder,
+        analyzer,
+        preparation_engine,
+    )
 
 
 PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]

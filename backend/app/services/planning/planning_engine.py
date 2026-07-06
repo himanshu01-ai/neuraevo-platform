@@ -17,6 +17,12 @@ is valid, and can explain it. The output of the engine is a validated
 from typing import Optional
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.execution_preparation_engine import (
+    ExecutionPreparationEngine,
+)
+from app.services.planning.execution_preparation_models import (
+    ExecutionPreparation,
+)
 from app.services.planning.models import ExecutionPlan, PlanningRequest
 from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.planning.plan_explanation_builder import (
@@ -43,16 +49,21 @@ class PlanningEngine:
         validator: PlanValidator,
         explanation_builder: PlanningExplanationBuilder,
         analyzer: Optional[PlanAnalyzer] = None,
+        preparation_engine: Optional[ExecutionPreparationEngine] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2: the analyzer is an optional, additive collaborator. It is
-        # stored only when injected so that Sprint 13.1 three-argument
-        # construction keeps exactly its original attributes (and its tests pass
-        # unchanged). ``analyze`` requires it; ``create_plan``/``explain`` do not.
+        # Sprint 13.2/13.3: the analyzer and preparation engine are optional,
+        # additive collaborators. Each is stored only when injected so that
+        # earlier-sprint construction (three or four arguments) keeps exactly its
+        # original attributes and its tests pass unchanged. ``analyze`` requires
+        # the analyzer and ``prepare`` requires the preparation engine;
+        # ``create_plan``/``explain`` require neither.
         if analyzer is not None:
             self.analyzer = analyzer
+        if preparation_engine is not None:
+            self.preparation_engine = preparation_engine
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -90,3 +101,30 @@ class PlanningEngine:
         analysis = analyzer.analyze(plan)
         self.validator.validate_analysis(analysis)
         return analysis
+
+    def prepare(
+        self, plan: ExecutionPlan, analysis: PlanAnalysis
+    ) -> ExecutionPreparation:
+        """Prepare ``plan`` for eventual execution (PREPARATION ONLY).
+
+        Sprint 13.3 addition. Delegates to the injected
+        :class:`ExecutionPreparationEngine` to determine which capabilities,
+        services, and permissions the plan would require, how it would be
+        sequenced, and what blocks it — then validates the result via the
+        injected :class:`PlanValidator`. The ``analysis`` is accepted as the
+        upstream reasoning context for this pipeline stage; the preparation is
+        derived from the plan itself (which already carries the missing-info and
+        confirmation signals). Nothing is executed, resolved, or acquired. Raises
+        :class:`RuntimeError` if no preparation engine was injected and
+        :class:`PlanValidationError` if the preparation is malformed; engine
+        exceptions propagate unchanged.
+        """
+        preparation_engine = getattr(self, "preparation_engine", None)
+        if preparation_engine is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionPreparationEngine injected; "
+                "provide one to call prepare()."
+            )
+        preparation = preparation_engine.prepare(plan)
+        self.validator.validate_preparation(preparation)
+        return preparation
