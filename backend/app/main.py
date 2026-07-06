@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import dispose_engine, init_engine
+from app.core.dependencies import build_app_session_provider
 from app.utils.logger import configure_logging, get_logger
 
 configure_logging()
@@ -20,10 +21,26 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Manage startup and shutdown of application resources."""
+    """Manage startup and shutdown of application resources.
+
+    Owns the lifetime of the single application-scoped Gemini Live session
+    provider (H1 hardening): it is built once at startup and stored on
+    ``app.state`` (application state — not a module global), and disposed once
+    at shutdown via its :meth:`shutdown`, which stops the background event loop
+    and reclaims its thread so no loop or thread leaks. The provider is optional
+    — the app still boots when Gemini is not configured.
+    """
     logger.info("Starting %s (%s)", settings.PROJECT_NAME, settings.ENVIRONMENT)
     init_engine()
+    app.state.session_provider = build_app_session_provider()
+    if app.state.session_provider is not None:
+        logger.info("Gemini Live session provider initialized (application-scoped).")
     yield
+    provider = getattr(app.state, "session_provider", None)
+    if provider is not None:
+        provider.shutdown()
+        app.state.session_provider = None
+        logger.info("Gemini Live session provider shut down.")
     dispose_engine()
     logger.info("Shutdown complete.")
 

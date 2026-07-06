@@ -545,6 +545,8 @@ class GeminiLiveSessionProvider(SessionProvider):
     _CLOSE_TIMEOUT_SECONDS = 10.0
     _SEND_TIMEOUT_SECONDS = 30.0
     _RECEIVE_TIMEOUT_SECONDS = 60.0
+    # Bound on reclaiming the background loop thread during shutdown.
+    _LOOP_JOIN_TIMEOUT_SECONDS = 10.0
     # Connect-time config: enable server-side text transcription of the model's
     # response so a complete text string can be aggregated from Live models. Only
     # the text transcript is consumed — no audio bytes, mic, or speaker.
@@ -585,6 +587,9 @@ class GeminiLiveSessionProvider(SessionProvider):
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
         self._loop_lock = threading.Lock()
+        # Terminal flag guarding the background loop's lifecycle. Set once by
+        # ``shutdown`` (application teardown); after it no new loop may start.
+        self._closed = False
         # Provider-private audio (de)serialization; hides SDK audio structures.
         self._audio_transport = _AudioTransport()
         # Provider-private visual (de)serialization; hides SDK visual structures.
@@ -899,8 +904,19 @@ class GeminiLiveSessionProvider(SessionProvider):
     # Internals — SDK bridge (async Live API <-> sync SPI); provider-private
     # ------------------------------------------------------------------
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
-        """Return the provider's background event loop, starting it on demand."""
+        """Return the provider's background event loop, starting it on demand.
+
+        The loop starts exactly once and is reused for every subsequent
+        operation. After :meth:`shutdown` has disposed the loop, this refuses to
+        start a new one (raising ``RuntimeError``) so a torn-down provider can
+        never resurrect a leaked thread.
+        """
         with self._loop_lock:
+            if self._closed and self._loop is None:
+                raise RuntimeError(
+                    "GeminiLiveSessionProvider is shut down; no new background "
+                    "event loop may be started."
+                )
             if self._loop is None:
                 loop = asyncio.new_event_loop()
                 thread = threading.Thread(
@@ -956,6 +972,86 @@ class GeminiLiveSessionProvider(SessionProvider):
             self._close_live_session(handle)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Internals — application lifecycle (background loop teardown)
+    # ------------------------------------------------------------------
+    def shutdown(self) -> None:
+        """Gracefully dispose the background event loop (idempotent, thread-safe).
+
+        Application-lifecycle teardown for the single long-lived provider. It
+        closes every still-open Live session through the one cleanup path
+        (releasing all SDK resources), then cancels any pending tasks, stops the
+        background loop, joins its thread, and closes the loop — leaving no
+        thread and no pending task alive, and requiring no process termination.
+        Idempotent: a second call is a no-op. Terminal: after shutdown no new
+        loop may start (:meth:`_ensure_loop` refuses). Every public SPI /
+        messaging method behaves exactly as before up to this call; this only
+        adds an explicit, clean end-of-life.
+        """
+        with self._loop_lock:
+            if self._closed:
+                return
+            self._closed = True
+            loop = self._loop
+            thread = self._loop_thread
+
+        # 1. Close any remaining Live sessions while the loop still runs (the
+        #    cleanup path drives the loop via _run_async). Single teardown path.
+        for record in list(self._sessions.values()):
+            self._cleanup_session(record)
+
+        # 2. Cancel pending tasks, stop the loop, reclaim its thread. A provider
+        #    that never opened a Live session has no loop — nothing to reclaim.
+        if loop is not None:
+            self._drain_and_stop_loop(loop, thread)
+
+        with self._loop_lock:
+            self._loop = None
+            self._loop_thread = None
+
+    def _drain_and_stop_loop(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        thread: Optional[threading.Thread],
+    ) -> None:
+        """Cancel pending tasks, stop the loop, join the thread, close the loop.
+
+        Best-effort and defensive: because every provider operation completes
+        synchronously (each ``_run_async`` awaits its result before returning),
+        the loop is normally idle here, so the cancellation pass usually finds
+        nothing — but it guarantees no pending task survives shutdown.
+        """
+
+        async def _cancel_pending() -> None:
+            pending = [
+                task
+                for task in asyncio.all_tasks()
+                if task is not asyncio.current_task()
+            ]
+            for task in pending:
+                task.cancel()
+            for task in pending:
+                try:
+                    await task
+                except BaseException:
+                    pass
+
+        try:
+            asyncio.run_coroutine_threadsafe(_cancel_pending(), loop).result(
+                timeout=self._LOOP_JOIN_TIMEOUT_SECONDS
+            )
+        except Exception:
+            pass
+
+        loop.call_soon_threadsafe(loop.stop)
+        if thread is not None:
+            thread.join(timeout=self._LOOP_JOIN_TIMEOUT_SECONDS)
+        if not loop.is_running():
+            try:
+                loop.close()
+            except Exception:
+                pass
 
     # ------------------------------------------------------------------
     # Internals — messaging (provider-private)

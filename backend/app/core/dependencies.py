@@ -9,11 +9,12 @@ import uuid
 from typing import Annotated, Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.utils.logger import get_logger
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.employee_builder.blueprint import BlueprintGenerationProvider
@@ -41,7 +42,10 @@ from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
-from app.services.runtime import ConversationRuntimeService
+from app.services.runtime import (
+    ConversationRuntime,
+    ConversationRuntimeService,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -86,6 +90,8 @@ from app.services.memory_service import MemoryService
 # scheme (401) before our handler runs; we also raise 401 for malformed/expired
 # tokens below, so unauthenticated requests consistently receive 401.
 _bearer_scheme = HTTPBearer(auto_error=True)
+
+logger = get_logger(__name__)
 
 SessionDep = Annotated[Session, Depends(get_db)]
 
@@ -780,6 +786,58 @@ GeminiLiveSessionProviderDep = Annotated[
 ]
 
 
+def build_app_session_provider() -> Optional[GeminiLiveSessionProvider]:
+    """Construct the SINGLE application-scoped Gemini Live session provider.
+
+    Called ONCE from the FastAPI startup lifespan (application-scoped
+    ownership), never per request. It reuses the exact composition-root wiring
+    of the request-scoped factory — the injected GenAI client and provider
+    config — so construction is identical; only the *lifetime* changes: one
+    provider, one background event loop, shared safely across all requests, and
+    disposed at shutdown via :meth:`GeminiLiveSessionProvider.shutdown`.
+
+    Returns ``None`` (logged) when ``GEMINI_API_KEY`` is absent or the SDK
+    client cannot be built, so the application still boots in environments
+    without Gemini configured; the provider is simply unavailable until then.
+    No global state is created here — the caller stores the instance on
+    ``app.state`` (FastAPI application state, not a module global).
+    """
+    try:
+        client = get_genai_client()
+    except Exception as exc:  # missing key / SDK unavailable — boot without it
+        logger.warning(
+            "Gemini Live session provider not initialized (%s); the live "
+            "conversation runtime is unavailable until GEMINI_API_KEY is set.",
+            exc,
+        )
+        return None
+    return get_gemini_live_session_provider(client, get_provider_config())
+
+
+def get_app_session_provider(request: Request) -> GeminiLiveSessionProvider:
+    """Return the application-scoped Gemini Live session provider.
+
+    Reads the single provider instance created at startup and stored on
+    ``request.app.state`` — FastAPI's application-scoped state, NOT a module
+    global and NOT a service locator. Every request shares this one provider
+    (and therefore one background event loop). Raises ``503`` when the provider
+    was not configured at startup (e.g. missing ``GEMINI_API_KEY``), so callers
+    fail loudly rather than silently constructing a duplicate provider/loop.
+    """
+    provider = getattr(request.app.state, "session_provider", None)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live session provider is not configured.",
+        )
+    return provider
+
+
+AppSessionProviderDep = Annotated[
+    GeminiLiveSessionProvider, Depends(get_app_session_provider)
+]
+
+
 def get_optional_planner_service() -> Optional[PlannerService]:
     """Provide a :class:`PlannerService` if available, else ``None`` (11.5).
 
@@ -889,6 +947,41 @@ def get_conversation_runtime_service(
 
 ConversationRuntimeServiceDep = Annotated[
     ConversationRuntimeService, Depends(get_conversation_runtime_service)
+]
+
+
+def get_conversation_runtime(
+    provider: AppSessionProviderDep,
+    memory_retrieval: MemoryRetrievalServiceDep,
+    memory_persistence: MemoryPersistenceServiceDep,
+) -> ConversationRuntime:
+    """Provide the Sprint 12.14 continuous multimodal Conversation Runtime.
+
+    Composition-root wiring only. The ``provider`` is the SINGLE
+    application-scoped Gemini Live session provider (created once at startup,
+    resolved here from ``app.state`` via ``get_app_session_provider`` — H1
+    hardening), so every request shares one provider and one background event
+    loop; no per-request provider or loop is ever constructed. That one
+    provider serves both seams — wrapped in the reused Sprint 12.6
+    :class:`SessionService` for lifecycle, and injected directly as the
+    provider-independent :class:`LiveMessagingPort` (which it satisfies
+    structurally) for the Sprint 12.9–12.13 message/action surface. The reused
+    Sprint 9.1/8.1 memory services stay request-scoped (they own the request's
+    DB session) and are injected for memory coordination. The runtime
+    instantiates nothing itself and only orchestrates; wiring, DTOs, and
+    behavior are unchanged — only the provider's lifetime moved from
+    per-request to application-scoped.
+    """
+    return ConversationRuntime(
+        session_service=SessionService(provider),
+        live_messaging=provider,
+        memory_retrieval=memory_retrieval,
+        memory_persistence=memory_persistence,
+    )
+
+
+ConversationRuntimeDep = Annotated[
+    ConversationRuntime, Depends(get_conversation_runtime)
 ]
 
 
