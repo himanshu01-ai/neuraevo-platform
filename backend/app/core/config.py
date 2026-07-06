@@ -106,6 +106,41 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def _require_safe_cors_outside_development(self) -> "Settings":
+        """Fail fast on an insecure CORS configuration outside development.
+
+        In any non-``development`` environment the application refuses to start
+        when CORS would allow *any* origin — the wildcard ``"*"`` (or an empty
+        origin list) is rejected. The app always sends CORS with credentials
+        enabled (``allow_credentials=True``); a wildcard origin combined with
+        credentials is both spec-invalid and unsafe, because reflecting every
+        origin with ``Access-Control-Allow-Credentials: true`` would let any
+        site issue credentialed cross-origin requests. Production must pin
+        explicit origins via ``CORS_ORIGINS`` (comma-separated in the
+        environment, e.g. ``https://app.neuraevo.com``).
+
+        Development is unchanged: the wildcard default remains allowed there,
+        preserving local convenience. This mirrors the JWT production-safety
+        validator above.
+        """
+        if self.ENVIRONMENT.strip().lower() == "development":
+            return self
+        if not self.CORS_ORIGINS:
+            raise ValueError(
+                "CORS_ORIGINS must list explicit allowed origins in "
+                f"non-development environments (ENVIRONMENT={self.ENVIRONMENT!r}); "
+                "an empty origin list is not permitted."
+            )
+        if "*" in self.CORS_ORIGINS:
+            raise ValueError(
+                "CORS_ORIGINS must not contain the wildcard '*' in "
+                f"non-development environments (ENVIRONMENT={self.ENVIRONMENT!r}); "
+                "a wildcard origin combined with credentials is insecure. Pin "
+                "explicit origins, e.g. CORS_ORIGINS=https://app.neuraevo.com."
+            )
+        return self
+
 
 @lru_cache
 def get_settings() -> Settings:
