@@ -41,7 +41,10 @@ from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
-from app.services.runtime import ConversationRuntimeService
+from app.services.runtime import (
+    ConversationRuntime,
+    ConversationRuntimeService,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -889,6 +892,36 @@ def get_conversation_runtime_service(
 
 ConversationRuntimeServiceDep = Annotated[
     ConversationRuntimeService, Depends(get_conversation_runtime_service)
+]
+
+
+def get_conversation_runtime(
+    provider: GeminiLiveSessionProviderDep,
+    memory_retrieval: MemoryRetrievalServiceDep,
+    memory_persistence: MemoryPersistenceServiceDep,
+) -> ConversationRuntime:
+    """Provide the Sprint 12.14 continuous multimodal Conversation Runtime.
+
+    Composition-root wiring only: the SAME Sprint 12.8 Gemini Live session
+    provider instance serves both seams — wrapped in the reused Sprint 12.6
+    :class:`SessionService` for lifecycle, and injected directly as the
+    provider-independent :class:`LiveMessagingPort` (which it satisfies
+    structurally) for the Sprint 12.9–12.13 message/action surface — so
+    exactly one provider owns the live session. The reused Sprint 9.1/8.1
+    memory services are injected for memory coordination. The runtime
+    instantiates nothing itself and only orchestrates; it is additive and
+    replaces no existing runtime, route, or seam.
+    """
+    return ConversationRuntime(
+        session_service=SessionService(provider),
+        live_messaging=provider,
+        memory_retrieval=memory_retrieval,
+        memory_persistence=memory_persistence,
+    )
+
+
+ConversationRuntimeDep = Annotated[
+    ConversationRuntime, Depends(get_conversation_runtime)
 ]
 
 
