@@ -17,6 +17,8 @@ is valid, and can explain it. The output of the engine is a validated
 from typing import Optional
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.decision_engine import DecisionEngine
+from app.services.planning.decision_models import ExecutionDecision
 from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
 )
@@ -50,20 +52,23 @@ class PlanningEngine:
         explanation_builder: PlanningExplanationBuilder,
         analyzer: Optional[PlanAnalyzer] = None,
         preparation_engine: Optional[ExecutionPreparationEngine] = None,
+        decision_engine: Optional[DecisionEngine] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2/13.3: the analyzer and preparation engine are optional,
-        # additive collaborators. Each is stored only when injected so that
-        # earlier-sprint construction (three or four arguments) keeps exactly its
-        # original attributes and its tests pass unchanged. ``analyze`` requires
-        # the analyzer and ``prepare`` requires the preparation engine;
-        # ``create_plan``/``explain`` require neither.
+        # Sprint 13.2/13.3/13.4: the analyzer, preparation engine, and decision
+        # engine are optional, additive collaborators. Each is stored only when
+        # injected so that earlier-sprint construction (three to five arguments)
+        # keeps exactly its original attributes and its tests pass unchanged.
+        # ``analyze``/``prepare``/``decide`` each require their collaborator;
+        # ``create_plan``/``explain`` require none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
             self.preparation_engine = preparation_engine
+        if decision_engine is not None:
+            self.decision_engine = decision_engine
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -128,3 +133,29 @@ class PlanningEngine:
         preparation = preparation_engine.prepare(plan)
         self.validator.validate_preparation(preparation)
         return preparation
+
+    def decide(
+        self,
+        plan: ExecutionPlan,
+        analysis: PlanAnalysis,
+        preparation: ExecutionPreparation,
+    ) -> ExecutionDecision:
+        """Decide whether ``plan`` may proceed (DECISION ONLY — no execution).
+
+        Sprint 13.4 addition. Delegates to the injected :class:`DecisionEngine`
+        to weigh the plan, its analysis, and its preparation into a single
+        :class:`ExecutionDecision`, then validates the result via the injected
+        :class:`PlanValidator`. This only classifies readiness — it executes,
+        resolves, and acquires nothing. Raises :class:`RuntimeError` if no
+        decision engine was injected and :class:`PlanValidationError` if the
+        decision is malformed; engine exceptions propagate unchanged.
+        """
+        decision_engine = getattr(self, "decision_engine", None)
+        if decision_engine is None:
+            raise RuntimeError(
+                "PlanningEngine has no DecisionEngine injected; provide one to "
+                "call decide()."
+            )
+        decision = decision_engine.decide(plan, analysis, preparation)
+        self.validator.validate_decision(decision)
+        return decision

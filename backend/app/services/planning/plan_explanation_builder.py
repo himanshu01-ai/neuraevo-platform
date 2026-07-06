@@ -14,10 +14,28 @@ execution, provider, AI, or runtime work.
 from typing import List
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
 from app.services.planning.models import ExecutionPlan
+
+# User-language message per decision status (no implementation terms).
+_DECISION_MESSAGES = {
+    DecisionStatus.APPROVED.value: "Everything's in place, so I can go ahead.",
+    DecisionStatus.WAITING_FOR_INFORMATION.value: (
+        "I'm waiting on some details before I can proceed."
+    ),
+    DecisionStatus.WAITING_FOR_CONFIRMATION.value: (
+        "I'm ready, but I'll wait for your confirmation before proceeding."
+    ),
+    DecisionStatus.BLOCKED.value: (
+        "I can't proceed yet — some requirements still need to be met."
+    ),
+    DecisionStatus.REJECTED.value: (
+        "I can't carry out this plan as it stands."
+    ),
+}
 
 
 class PlanningExplanationBuilder:
@@ -113,6 +131,31 @@ class PlanningExplanationBuilder:
                 f"Before I can start, these still need to be resolved: "
                 f"{outstanding}."
             )
+        return " ".join(segments)
+
+    def build_with_decision(
+        self, plan: ExecutionPlan, decision: ExecutionDecision
+    ) -> str:
+        """Explain ``plan`` and the decision reached about it (no execution).
+
+        Sprint 13.4 extension. Reuses :meth:`build` for the step narration, then
+        adds a plain-language statement of the decision and, when the plan cannot
+        proceed, the outstanding items — in everyday user language, never
+        implementation terms.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _DECISION_MESSAGES.get(decision.status, decision.reason)
+        )
+        if (
+            decision.blocking_reasons
+            and decision.status != DecisionStatus.APPROVED.value
+        ):
+            readable = [
+                self._readable_blocker(item)
+                for item in decision.blocking_reasons
+            ]
+            segments.append(f"Outstanding items: {self._join(readable)}.")
         return " ".join(segments)
 
     @staticmethod

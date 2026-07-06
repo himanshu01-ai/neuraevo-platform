@@ -16,6 +16,7 @@ Rules enforced:
 """
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
@@ -24,6 +25,9 @@ from app.services.planning.models import ExecutionPlan
 
 # The only execution strategies a well-formed preparation may carry.
 _VALID_STRATEGIES = frozenset(strategy.value for strategy in ExecutionStrategy)
+
+# The only statuses a well-formed decision may carry.
+_VALID_DECISION_STATUSES = frozenset(status.value for status in DecisionStatus)
 
 
 class PlanValidationError(ValueError):
@@ -163,6 +167,41 @@ class PlanValidator:
             preparation.external_services, "external service"
         )
         self._reject_empty_or_duplicate(preparation.blocked_by, "blocker")
+
+    def validate_decision(self, decision: ExecutionDecision) -> None:
+        """Raise :class:`PlanValidationError` if ``decision`` is not well-formed.
+
+        Sprint 13.4 extension. Rejects an unknown status, an empty reason, a
+        confidence outside ``0.0``–``1.0``, an inconsistent ``can_execute`` (true
+        only when ``APPROVED``), an ``APPROVED`` decision that still lists
+        blockers, and empty or duplicate blocking reasons. Inspects only the
+        decision's plain data — no execution, provider, or AI work.
+        """
+        if decision.status not in _VALID_DECISION_STATUSES:
+            raise PlanValidationError(
+                f"Invalid decision status: {decision.status!r}."
+            )
+        if not decision.reason.strip():
+            raise PlanValidationError("Decision reason must not be empty.")
+        if not 0.0 <= decision.confidence <= 1.0:
+            raise PlanValidationError(
+                f"Confidence {decision.confidence} is outside 0.0..1.0."
+            )
+        if decision.can_execute and (
+            decision.status != DecisionStatus.APPROVED.value
+        ):
+            raise PlanValidationError(
+                "can_execute may be true only when the decision is APPROVED."
+            )
+        if decision.status == DecisionStatus.APPROVED.value and (
+            decision.blocking_reasons
+        ):
+            raise PlanValidationError(
+                "An APPROVED decision must have no blocking reasons."
+            )
+        self._reject_empty_or_duplicate(
+            decision.blocking_reasons, "blocking reason"
+        )
 
     @staticmethod
     def _reject_empty_or_duplicate(items: list, label: str) -> None:
