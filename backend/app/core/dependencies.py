@@ -44,6 +44,7 @@ from app.services.runtime import ConversationRuntimeService
 from app.services.runtime.execution_runtime import ExecutionRuntime
 from app.services.runtime.task_dispatcher import TaskDispatcher
 from app.services.runtime.execution_capability import ExecutionCapability
+from app.services.runtime.capability_dispatcher import CapabilityDispatcher
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -952,6 +953,23 @@ def get_execution_capability() -> ExecutionCapability:
 
 ExecutionCapabilityDep = Annotated[
     ExecutionCapability, Depends(get_execution_capability)
+]
+
+
+def get_capability_dispatcher() -> CapabilityDispatcher:
+    """Provide the stateless :class:`CapabilityDispatcher` (Sprint 14.4).
+
+    Deterministic, offline construction of a :class:`CapabilityDispatchPlan` from
+    a :class:`DispatchPlan`. It routes each ready execution unit to a
+    capability name and keeps unresolved units separate. ROUTING ONLY — no AI,
+    network, clock, UUID, SDK, concrete capability, capability instantiation,
+    registry, Runtime global, or execution; it never mutates the dispatch plan.
+    """
+    return CapabilityDispatcher()
+
+
+CapabilityDispatcherDep = Annotated[
+    CapabilityDispatcher, Depends(get_capability_dispatcher)
 ]
 
 
