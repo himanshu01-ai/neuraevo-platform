@@ -42,6 +42,7 @@ from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
 from app.services.runtime.execution_runtime import ExecutionRuntime
+from app.services.runtime.task_dispatcher import TaskDispatcher
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -911,6 +912,24 @@ def get_execution_runtime() -> ExecutionRuntime:
 
 ExecutionRuntimeDep = Annotated[
     ExecutionRuntime, Depends(get_execution_runtime)
+]
+
+
+def get_task_dispatcher() -> TaskDispatcher:
+    """Provide the stateless :class:`TaskDispatcher` (Sprint 14.2).
+
+    Deterministic, offline construction of a :class:`DispatchPlan` from an
+    :class:`ExecutionRuntimeContext`. It reads the orchestration's execution
+    queue and reports which units are eligible to leave the runtime. DISPATCH
+    PLANNING ONLY — no AI, network, clock, UUID, SDK, capability knowledge,
+    recovery, approval, Runtime global, or execution; it never mutates the
+    runtime context or queue.
+    """
+    return TaskDispatcher()
+
+
+TaskDispatcherDep = Annotated[
+    TaskDispatcher, Depends(get_task_dispatcher)
 ]
 
 
