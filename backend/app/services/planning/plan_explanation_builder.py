@@ -14,6 +14,7 @@ execution, provider, AI, or runtime work.
 from typing import List
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.approval_models import ApprovalPlan, ApprovalStrategy
 from app.services.planning.decision_models import DecisionStatus, ExecutionDecision
 from app.services.planning.execution_intent_models import (
     ExecutionIntent,
@@ -47,6 +48,7 @@ from app.services.planning.execution_workflow_models import (
     WorkflowStatus,
 )
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.recovery_models import RecoveryPlan, RecoveryStrategy
 from app.services.planning.task_lifecycle_models import (
     TaskLifecycle,
     TaskLifecycleState,
@@ -140,6 +142,41 @@ _HEALTH_STATUS_MESSAGES = {
     ExecutionHealthStatus.COMPLETED.value: "All the work is finished.",
     ExecutionHealthStatus.FAILED.value: (
         "Something went wrong along the way."
+    ),
+}
+
+# User-language message per approval strategy (no implementation terms).
+_APPROVAL_STRATEGY_MESSAGES = {
+    ApprovalStrategy.NO_APPROVAL.value: (
+        "No approval is needed, so I can go ahead."
+    ),
+    ApprovalStrategy.BEFORE_EXECUTION.value: (
+        "I'll need your approval before I start."
+    ),
+    ApprovalStrategy.BEFORE_RECOVERY.value: (
+        "I'll need your approval before I try to recover."
+    ),
+    ApprovalStrategy.MANUAL_REVIEW.value: (
+        "This needs a manual review before anything continues."
+    ),
+}
+
+# User-language message per recovery strategy (no implementation terms).
+_RECOVERY_STRATEGY_MESSAGES = {
+    RecoveryStrategy.NO_ACTION.value: (
+        "Everything's on track, so there's nothing to recover."
+    ),
+    RecoveryStrategy.RETRY.value: (
+        "I'll retry the affected work to get things back on track."
+    ),
+    RecoveryStrategy.RESUME.value: (
+        "I'll pick up from where things stalled and carry on."
+    ),
+    RecoveryStrategy.REPLAN.value: (
+        "I'll need to rework the plan before continuing."
+    ),
+    RecoveryStrategy.ABORT.value: (
+        "I can't recover this on my own and will stop here."
     ),
 }
 
@@ -371,6 +408,101 @@ class PlanningExplanationBuilder:
             f"{len(report.active_nodes)} task(s) active, "
             f"{len(report.pending_nodes)} waiting, and "
             f"{len(report.blocked_nodes)} held up."
+        )
+        return " ".join(segments)
+
+    def build_with_recovery_plan(
+        self, plan: ExecutionPlan, recovery: RecoveryPlan
+    ) -> str:
+        """Explain ``plan`` and how execution would be recovered (no execution).
+
+        Sprint 13.13 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — the
+        chosen recovery approach and, when a human must step in, that their input
+        is needed before continuing.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _RECOVERY_STRATEGY_MESSAGES.get(
+                recovery.recovery_strategy, recovery.recovery_reason
+            )
+        )
+        if recovery.requires_user_intervention:
+            segments.append("I'll need your input before continuing.")
+        return " ".join(segments)
+
+    def build_with_approval_plan(
+        self, plan: ExecutionPlan, approval: ApprovalPlan
+    ) -> str:
+        """Explain ``plan`` and what approval it needs (no execution).
+
+        Sprint 13.14 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms —
+        whether human approval is needed and how many checkpoints are waiting on
+        the user.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _APPROVAL_STRATEGY_MESSAGES.get(
+                approval.approval_strategy, approval.approval_reason
+            )
+        )
+        if approval.pending_approvals:
+            segments.append(
+                f"There are {len(approval.pending_approvals)} checkpoint(s) "
+                "waiting for your approval."
+            )
+        return " ".join(segments)
+
+    def build_execution_pipeline_summary(
+        self,
+        plan: ExecutionPlan,
+        decision: ExecutionDecision,
+        intent: ExecutionIntent,
+        state: ExecutionState,
+        monitoring_report: ExecutionMonitoringReport,
+        recovery_plan: RecoveryPlan,
+        approval_plan: ApprovalPlan,
+    ) -> str:
+        """Summarise the full execution-planning pipeline (no execution).
+
+        Sprint 13.15 integration. Reuses :meth:`build` for the step narration,
+        then folds in the key outcome of each downstream stage — the decision,
+        the intent, overall progress, health, the recovery posture, and the
+        approval posture — into one plain-language digest, reusing the same
+        user-language phrasing as the per-stage explanations. Reads existing DTOs
+        only; nothing is executed.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _DECISION_MESSAGES.get(decision.status, decision.reason)
+        )
+        segments.append(
+            _INTENT_MESSAGES.get(intent.intent, intent.recommended_next_step)
+        )
+        segments.append(
+            _EXECUTION_STATE_MESSAGES.get(
+                state.overall_state, "Execution is planned."
+            )
+        )
+        segments.append(
+            f"Progress: {state.progress_percentage:.0f}% "
+            f"({state.completed_tasks} of {state.total_tasks} tasks complete)."
+        )
+        segments.append(
+            _HEALTH_STATUS_MESSAGES.get(
+                monitoring_report.health_status, "Execution is being monitored."
+            )
+        )
+        segments.append(
+            _RECOVERY_STRATEGY_MESSAGES.get(
+                recovery_plan.recovery_strategy, recovery_plan.recovery_reason
+            )
+        )
+        segments.append(
+            _APPROVAL_STRATEGY_MESSAGES.get(
+                approval_plan.approval_strategy, approval_plan.approval_reason
+            )
         )
         return " ".join(segments)
 

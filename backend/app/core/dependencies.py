@@ -79,6 +79,8 @@ from app.services.planning.execution_dependency_graph import (
 )
 from app.services.planning.execution_scheduler import ExecutionScheduler
 from app.services.planning.execution_monitor import ExecutionMonitor
+from app.services.planning.recovery_manager import RecoveryManager
+from app.services.planning.human_approval_manager import HumanApprovalManager
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -787,6 +789,40 @@ ExecutionMonitorDep = Annotated[
 ]
 
 
+def get_recovery_manager() -> RecoveryManager:
+    """Provide the stateless :class:`RecoveryManager` (Sprint 13.13).
+
+    Deterministic, offline construction of a :class:`RecoveryPlan` from an
+    :class:`ExecutionMonitoringReport`, an :class:`ExecutionState`, and an
+    :class:`ExecutionDependencyGraph`. RECOVERY PLANNING ONLY — no AI, network,
+    SDK, Runtime, Session, Registry, Permission, Tool framework, Memory, Gemini,
+    retries, or execution.
+    """
+    return RecoveryManager()
+
+
+RecoveryManagerDep = Annotated[
+    RecoveryManager, Depends(get_recovery_manager)
+]
+
+
+def get_human_approval_manager() -> HumanApprovalManager:
+    """Provide the stateless :class:`HumanApprovalManager` (Sprint 13.14).
+
+    Deterministic, offline construction of an :class:`ApprovalPlan` from an
+    :class:`ExecutionIntent`, an :class:`ExecutionSchedule`, and a
+    :class:`RecoveryPlan`. APPROVAL GOVERNANCE ONLY — no AI, network, SDK,
+    Runtime, Session, Registry, Permission, Tool framework, Memory, Gemini,
+    approval requests, or execution.
+    """
+    return HumanApprovalManager()
+
+
+HumanApprovalManagerDep = Annotated[
+    HumanApprovalManager, Depends(get_human_approval_manager)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -802,6 +838,8 @@ def get_planning_engine(
     dependency_graph_builder: ExecutionDependencyGraphBuilderDep = None,
     scheduler: ExecutionSchedulerDep = None,
     monitor: ExecutionMonitorDep = None,
+    recovery_manager: RecoveryManagerDep = None,
+    approval_manager: HumanApprovalManagerDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -835,10 +873,49 @@ def get_planning_engine(
         dependency_graph_builder,
         scheduler,
         monitor,
+        recovery_manager,
+        approval_manager,
     )
 
 
 PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]
+
+
+def get_execution_orchestration_engine() -> PlanningEngine:
+    """Provide the fully-wired :class:`PlanningEngine` coordinator (Sprint 13.15).
+
+    Integration seam only. Assembles the single orchestration coordinator by
+    composing the already-existing collaborators through their existing
+    composition-root providers (Sprint 13.1–13.14), so
+    ``create_execution_orchestration`` can run the complete plan -> analyse ->
+    prepare -> decide -> intent -> workflow -> queue -> lifecycles -> state ->
+    dependency graph -> schedule -> monitoring report -> recovery plan ->
+    approval plan pipeline. It adds no new behaviour and changes no existing
+    provider — it is ``get_planning_engine`` with every collaborator supplied.
+    """
+    return get_planning_engine(
+        get_planning_provider(),
+        get_plan_validator(),
+        get_planning_explanation_builder(),
+        get_plan_analyzer(),
+        get_execution_preparation_engine(),
+        get_decision_engine(),
+        get_execution_intent_engine(),
+        get_execution_orchestrator(),
+        get_execution_coordinator(),
+        get_task_lifecycle_engine(),
+        get_execution_state_manager(),
+        get_execution_dependency_graph_builder(),
+        get_execution_scheduler(),
+        get_execution_monitor(),
+        get_recovery_manager(),
+        get_human_approval_manager(),
+    )
+
+
+ExecutionOrchestrationEngineDep = Annotated[
+    PlanningEngine, Depends(get_execution_orchestration_engine)
+]
 
 
 def get_interaction_provider() -> InteractionProvider:
