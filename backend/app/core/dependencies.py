@@ -54,6 +54,9 @@ from app.services.runtime.execution_event_manager import ExecutionEventManager
 from app.services.runtime.execution_lifecycle_manager import (
     ExecutionLifecycleManager,
 )
+from app.services.runtime.runtime_execution_state_manager import (
+    RuntimeExecutionStateManager,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1067,6 +1070,23 @@ def get_execution_lifecycle_manager() -> ExecutionLifecycleManager:
 
 ExecutionLifecycleManagerDep = Annotated[
     ExecutionLifecycleManager, Depends(get_execution_lifecycle_manager)
+]
+
+
+def get_runtime_execution_state_manager() -> RuntimeExecutionStateManager:
+    """Provide the stateless :class:`RuntimeExecutionStateManager` (Sprint 14.10).
+
+    Deterministic, offline conversion of a :class:`RuntimeExecutionLifecycle` into
+    a :class:`RuntimeExecutionState` — a state status, the current stage, and the
+    active/terminal flags. RUNTIME STATE REPRESENTATION ONLY — no AI, network,
+    clock, UUID, SDK, capability knowledge, dispatch, recovery, approval, Runtime
+    global, or execution; it never changes the lifecycle.
+    """
+    return RuntimeExecutionStateManager()
+
+
+RuntimeExecutionStateManagerDep = Annotated[
+    RuntimeExecutionStateManager, Depends(get_runtime_execution_state_manager)
 ]
 
 
