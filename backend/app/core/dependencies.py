@@ -51,6 +51,9 @@ from app.services.runtime.execution_progress_runtime import (
 )
 from app.services.runtime.execution_controller import ExecutionController
 from app.services.runtime.execution_event_manager import ExecutionEventManager
+from app.services.runtime.execution_lifecycle_manager import (
+    ExecutionLifecycleManager,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1047,6 +1050,23 @@ def get_execution_event_manager() -> ExecutionEventManager:
 
 ExecutionEventManagerDep = Annotated[
     ExecutionEventManager, Depends(get_execution_event_manager)
+]
+
+
+def get_execution_lifecycle_manager() -> ExecutionLifecycleManager:
+    """Provide the stateless :class:`ExecutionLifecycleManager` (Sprint 14.9).
+
+    Deterministic, offline aggregation of an :class:`ExecutionEventLog` into a
+    :class:`RuntimeExecutionLifecycle` — a lifecycle status, the preserved events,
+    the current stage, and the terminal flag. LIFECYCLE REPRESENTATION ONLY — no
+    AI, network, clock, UUID, SDK, capability knowledge, dispatch, recovery,
+    approval, Runtime global, or execution; it never changes the event log.
+    """
+    return ExecutionLifecycleManager()
+
+
+ExecutionLifecycleManagerDep = Annotated[
+    ExecutionLifecycleManager, Depends(get_execution_lifecycle_manager)
 ]
 
 
