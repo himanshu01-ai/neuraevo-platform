@@ -57,6 +57,9 @@ from app.services.runtime.execution_lifecycle_manager import (
 from app.services.runtime.runtime_execution_state_manager import (
     RuntimeExecutionStateManager,
 )
+from app.services.runtime.runtime_execution_monitor import (
+    RuntimeExecutionMonitor,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1087,6 +1090,23 @@ def get_runtime_execution_state_manager() -> RuntimeExecutionStateManager:
 
 RuntimeExecutionStateManagerDep = Annotated[
     RuntimeExecutionStateManager, Depends(get_runtime_execution_state_manager)
+]
+
+
+def get_runtime_execution_monitor() -> RuntimeExecutionMonitor:
+    """Provide the stateless :class:`RuntimeExecutionMonitor` (Sprint 14.11).
+
+    Deterministic, offline evaluation of a :class:`RuntimeExecutionState` into a
+    :class:`RuntimeExecutionHealth` — a health status, a deterministic score, and
+    any runtime warnings. HEALTH MONITORING ONLY — no AI, network, clock, UUID,
+    SDK, capability knowledge, dispatch, recovery, approval, Runtime global, or
+    execution; it never changes the runtime state.
+    """
+    return RuntimeExecutionMonitor()
+
+
+RuntimeExecutionMonitorDep = Annotated[
+    RuntimeExecutionMonitor, Depends(get_runtime_execution_monitor)
 ]
 
 
