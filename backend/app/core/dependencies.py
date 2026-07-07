@@ -43,6 +43,7 @@ from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
 from app.services.runtime.execution_runtime import ExecutionRuntime
 from app.services.runtime.task_dispatcher import TaskDispatcher
+from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -930,6 +931,27 @@ def get_task_dispatcher() -> TaskDispatcher:
 
 TaskDispatcherDep = Annotated[
     TaskDispatcher, Depends(get_task_dispatcher)
+]
+
+
+def get_execution_capability() -> ExecutionCapability:
+    """Provide the active execution capability (Sprint 14.3).
+
+    Sprint 14.3 ships only the provider-independent execution-capability contract
+    — no concrete capability exists yet — so this composition-root seam is
+    intentionally unfulfilled and raises. A later sprint registers real
+    capabilities here (the one place capabilities are constructed), with no change
+    required in :class:`ExecutionCapability` or its consumers.
+    """
+    raise NotImplementedError(
+        "No execution capability is implemented yet (Sprint 14.3 ships only the "
+        "execution-capability contract); concrete capabilities are wired here in "
+        "a later sprint."
+    )
+
+
+ExecutionCapabilityDep = Annotated[
+    ExecutionCapability, Depends(get_execution_capability)
 ]
 
 
