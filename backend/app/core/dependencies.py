@@ -63,6 +63,9 @@ from app.services.runtime.runtime_execution_monitor import (
 from app.services.runtime.runtime_pause_resume_manager import (
     RuntimePauseResumeManager,
 )
+from app.services.runtime.runtime_recovery_coordinator import (
+    RuntimeRecoveryCoordinator,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1128,6 +1131,23 @@ def get_runtime_pause_resume_manager() -> RuntimePauseResumeManager:
 
 RuntimePauseResumeManagerDep = Annotated[
     RuntimePauseResumeManager, Depends(get_runtime_pause_resume_manager)
+]
+
+
+def get_runtime_recovery_coordinator() -> RuntimeRecoveryCoordinator:
+    """Provide the stateless :class:`RuntimeRecoveryCoordinator` (Sprint 14.13).
+
+    Deterministic, offline coordination of a :class:`RuntimePauseResumeState` into
+    a :class:`RuntimeRecoveryState` — a recovery status, whether recovery is
+    required, and the recovery strategy. RECOVERY COORDINATION ONLY — no AI,
+    network, clock, UUID, SDK, capability knowledge, retry, resumption, planning,
+    Runtime global, or execution; it never changes the pause/resume state.
+    """
+    return RuntimeRecoveryCoordinator()
+
+
+RuntimeRecoveryCoordinatorDep = Annotated[
+    RuntimeRecoveryCoordinator, Depends(get_runtime_recovery_coordinator)
 ]
 
 
