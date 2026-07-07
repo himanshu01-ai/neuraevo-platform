@@ -41,6 +41,7 @@ from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
 from app.services.runtime import ConversationRuntimeService
+from app.services.runtime.execution_runtime import ExecutionRuntime
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -893,6 +894,23 @@ def get_execution_orchestration_engine() -> PlanningEngine:
 
 ExecutionOrchestrationEngineDep = Annotated[
     PlanningEngine, Depends(get_execution_orchestration_engine)
+]
+
+
+def get_execution_runtime() -> ExecutionRuntime:
+    """Provide the stateless :class:`ExecutionRuntime` (Sprint 14.1).
+
+    Deterministic, offline creation of an :class:`ExecutionRuntimeContext` from a
+    Sprint 13 :class:`ExecutionOrchestrationResult`. It owns the lifecycle of one
+    execution session and only establishes runtime state. RUNTIME STATE ONLY —
+    no AI, network, clock, UUID, SDK, dispatcher, capability knowledge, recovery,
+    approval, or execution; it never mutates the orchestration.
+    """
+    return ExecutionRuntime()
+
+
+ExecutionRuntimeDep = Annotated[
+    ExecutionRuntime, Depends(get_execution_runtime)
 ]
 
 
