@@ -454,6 +454,58 @@ class PlanningExplanationBuilder:
             )
         return " ".join(segments)
 
+    def build_execution_pipeline_summary(
+        self,
+        plan: ExecutionPlan,
+        decision: ExecutionDecision,
+        intent: ExecutionIntent,
+        state: ExecutionState,
+        monitoring_report: ExecutionMonitoringReport,
+        recovery_plan: RecoveryPlan,
+        approval_plan: ApprovalPlan,
+    ) -> str:
+        """Summarise the full execution-planning pipeline (no execution).
+
+        Sprint 13.15 integration. Reuses :meth:`build` for the step narration,
+        then folds in the key outcome of each downstream stage — the decision,
+        the intent, overall progress, health, the recovery posture, and the
+        approval posture — into one plain-language digest, reusing the same
+        user-language phrasing as the per-stage explanations. Reads existing DTOs
+        only; nothing is executed.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _DECISION_MESSAGES.get(decision.status, decision.reason)
+        )
+        segments.append(
+            _INTENT_MESSAGES.get(intent.intent, intent.recommended_next_step)
+        )
+        segments.append(
+            _EXECUTION_STATE_MESSAGES.get(
+                state.overall_state, "Execution is planned."
+            )
+        )
+        segments.append(
+            f"Progress: {state.progress_percentage:.0f}% "
+            f"({state.completed_tasks} of {state.total_tasks} tasks complete)."
+        )
+        segments.append(
+            _HEALTH_STATUS_MESSAGES.get(
+                monitoring_report.health_status, "Execution is being monitored."
+            )
+        )
+        segments.append(
+            _RECOVERY_STRATEGY_MESSAGES.get(
+                recovery_plan.recovery_strategy, recovery_plan.recovery_reason
+            )
+        )
+        segments.append(
+            _APPROVAL_STRATEGY_MESSAGES.get(
+                approval_plan.approval_strategy, approval_plan.approval_reason
+            )
+        )
+        return " ".join(segments)
+
     def build_with_execution_dependency_graph(
         self, plan: ExecutionPlan, graph: ExecutionDependencyGraph
     ) -> str:

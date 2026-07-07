@@ -859,6 +859,43 @@ def get_planning_engine(
 PlanningEngineDep = Annotated[PlanningEngine, Depends(get_planning_engine)]
 
 
+def get_execution_orchestration_engine() -> PlanningEngine:
+    """Provide the fully-wired :class:`PlanningEngine` coordinator (Sprint 13.15).
+
+    Integration seam only. Assembles the single orchestration coordinator by
+    composing the already-existing collaborators through their existing
+    composition-root providers (Sprint 13.1–13.14), so
+    ``create_execution_orchestration`` can run the complete plan -> analyse ->
+    prepare -> decide -> intent -> workflow -> queue -> lifecycles -> state ->
+    dependency graph -> schedule -> monitoring report -> recovery plan ->
+    approval plan pipeline. It adds no new behaviour and changes no existing
+    provider — it is ``get_planning_engine`` with every collaborator supplied.
+    """
+    return get_planning_engine(
+        get_planning_provider(),
+        get_plan_validator(),
+        get_planning_explanation_builder(),
+        get_plan_analyzer(),
+        get_execution_preparation_engine(),
+        get_decision_engine(),
+        get_execution_intent_engine(),
+        get_execution_orchestrator(),
+        get_execution_coordinator(),
+        get_task_lifecycle_engine(),
+        get_execution_state_manager(),
+        get_execution_dependency_graph_builder(),
+        get_execution_scheduler(),
+        get_execution_monitor(),
+        get_recovery_manager(),
+        get_human_approval_manager(),
+    )
+
+
+ExecutionOrchestrationEngineDep = Annotated[
+    PlanningEngine, Depends(get_execution_orchestration_engine)
+]
+
+
 def get_interaction_provider() -> InteractionProvider:
     """Provide the active interaction provider (Sprint 12.1).
 

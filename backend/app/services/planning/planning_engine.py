@@ -14,7 +14,7 @@ is valid, and can explain it. The output of the engine is a validated
 :class:`ExecutionPlan`; nothing downstream is triggered here.
 """
 
-from typing import List, Optional
+from typing import List, NamedTuple, Optional, Tuple
 
 from app.services.planning.analysis_models import PlanAnalysis
 from app.services.planning.approval_models import ApprovalPlan
@@ -58,6 +58,34 @@ from app.services.planning.plan_explanation_builder import (
 )
 from app.services.planning.plan_validator import PlanValidator
 from app.services.planning.providers.base import PlanningProvider
+
+
+class ExecutionOrchestrationResult(NamedTuple):
+    """Immutable, provider-independent aggregation of the full pipeline (13.15).
+
+    A single result that carries every execution-planning stage output in order,
+    from the plan through to the approval plan. This is NOT a new DTO: it is a
+    plain, immutable :class:`typing.NamedTuple` container of the *existing* frozen
+    DTOs (the lifecycles are held as a tuple), introducing no new model, no
+    validation, and no behaviour. It only names what each already-validated stage
+    produced so a caller can read the whole pipeline from one value. Nothing here
+    executes or mutates anything.
+    """
+
+    plan: ExecutionPlan
+    analysis: PlanAnalysis
+    preparation: ExecutionPreparation
+    decision: ExecutionDecision
+    intent: ExecutionIntent
+    workflow: ExecutionWorkflow
+    queue: ExecutionQueue
+    lifecycles: Tuple[TaskLifecycle, ...]
+    state: ExecutionState
+    graph: ExecutionDependencyGraph
+    schedule: ExecutionSchedule
+    monitoring_report: ExecutionMonitoringReport
+    recovery_plan: RecoveryPlan
+    approval_plan: ApprovalPlan
 
 
 class PlanningEngine:
@@ -496,3 +524,68 @@ class PlanningEngine:
         )
         self.validator.validate_approval_plan(approval_plan)
         return approval_plan
+
+    def create_execution_orchestration(
+        self, request: PlanningRequest
+    ) -> ExecutionOrchestrationResult:
+        """Coordinate the complete execution-planning pipeline (no execution).
+
+        Sprint 13.15 integration — this is the single orchestration coordinator.
+        It runs every existing stage in order by delegating to this engine's own
+        per-stage methods, each of which already validates its output via the
+        injected :class:`PlanValidator`:
+
+            request -> plan -> analysis -> preparation -> decision -> intent ->
+            workflow -> queue -> lifecycles -> state -> dependency graph ->
+            schedule -> monitoring report -> recovery plan -> approval plan
+
+        No stage is skipped and no stage executes; each stage only reads the
+        immutable outputs of earlier stages, so nothing is mutated between stages.
+        Adds no new business capability — it composes existing behaviour — and
+        returns one immutable :class:`ExecutionOrchestrationResult` built entirely
+        from the existing DTOs. A missing collaborator raises
+        :class:`RuntimeError` and a malformed stage output raises
+        :class:`PlanValidationError`; both propagate unchanged, so a failure at
+        any stage aborts the whole pipeline.
+        """
+        plan = self.create_plan(request)
+        analysis = self.analyze(plan)
+        preparation = self.prepare(plan, analysis)
+        decision = self.decide(plan, analysis, preparation)
+        intent = self.create_execution_intent(
+            plan, analysis, preparation, decision
+        )
+        workflow = self.create_execution_workflow(
+            plan, analysis, preparation, decision, intent
+        )
+        queue = self.create_execution_queue(workflow)
+        lifecycles = self.create_task_lifecycles(queue)
+        state = self.create_execution_state(lifecycles)
+        graph = self.create_execution_dependency_graph(queue, lifecycles)
+        schedule = self.create_execution_schedule(graph, state)
+        monitoring_report = self.create_execution_monitoring_report(
+            schedule, state
+        )
+        recovery_plan = self.create_recovery_plan(
+            monitoring_report, state, graph
+        )
+        approval_plan = self.create_approval_plan(
+            intent, schedule, recovery_plan
+        )
+
+        return ExecutionOrchestrationResult(
+            plan=plan,
+            analysis=analysis,
+            preparation=preparation,
+            decision=decision,
+            intent=intent,
+            workflow=workflow,
+            queue=queue,
+            lifecycles=tuple(lifecycles),
+            state=state,
+            graph=graph,
+            schedule=schedule,
+            monitoring_report=monitoring_report,
+            recovery_plan=recovery_plan,
+            approval_plan=approval_plan,
+        )
