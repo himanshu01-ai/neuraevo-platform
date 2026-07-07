@@ -46,6 +46,9 @@ from app.services.runtime.task_dispatcher import TaskDispatcher
 from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.runtime.capability_dispatcher import CapabilityDispatcher
 from app.services.runtime.capability_executor import CapabilityExecutor
+from app.services.runtime.execution_progress_runtime import (
+    ExecutionProgressRuntime,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -991,6 +994,23 @@ def get_capability_executor(
 
 CapabilityExecutorDep = Annotated[
     CapabilityExecutor, Depends(get_capability_executor)
+]
+
+
+def get_execution_progress_runtime() -> ExecutionProgressRuntime:
+    """Provide the stateless :class:`ExecutionProgressRuntime` (Sprint 14.6).
+
+    Deterministic, offline aggregation of a :class:`CapabilityExecutionSummary`
+    into an :class:`ExecutionProgress` — per-outcome counts, an overall status,
+    and an integer completion percentage. PROGRESS TRACKING ONLY — no AI, network,
+    clock, UUID, SDK, capability knowledge, routing, recovery, approval, Runtime
+    global, or execution; it never mutates the summary.
+    """
+    return ExecutionProgressRuntime()
+
+
+ExecutionProgressRuntimeDep = Annotated[
+    ExecutionProgressRuntime, Depends(get_execution_progress_runtime)
 ]
 
 
