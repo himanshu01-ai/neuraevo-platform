@@ -50,6 +50,7 @@ from app.services.runtime.execution_progress_runtime import (
     ExecutionProgressRuntime,
 )
 from app.services.runtime.execution_controller import ExecutionController
+from app.services.runtime.execution_event_manager import ExecutionEventManager
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1029,6 +1030,23 @@ def get_execution_controller() -> ExecutionController:
 
 ExecutionControllerDep = Annotated[
     ExecutionController, Depends(get_execution_controller)
+]
+
+
+def get_execution_event_manager() -> ExecutionEventManager:
+    """Provide the stateless :class:`ExecutionEventManager` (Sprint 14.8).
+
+    Deterministic, offline generation of an :class:`ExecutionEventLog` from an
+    :class:`ExecutionControlState` — one deterministic event representing the
+    current runtime state, in an immutable history. EVENT RECORDING ONLY — no AI,
+    network, clock, UUID, SDK, capability knowledge, dispatch, recovery, approval,
+    Runtime global, or execution; it never changes the control state.
+    """
+    return ExecutionEventManager()
+
+
+ExecutionEventManagerDep = Annotated[
+    ExecutionEventManager, Depends(get_execution_event_manager)
 ]
 
 
