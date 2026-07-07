@@ -45,6 +45,7 @@ from app.services.runtime.execution_runtime import ExecutionRuntime
 from app.services.runtime.task_dispatcher import TaskDispatcher
 from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.runtime.capability_dispatcher import CapabilityDispatcher
+from app.services.runtime.capability_executor import CapabilityExecutor
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -970,6 +971,26 @@ def get_capability_dispatcher() -> CapabilityDispatcher:
 
 CapabilityDispatcherDep = Annotated[
     CapabilityDispatcher, Depends(get_capability_dispatcher)
+]
+
+
+def get_capability_executor(
+    capability: ExecutionCapabilityDep,
+) -> CapabilityExecutor:
+    """Provide a :class:`CapabilityExecutor` bound to the active capability (14.5).
+
+    The :class:`ExecutionCapability` is injected from the composition root through
+    the existing Sprint 14.3 seam (constructor injection); the executor never
+    resolves or instantiates a capability itself. Until a concrete capability is
+    wired, the seam raises ``NotImplementedError`` (so resolving this provider
+    raises too), exactly like the other provider-backed services. Holds no
+    session or mutable state and executes only through the interface.
+    """
+    return CapabilityExecutor(capability)
+
+
+CapabilityExecutorDep = Annotated[
+    CapabilityExecutor, Depends(get_capability_executor)
 ]
 
 
