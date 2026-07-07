@@ -75,6 +75,7 @@ from app.services.planning.execution_dependency_graph import (
 from app.services.planning.execution_scheduler import ExecutionScheduler
 from app.services.planning.execution_monitor import ExecutionMonitor
 from app.services.planning.recovery_manager import RecoveryManager
+from app.services.planning.human_approval_manager import HumanApprovalManager
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -783,6 +784,23 @@ RecoveryManagerDep = Annotated[
 ]
 
 
+def get_human_approval_manager() -> HumanApprovalManager:
+    """Provide the stateless :class:`HumanApprovalManager` (Sprint 13.14).
+
+    Deterministic, offline construction of an :class:`ApprovalPlan` from an
+    :class:`ExecutionIntent`, an :class:`ExecutionSchedule`, and a
+    :class:`RecoveryPlan`. APPROVAL GOVERNANCE ONLY — no AI, network, SDK,
+    Runtime, Session, Registry, Permission, Tool framework, Memory, Gemini,
+    approval requests, or execution.
+    """
+    return HumanApprovalManager()
+
+
+HumanApprovalManagerDep = Annotated[
+    HumanApprovalManager, Depends(get_human_approval_manager)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -799,6 +817,7 @@ def get_planning_engine(
     scheduler: ExecutionSchedulerDep = None,
     monitor: ExecutionMonitorDep = None,
     recovery_manager: RecoveryManagerDep = None,
+    approval_manager: HumanApprovalManagerDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -833,6 +852,7 @@ def get_planning_engine(
         scheduler,
         monitor,
         recovery_manager,
+        approval_manager,
     )
 
 

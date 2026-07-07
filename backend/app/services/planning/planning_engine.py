@@ -17,6 +17,7 @@ is valid, and can explain it. The output of the engine is a validated
 from typing import List, Optional
 
 from app.services.planning.analysis_models import PlanAnalysis
+from app.services.planning.approval_models import ApprovalPlan
 from app.services.planning.decision_engine import DecisionEngine
 from app.services.planning.decision_models import ExecutionDecision
 from app.services.planning.execution_coordinator import ExecutionCoordinator
@@ -28,6 +29,7 @@ from app.services.planning.execution_dependency_graph_models import (
 )
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_intent_models import ExecutionIntent
+from app.services.planning.human_approval_manager import HumanApprovalManager
 from app.services.planning.execution_monitor import ExecutionMonitor
 from app.services.planning.execution_monitor_models import (
     ExecutionMonitoringReport,
@@ -88,24 +90,25 @@ class PlanningEngine:
         scheduler: Optional[ExecutionScheduler] = None,
         monitor: Optional[ExecutionMonitor] = None,
         recovery_manager: Optional[RecoveryManager] = None,
+        approval_manager: Optional[HumanApprovalManager] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.13: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.14: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
         # coordinator, task-lifecycle engine, execution-state manager,
-        # dependency-graph builder, execution scheduler, execution monitor, and
-        # recovery manager are optional, additive collaborators. Each is stored
-        # only when injected so that earlier-sprint construction (three to
-        # fourteen arguments) keeps exactly its original attributes and its tests
-        # pass unchanged. ``analyze``/``prepare``/``decide``/
-        # ``create_execution_intent``/``create_execution_workflow``/
+        # dependency-graph builder, execution scheduler, execution monitor,
+        # recovery manager, and human-approval manager are optional, additive
+        # collaborators. Each is stored only when injected so that earlier-sprint
+        # construction (three to fifteen arguments) keeps exactly its original
+        # attributes and its tests pass unchanged. ``analyze``/``prepare``/
+        # ``decide``/``create_execution_intent``/``create_execution_workflow``/
         # ``create_execution_queue``/``create_task_lifecycles``/
         # ``create_execution_state``/``create_execution_dependency_graph``/
         # ``create_execution_schedule``/``create_execution_monitoring_report``/
-        # ``create_recovery_plan`` each require their collaborator;
-        # ``create_plan``/``explain`` need none.
+        # ``create_recovery_plan``/``create_approval_plan`` each require their
+        # collaborator; ``create_plan``/``explain`` need none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
@@ -130,6 +133,8 @@ class PlanningEngine:
             self.monitor = monitor
         if recovery_manager is not None:
             self.recovery_manager = recovery_manager
+        if approval_manager is not None:
+            self.approval_manager = approval_manager
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -461,3 +466,33 @@ class PlanningEngine:
         )
         self.validator.validate_recovery_plan(recovery_plan)
         return recovery_plan
+
+    def create_approval_plan(
+        self,
+        intent: ExecutionIntent,
+        schedule: ExecutionSchedule,
+        recovery: RecoveryPlan,
+    ) -> ApprovalPlan:
+        """Govern approval of an execution as an :class:`ApprovalPlan` (no execution).
+
+        Sprint 13.14 addition. Delegates to the injected
+        :class:`HumanApprovalManager` to decide whether human sign-off is
+        required, build deterministic checkpoints over the scheduled units,
+        identify the pending approvals, and mark cleared versus held nodes, then
+        validates the result via the injected :class:`PlanValidator`. This governs
+        approval only; it requests approval, resumes, retries, and executes
+        nothing and never mutates its inputs. Raises :class:`RuntimeError` if no
+        approval manager was injected and :class:`PlanValidationError` if the plan
+        is malformed; manager exceptions propagate unchanged.
+        """
+        approval_manager = getattr(self, "approval_manager", None)
+        if approval_manager is None:
+            raise RuntimeError(
+                "PlanningEngine has no HumanApprovalManager injected; provide "
+                "one to call create_approval_plan()."
+            )
+        approval_plan = approval_manager.create_approval_plan(
+            intent, schedule, recovery
+        )
+        self.validator.validate_approval_plan(approval_plan)
+        return approval_plan
