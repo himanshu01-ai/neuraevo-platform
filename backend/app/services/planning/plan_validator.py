@@ -21,6 +21,10 @@ from app.services.planning.execution_intent_models import (
     ExecutionIntent,
     ExecutionIntentType,
 )
+from app.services.planning.execution_monitor_models import (
+    ExecutionHealthStatus,
+    ExecutionMonitoringReport,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
@@ -29,6 +33,13 @@ from app.services.planning.execution_queue_models import (
     ExecutionQueue,
     ExecutionUnitStatus,
     QueueStatus,
+)
+from app.services.planning.execution_dependency_graph_models import (
+    ExecutionDependencyGraph,
+)
+from app.services.planning.execution_schedule_models import (
+    ExecutionSchedule,
+    SchedulingStrategy,
 )
 from app.services.planning.execution_state_models import (
     ExecutionState,
@@ -75,9 +86,19 @@ _VALID_LIFECYCLE_STATES = frozenset(
     state.value for state in TaskLifecycleState
 )
 
+# The only strategies a well-formed execution schedule may carry.
+_VALID_SCHEDULING_STRATEGIES = frozenset(
+    strategy.value for strategy in SchedulingStrategy
+)
+
 # The only overall states a well-formed execution state may carry.
 _VALID_EXECUTION_STATES = frozenset(
     state.value for state in ExecutionStateType
+)
+
+# The only health statuses a well-formed monitoring report may carry.
+_VALID_HEALTH_STATUSES = frozenset(
+    status.value for status in ExecutionHealthStatus
 )
 # The overall states that represent a fully terminated execution.
 _TERMINAL_EXECUTION_STATES = frozenset(
@@ -552,6 +573,232 @@ class PlanValidator:
         if len(state.active_task_ids) != state.total_tasks - terminal_count:
             raise PlanValidationError(
                 "active_task_ids count must equal the non-terminal task count."
+            )
+
+    def validate_execution_dependency_graph(
+        self, graph: ExecutionDependencyGraph
+    ) -> None:
+        """Raise :class:`PlanValidationError` if ``graph`` is not well-formed.
+
+        Sprint 13.10 extension. Rejects an empty graph id, duplicate node ids,
+        empty node/unit ids, a node marked both/neither ready and blocked,
+        dependency/dependent/edge references to unknown nodes, self-edges, and
+        root/leaf/ready/blocked sets that disagree with the nodes. Inspects only
+        the graph's plain data — no execution, provider, or AI work.
+        """
+        if not graph.graph_id.strip():
+            raise PlanValidationError("graph_id must not be empty.")
+
+        node_ids = [node.node_id for node in graph.nodes]
+        if len(set(node_ids)) != len(node_ids):
+            raise PlanValidationError("Duplicate graph node ids.")
+        known = set(node_ids)
+
+        for node in graph.nodes:
+            if not node.node_id.strip():
+                raise PlanValidationError("node_id must not be empty.")
+            if not node.execution_unit_id.strip():
+                raise PlanValidationError("execution_unit_id must not be empty.")
+            if node.ready == node.blocked:
+                raise PlanValidationError(
+                    f"Node {node.node_id} must be exactly one of ready/blocked."
+                )
+            for dependency in node.dependencies:
+                if dependency not in known:
+                    raise PlanValidationError(
+                        f"Node {node.node_id} depends on unknown node "
+                        f"{dependency}."
+                    )
+            for dependent in node.dependents:
+                if dependent not in known:
+                    raise PlanValidationError(
+                        f"Node {node.node_id} has unknown dependent "
+                        f"{dependent}."
+                    )
+
+        for edge in graph.edges:
+            if edge.source_node not in known or edge.target_node not in known:
+                raise PlanValidationError(
+                    "An edge references an unknown node."
+                )
+            if edge.source_node == edge.target_node:
+                raise PlanValidationError(
+                    f"Self-edge on node {edge.source_node} is not allowed."
+                )
+
+        self._reject_node_set(
+            graph.root_nodes,
+            {n.node_id for n in graph.nodes if not n.dependencies},
+            "root",
+        )
+        self._reject_node_set(
+            graph.leaf_nodes,
+            {n.node_id for n in graph.nodes if not n.dependents},
+            "leaf",
+        )
+        self._reject_node_set(
+            graph.ready_nodes,
+            {n.node_id for n in graph.nodes if n.ready},
+            "ready",
+        )
+        self._reject_node_set(
+            graph.blocked_nodes,
+            {n.node_id for n in graph.nodes if n.blocked},
+            "blocked",
+        )
+
+    def validate_execution_schedule(self, schedule: ExecutionSchedule) -> None:
+        """Raise :class:`PlanValidationError` if ``schedule`` is not well-formed.
+
+        Sprint 13.11 extension. Rejects an empty schedule/execution id, an unknown
+        scheduling strategy, a scheduled node with an empty id, empty unit id,
+        negative priority, ``scheduled`` not true, or empty reason; duplicate
+        scheduled node ids; an execution order that does not match the scheduled
+        nodes; empty or duplicate deferred/blocked ids; and scheduled/deferred/
+        blocked sets that overlap. Inspects only the schedule's plain data — no
+        execution, provider, or AI work.
+        """
+        if not schedule.schedule_id.strip():
+            raise PlanValidationError("schedule_id must not be empty.")
+        if not schedule.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if schedule.scheduling_strategy not in _VALID_SCHEDULING_STRATEGIES:
+            raise PlanValidationError(
+                f"Invalid scheduling strategy: "
+                f"{schedule.scheduling_strategy!r}."
+            )
+
+        scheduled_ids: list = []
+        for node in schedule.scheduled_nodes:
+            if not node.node_id.strip():
+                raise PlanValidationError("scheduled node_id must not be empty.")
+            if not node.execution_unit_id.strip():
+                raise PlanValidationError("execution_unit_id must not be empty.")
+            if node.priority < 0:
+                raise PlanValidationError(
+                    f"Scheduled node {node.node_id} has negative priority."
+                )
+            if not node.scheduled:
+                raise PlanValidationError(
+                    "scheduled_nodes must have scheduled=True."
+                )
+            if not node.reason.strip():
+                raise PlanValidationError("scheduled node reason is empty.")
+            scheduled_ids.append(node.node_id)
+
+        if len(set(scheduled_ids)) != len(scheduled_ids):
+            raise PlanValidationError("Duplicate scheduled node ids.")
+
+        if len(schedule.execution_order) != len(scheduled_ids):
+            raise PlanValidationError(
+                "execution_order must list exactly the scheduled nodes."
+            )
+        if len(set(schedule.execution_order)) != len(schedule.execution_order):
+            raise PlanValidationError("Duplicate ids in execution_order.")
+        if set(schedule.execution_order) != set(scheduled_ids):
+            raise PlanValidationError(
+                "execution_order must match the scheduled nodes."
+            )
+
+        self._reject_empty_or_duplicate(schedule.deferred_nodes, "deferred node")
+        self._reject_empty_or_duplicate(schedule.blocked_nodes, "blocked node")
+
+        scheduled_set = set(scheduled_ids)
+        deferred_set = set(schedule.deferred_nodes)
+        blocked_set = set(schedule.blocked_nodes)
+        if (
+            scheduled_set & deferred_set
+            or scheduled_set & blocked_set
+            or deferred_set & blocked_set
+        ):
+            raise PlanValidationError(
+                "scheduled, deferred, and blocked nodes must be disjoint."
+            )
+
+    def validate_execution_monitoring_report(
+        self, report: ExecutionMonitoringReport
+    ) -> None:
+        """Raise :class:`PlanValidationError` if ``report`` is not well-formed.
+
+        Sprint 13.12 extension. Rejects an empty report/execution id, an unknown
+        execution status or health status, a progress percentage outside
+        ``0``–``100``, empty or duplicate ids within any node group, node groups
+        that overlap, an empty warning entry, and a health status inconsistent
+        with the execution status (a FAILED/COMPLETED execution must report the
+        matching health) or with the blocked group (BLOCKED health requires at
+        least one blocked node). Inspects only the report's plain data — no
+        execution, provider, or AI work.
+        """
+        if not report.report_id.strip():
+            raise PlanValidationError("report_id must not be empty.")
+        if not report.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if report.execution_status not in _VALID_EXECUTION_STATES:
+            raise PlanValidationError(
+                f"Invalid execution status: {report.execution_status!r}."
+            )
+        if report.health_status not in _VALID_HEALTH_STATUSES:
+            raise PlanValidationError(
+                f"Invalid health status: {report.health_status!r}."
+            )
+        if not 0.0 <= report.overall_progress <= 100.0:
+            raise PlanValidationError(
+                f"overall_progress {report.overall_progress} is outside 0..100."
+            )
+
+        groups = (
+            ("active", report.active_nodes),
+            ("blocked", report.blocked_nodes),
+            ("completed", report.completed_nodes),
+            ("pending", report.pending_nodes),
+        )
+        for label, nodes in groups:
+            if any(not node_id.strip() for node_id in nodes):
+                raise PlanValidationError(
+                    f"{label} node id must not be empty."
+                )
+            if len(set(nodes)) != len(nodes):
+                raise PlanValidationError(f"Duplicate {label} node ids.")
+
+        node_sets = [set(nodes) for _, nodes in groups]
+        for first_index in range(len(node_sets)):
+            for second_index in range(first_index + 1, len(node_sets)):
+                if node_sets[first_index] & node_sets[second_index]:
+                    raise PlanValidationError(
+                        "active, blocked, completed, and pending nodes must be "
+                        "disjoint."
+                    )
+
+        if any(not warning.strip() for warning in report.warnings):
+            raise PlanValidationError("A warning entry must not be empty.")
+
+        if report.execution_status == ExecutionStateType.FAILED.value and (
+            report.health_status != ExecutionHealthStatus.FAILED.value
+        ):
+            raise PlanValidationError(
+                "A FAILED execution must report FAILED health."
+            )
+        if report.execution_status == ExecutionStateType.COMPLETED.value and (
+            report.health_status != ExecutionHealthStatus.COMPLETED.value
+        ):
+            raise PlanValidationError(
+                "A COMPLETED execution must report COMPLETED health."
+            )
+        if report.health_status == ExecutionHealthStatus.BLOCKED.value and (
+            not report.blocked_nodes
+        ):
+            raise PlanValidationError(
+                "BLOCKED health requires at least one blocked node."
+            )
+
+    @staticmethod
+    def _reject_node_set(actual: list, expected: set, label: str) -> None:
+        """Reject duplicate entries or a mismatch against ``expected`` node ids."""
+        if len(set(actual)) != len(actual):
+            raise PlanValidationError(f"Duplicate {label} node ids.")
+        if set(actual) != expected:
+            raise PlanValidationError(
+                f"{label}_nodes do not match the graph's {label} nodes."
             )
 
     @staticmethod

@@ -19,12 +19,23 @@ from app.services.planning.execution_intent_models import (
     ExecutionIntent,
     ExecutionIntentType,
 )
+from app.services.planning.execution_monitor_models import (
+    ExecutionHealthStatus,
+    ExecutionMonitoringReport,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
 from app.services.planning.execution_queue_models import (
     ExecutionQueue,
     QueueStatus,
+)
+from app.services.planning.execution_dependency_graph_models import (
+    ExecutionDependencyGraph,
+)
+from app.services.planning.execution_schedule_models import (
+    ExecutionSchedule,
+    SchedulingStrategy,
 )
 from app.services.planning.execution_state_models import (
     ExecutionState,
@@ -95,6 +106,13 @@ _WORKFLOW_MODE_PHRASES = {
     ExecutionMode.HYBRID.value: "a mix of sequential and parallel steps",
 }
 
+# User-language phrasing per scheduling strategy (no implementation terms).
+_SCHEDULE_STRATEGY_PHRASES = {
+    SchedulingStrategy.SEQUENTIAL.value: "one after another",
+    SchedulingStrategy.PARALLEL.value: "at the same time",
+    SchedulingStrategy.HYBRID.value: "in a mix of order and parallel",
+}
+
 # User-language message per overall execution state (no implementation terms).
 _EXECUTION_STATE_MESSAGES = {
     ExecutionStateType.READY.value: "Execution is ready to begin.",
@@ -106,6 +124,23 @@ _EXECUTION_STATE_MESSAGES = {
     ExecutionStateType.COMPLETED.value: "Execution is complete.",
     ExecutionStateType.FAILED.value: "Execution ran into a problem.",
     ExecutionStateType.CANCELLED.value: "Execution was cancelled.",
+}
+
+# User-language message per execution health status (no implementation terms).
+_HEALTH_STATUS_MESSAGES = {
+    ExecutionHealthStatus.HEALTHY.value: (
+        "Everything is progressing normally."
+    ),
+    ExecutionHealthStatus.WARNING.value: (
+        "There are a few things to keep an eye on."
+    ),
+    ExecutionHealthStatus.BLOCKED.value: (
+        "Things are on hold until some work is unblocked."
+    ),
+    ExecutionHealthStatus.COMPLETED.value: "All the work is finished.",
+    ExecutionHealthStatus.FAILED.value: (
+        "Something went wrong along the way."
+    ),
 }
 
 # User-language message per queue status (no implementation terms).
@@ -285,6 +320,85 @@ class PlanningExplanationBuilder:
         )
         if workflow.resumable:
             segments.append("It can be paused and resumed.")
+        return " ".join(segments)
+
+    def build_with_execution_schedule(
+        self, plan: ExecutionPlan, schedule: ExecutionSchedule
+    ) -> str:
+        """Explain ``plan`` and what could run next (no execution).
+
+        Sprint 13.11 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — how
+        many tasks are lined up to run and how, plus any ready tasks held back to
+        follow later.
+        """
+        segments: List[str] = [self.build(plan)]
+        scheduled = len(schedule.scheduled_nodes)
+        if scheduled == 0:
+            segments.append("Nothing is scheduled to run yet.")
+        else:
+            phrase = _SCHEDULE_STRATEGY_PHRASES.get(
+                schedule.scheduling_strategy, "in order"
+            )
+            segments.append(
+                f"I've lined up {scheduled} task(s) to run {phrase}."
+            )
+        if schedule.deferred_nodes:
+            segments.append(
+                f"{len(schedule.deferred_nodes)} more are ready and will "
+                "follow."
+            )
+        return " ".join(segments)
+
+    def build_with_execution_monitoring_report(
+        self, plan: ExecutionPlan, report: ExecutionMonitoringReport
+    ) -> str:
+        """Explain ``plan`` and how its execution is going (no execution).
+
+        Sprint 13.12 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — the
+        overall health, how far along the work is, and how many tasks are active,
+        waiting, or held up.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _HEALTH_STATUS_MESSAGES.get(
+                report.health_status, "Execution is being monitored."
+            )
+        )
+        segments.append(f"Progress: {report.overall_progress:.0f}%.")
+        segments.append(
+            f"{len(report.active_nodes)} task(s) active, "
+            f"{len(report.pending_nodes)} waiting, and "
+            f"{len(report.blocked_nodes)} held up."
+        )
+        return " ".join(segments)
+
+    def build_with_execution_dependency_graph(
+        self, plan: ExecutionPlan, graph: ExecutionDependencyGraph
+    ) -> str:
+        """Explain ``plan`` and how its tasks depend on each other (no execution).
+
+        Sprint 13.10 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — how
+        the tasks relate: how many can start without waiting, how many are ready
+        now, and whether any depend on each other in a loop.
+        """
+        segments: List[str] = [self.build(plan)]
+        if not graph.nodes:
+            segments.append("There are no task dependencies to map yet.")
+            return " ".join(segments)
+        if graph.has_cycles:
+            segments.append(
+                "Some tasks depend on each other in a loop, which needs to be "
+                "resolved first."
+            )
+            return " ".join(segments)
+        segments.append(
+            f"I've mapped {len(graph.nodes)} tasks and how they rely on each "
+            f"other: {len(graph.root_nodes)} can start without waiting on "
+            f"anything, and {len(graph.ready_nodes)} are ready right now."
+        )
         return " ".join(segments)
 
     def build_with_execution_state(
