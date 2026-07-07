@@ -49,6 +49,7 @@ from app.services.runtime.capability_executor import CapabilityExecutor
 from app.services.runtime.execution_progress_runtime import (
     ExecutionProgressRuntime,
 )
+from app.services.runtime.execution_controller import ExecutionController
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1011,6 +1012,23 @@ def get_execution_progress_runtime() -> ExecutionProgressRuntime:
 
 ExecutionProgressRuntimeDep = Annotated[
     ExecutionProgressRuntime, Depends(get_execution_progress_runtime)
+]
+
+
+def get_execution_controller() -> ExecutionController:
+    """Provide the stateless :class:`ExecutionController` (Sprint 14.7).
+
+    Deterministic, offline derivation of an :class:`ExecutionControlState` from an
+    :class:`ExecutionProgress` — a control status plus the available pause/resume/
+    cancel/restart actions. CONTROL REPRESENTATION ONLY — no AI, network, clock,
+    UUID, SDK, capability knowledge, dispatch, recovery, approval, Runtime global,
+    or execution; it never changes the execution progress.
+    """
+    return ExecutionController()
+
+
+ExecutionControllerDep = Annotated[
+    ExecutionController, Depends(get_execution_controller)
 ]
 
 
