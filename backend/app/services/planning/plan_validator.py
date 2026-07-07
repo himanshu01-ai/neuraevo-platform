@@ -51,6 +51,7 @@ from app.services.planning.execution_workflow_models import (
     WorkflowStatus,
 )
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.recovery_models import RecoveryPlan, RecoveryStrategy
 from app.services.planning.task_lifecycle_models import (
     TASK_LIFECYCLE_TRANSITIONS,
     TERMINAL_TASK_STATES,
@@ -99,6 +100,15 @@ _VALID_EXECUTION_STATES = frozenset(
 # The only health statuses a well-formed monitoring report may carry.
 _VALID_HEALTH_STATUSES = frozenset(
     status.value for status in ExecutionHealthStatus
+)
+
+# The only strategies a well-formed recovery plan may carry.
+_VALID_RECOVERY_STRATEGIES = frozenset(
+    strategy.value for strategy in RecoveryStrategy
+)
+# The strategies for which user intervention is required (and only these).
+_INTERVENTION_STRATEGIES = frozenset(
+    {RecoveryStrategy.REPLAN.value, RecoveryStrategy.ABORT.value}
 )
 # The overall states that represent a fully terminated execution.
 _TERMINAL_EXECUTION_STATES = frozenset(
@@ -789,6 +799,72 @@ class PlanValidator:
         ):
             raise PlanValidationError(
                 "BLOCKED health requires at least one blocked node."
+            )
+
+    def validate_recovery_plan(self, plan: RecoveryPlan) -> None:
+        """Raise :class:`PlanValidationError` if ``plan`` is not well-formed.
+
+        Sprint 13.13 extension. Rejects an empty recovery/execution id, an
+        unknown recovery strategy, an empty recovery reason, empty or duplicate
+        ids within any node group, recoverable/unrecoverable sets that are not
+        disjoint subsets of the affected nodes, a ``requires_user_intervention``
+        flag inconsistent with the strategy (true exactly for REPLAN/ABORT), and a
+        ``NO_ACTION`` plan that still lists affected nodes. Inspects only the
+        plan's plain data — no execution, provider, or AI work.
+        """
+        if not plan.recovery_id.strip():
+            raise PlanValidationError("recovery_id must not be empty.")
+        if not plan.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if plan.recovery_strategy not in _VALID_RECOVERY_STRATEGIES:
+            raise PlanValidationError(
+                f"Invalid recovery strategy: {plan.recovery_strategy!r}."
+            )
+        if not plan.recovery_reason.strip():
+            raise PlanValidationError("recovery_reason must not be empty.")
+
+        groups = (
+            ("affected", plan.affected_nodes),
+            ("recoverable", plan.recoverable_nodes),
+            ("unrecoverable", plan.unrecoverable_nodes),
+        )
+        for label, nodes in groups:
+            if any(not node_id.strip() for node_id in nodes):
+                raise PlanValidationError(
+                    f"{label} node id must not be empty."
+                )
+            if len(set(nodes)) != len(nodes):
+                raise PlanValidationError(f"Duplicate {label} node ids.")
+
+        affected_set = set(plan.affected_nodes)
+        recoverable_set = set(plan.recoverable_nodes)
+        unrecoverable_set = set(plan.unrecoverable_nodes)
+        if not recoverable_set <= affected_set:
+            raise PlanValidationError(
+                "recoverable_nodes must be a subset of affected_nodes."
+            )
+        if not unrecoverable_set <= affected_set:
+            raise PlanValidationError(
+                "unrecoverable_nodes must be a subset of affected_nodes."
+            )
+        if recoverable_set & unrecoverable_set:
+            raise PlanValidationError(
+                "recoverable and unrecoverable nodes must be disjoint."
+            )
+
+        expects_intervention = (
+            plan.recovery_strategy in _INTERVENTION_STRATEGIES
+        )
+        if plan.requires_user_intervention != expects_intervention:
+            raise PlanValidationError(
+                "requires_user_intervention must be true exactly for REPLAN or "
+                "ABORT."
+            )
+        if plan.recovery_strategy == RecoveryStrategy.NO_ACTION.value and (
+            plan.affected_nodes
+        ):
+            raise PlanValidationError(
+                "A NO_ACTION recovery plan must not list affected nodes."
             )
 
     @staticmethod

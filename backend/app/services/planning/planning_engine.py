@@ -48,6 +48,8 @@ from app.services.planning.execution_workflow_models import ExecutionWorkflow
 from app.services.planning.task_lifecycle_engine import TaskLifecycleEngine
 from app.services.planning.task_lifecycle_models import TaskLifecycle
 from app.services.planning.models import ExecutionPlan, PlanningRequest
+from app.services.planning.recovery_manager import RecoveryManager
+from app.services.planning.recovery_models import RecoveryPlan
 from app.services.planning.plan_analyzer import PlanAnalyzer
 from app.services.planning.plan_explanation_builder import (
     PlanningExplanationBuilder,
@@ -85,22 +87,24 @@ class PlanningEngine:
         ] = None,
         scheduler: Optional[ExecutionScheduler] = None,
         monitor: Optional[ExecutionMonitor] = None,
+        recovery_manager: Optional[RecoveryManager] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.12: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.13: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
         # coordinator, task-lifecycle engine, execution-state manager,
-        # dependency-graph builder, execution scheduler, and execution monitor
-        # are optional, additive collaborators. Each is stored only when injected
-        # so that earlier-sprint construction (three to thirteen arguments) keeps
-        # exactly its original attributes and its tests pass unchanged.
-        # ``analyze``/``prepare``/``decide``/``create_execution_intent``/
-        # ``create_execution_workflow``/``create_execution_queue``/
-        # ``create_task_lifecycles``/``create_execution_state``/
-        # ``create_execution_dependency_graph``/``create_execution_schedule``/
-        # ``create_execution_monitoring_report`` each require their collaborator;
+        # dependency-graph builder, execution scheduler, execution monitor, and
+        # recovery manager are optional, additive collaborators. Each is stored
+        # only when injected so that earlier-sprint construction (three to
+        # fourteen arguments) keeps exactly its original attributes and its tests
+        # pass unchanged. ``analyze``/``prepare``/``decide``/
+        # ``create_execution_intent``/``create_execution_workflow``/
+        # ``create_execution_queue``/``create_task_lifecycles``/
+        # ``create_execution_state``/``create_execution_dependency_graph``/
+        # ``create_execution_schedule``/``create_execution_monitoring_report``/
+        # ``create_recovery_plan`` each require their collaborator;
         # ``create_plan``/``explain`` need none.
         if analyzer is not None:
             self.analyzer = analyzer
@@ -124,6 +128,8 @@ class PlanningEngine:
             self.scheduler = scheduler
         if monitor is not None:
             self.monitor = monitor
+        if recovery_manager is not None:
+            self.recovery_manager = recovery_manager
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -426,3 +432,32 @@ class PlanningEngine:
         report = monitor.create_report(schedule, state)
         self.validator.validate_execution_monitoring_report(report)
         return report
+
+    def create_recovery_plan(
+        self,
+        report: ExecutionMonitoringReport,
+        state: ExecutionState,
+        graph: ExecutionDependencyGraph,
+    ) -> RecoveryPlan:
+        """Plan recovery from ``report`` as a :class:`RecoveryPlan` (no execution).
+
+        Sprint 13.13 addition. Delegates to the injected :class:`RecoveryManager`
+        to read the observed health, identify the affected nodes, partition them
+        into recoverable and unrecoverable, select a recovery strategy, and decide
+        whether a human must step in, then validates the result via the injected
+        :class:`PlanValidator`. This plans recovery only; it retries, resumes, and
+        executes nothing and never mutates its inputs. Raises :class:`RuntimeError`
+        if no recovery manager was injected and :class:`PlanValidationError` if the
+        plan is malformed; manager exceptions propagate unchanged.
+        """
+        recovery_manager = getattr(self, "recovery_manager", None)
+        if recovery_manager is None:
+            raise RuntimeError(
+                "PlanningEngine has no RecoveryManager injected; provide one to "
+                "call create_recovery_plan()."
+            )
+        recovery_plan = recovery_manager.create_recovery_plan(
+            report, state, graph
+        )
+        self.validator.validate_recovery_plan(recovery_plan)
+        return recovery_plan

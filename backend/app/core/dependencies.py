@@ -74,6 +74,7 @@ from app.services.planning.execution_dependency_graph import (
 )
 from app.services.planning.execution_scheduler import ExecutionScheduler
 from app.services.planning.execution_monitor import ExecutionMonitor
+from app.services.planning.recovery_manager import RecoveryManager
 from app.services.interaction import (
     InteractionProvider,
     InteractionService,
@@ -765,6 +766,23 @@ ExecutionMonitorDep = Annotated[
 ]
 
 
+def get_recovery_manager() -> RecoveryManager:
+    """Provide the stateless :class:`RecoveryManager` (Sprint 13.13).
+
+    Deterministic, offline construction of a :class:`RecoveryPlan` from an
+    :class:`ExecutionMonitoringReport`, an :class:`ExecutionState`, and an
+    :class:`ExecutionDependencyGraph`. RECOVERY PLANNING ONLY — no AI, network,
+    SDK, Runtime, Session, Registry, Permission, Tool framework, Memory, Gemini,
+    retries, or execution.
+    """
+    return RecoveryManager()
+
+
+RecoveryManagerDep = Annotated[
+    RecoveryManager, Depends(get_recovery_manager)
+]
+
+
 def get_planning_engine(
     provider: PlanningProviderDep,
     validator: PlanValidatorDep,
@@ -780,6 +798,7 @@ def get_planning_engine(
     dependency_graph_builder: ExecutionDependencyGraphBuilderDep = None,
     scheduler: ExecutionSchedulerDep = None,
     monitor: ExecutionMonitorDep = None,
+    recovery_manager: RecoveryManagerDep = None,
 ) -> PlanningEngine:
     """Provide the :class:`PlanningEngine` (plan -> analyze -> prepare -> decide -> intent -> workflow).
 
@@ -813,6 +832,7 @@ def get_planning_engine(
         dependency_graph_builder,
         scheduler,
         monitor,
+        recovery_manager,
     )
 
 

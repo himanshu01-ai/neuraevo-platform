@@ -47,6 +47,7 @@ from app.services.planning.execution_workflow_models import (
     WorkflowStatus,
 )
 from app.services.planning.models import ExecutionPlan
+from app.services.planning.recovery_models import RecoveryPlan, RecoveryStrategy
 from app.services.planning.task_lifecycle_models import (
     TaskLifecycle,
     TaskLifecycleState,
@@ -140,6 +141,25 @@ _HEALTH_STATUS_MESSAGES = {
     ExecutionHealthStatus.COMPLETED.value: "All the work is finished.",
     ExecutionHealthStatus.FAILED.value: (
         "Something went wrong along the way."
+    ),
+}
+
+# User-language message per recovery strategy (no implementation terms).
+_RECOVERY_STRATEGY_MESSAGES = {
+    RecoveryStrategy.NO_ACTION.value: (
+        "Everything's on track, so there's nothing to recover."
+    ),
+    RecoveryStrategy.RETRY.value: (
+        "I'll retry the affected work to get things back on track."
+    ),
+    RecoveryStrategy.RESUME.value: (
+        "I'll pick up from where things stalled and carry on."
+    ),
+    RecoveryStrategy.REPLAN.value: (
+        "I'll need to rework the plan before continuing."
+    ),
+    RecoveryStrategy.ABORT.value: (
+        "I can't recover this on my own and will stop here."
     ),
 }
 
@@ -372,6 +392,26 @@ class PlanningExplanationBuilder:
             f"{len(report.pending_nodes)} waiting, and "
             f"{len(report.blocked_nodes)} held up."
         )
+        return " ".join(segments)
+
+    def build_with_recovery_plan(
+        self, plan: ExecutionPlan, recovery: RecoveryPlan
+    ) -> str:
+        """Explain ``plan`` and how execution would be recovered (no execution).
+
+        Sprint 13.13 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — the
+        chosen recovery approach and, when a human must step in, that their input
+        is needed before continuing.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _RECOVERY_STRATEGY_MESSAGES.get(
+                recovery.recovery_strategy, recovery.recovery_reason
+            )
+        )
+        if recovery.requires_user_intervention:
+            segments.append("I'll need your input before continuing.")
         return " ".join(segments)
 
     def build_with_execution_dependency_graph(
