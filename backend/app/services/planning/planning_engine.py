@@ -28,6 +28,10 @@ from app.services.planning.execution_dependency_graph_models import (
 )
 from app.services.planning.execution_intent_engine import ExecutionIntentEngine
 from app.services.planning.execution_intent_models import ExecutionIntent
+from app.services.planning.execution_monitor import ExecutionMonitor
+from app.services.planning.execution_monitor_models import (
+    ExecutionMonitoringReport,
+)
 from app.services.planning.execution_orchestrator import ExecutionOrchestrator
 from app.services.planning.execution_preparation_engine import (
     ExecutionPreparationEngine,
@@ -80,22 +84,24 @@ class PlanningEngine:
             ExecutionDependencyGraphBuilder
         ] = None,
         scheduler: Optional[ExecutionScheduler] = None,
+        monitor: Optional[ExecutionMonitor] = None,
     ) -> None:
         self.provider = provider
         self.validator = validator
         self.explanation_builder = explanation_builder
-        # Sprint 13.2–13.11: the analyzer, preparation engine, decision engine,
+        # Sprint 13.2–13.12: the analyzer, preparation engine, decision engine,
         # execution-intent engine, execution orchestrator, execution
         # coordinator, task-lifecycle engine, execution-state manager,
-        # dependency-graph builder, and execution scheduler are optional,
-        # additive collaborators. Each is stored only when injected so that
-        # earlier-sprint construction (three to twelve arguments) keeps exactly
-        # its original attributes and its tests pass unchanged. ``analyze``/
-        # ``prepare``/``decide``/``create_execution_intent``/
+        # dependency-graph builder, execution scheduler, and execution monitor
+        # are optional, additive collaborators. Each is stored only when injected
+        # so that earlier-sprint construction (three to thirteen arguments) keeps
+        # exactly its original attributes and its tests pass unchanged.
+        # ``analyze``/``prepare``/``decide``/``create_execution_intent``/
         # ``create_execution_workflow``/``create_execution_queue``/
         # ``create_task_lifecycles``/``create_execution_state``/
-        # ``create_execution_dependency_graph``/``create_execution_schedule``
-        # each require their collaborator; ``create_plan``/``explain`` need none.
+        # ``create_execution_dependency_graph``/``create_execution_schedule``/
+        # ``create_execution_monitoring_report`` each require their collaborator;
+        # ``create_plan``/``explain`` need none.
         if analyzer is not None:
             self.analyzer = analyzer
         if preparation_engine is not None:
@@ -116,6 +122,8 @@ class PlanningEngine:
             self.dependency_graph_builder = dependency_graph_builder
         if scheduler is not None:
             self.scheduler = scheduler
+        if monitor is not None:
+            self.monitor = monitor
 
     def create_plan(self, request: PlanningRequest) -> ExecutionPlan:
         """Reason about ``request`` and return a validated :class:`ExecutionPlan`.
@@ -393,3 +401,28 @@ class PlanningEngine:
         schedule = scheduler.create_schedule(graph, state)
         self.validator.validate_execution_schedule(schedule)
         return schedule
+
+    def create_execution_monitoring_report(
+        self, schedule: ExecutionSchedule, state: ExecutionState
+    ) -> ExecutionMonitoringReport:
+        """Observe execution as an :class:`ExecutionMonitoringReport` (no execution).
+
+        Sprint 13.12 addition. Delegates to the injected :class:`ExecutionMonitor`
+        to group the schedule's nodes into active, pending, blocked, and completed
+        sets, echo the execution state's status and progress, and derive an
+        overall health, then validates the result via the injected
+        :class:`PlanValidator`. This observes execution only; it executes,
+        resolves, and acquires nothing and never mutates its inputs. Raises
+        :class:`RuntimeError` if no monitor was injected and
+        :class:`PlanValidationError` if the report is malformed; monitor
+        exceptions propagate unchanged.
+        """
+        monitor = getattr(self, "monitor", None)
+        if monitor is None:
+            raise RuntimeError(
+                "PlanningEngine has no ExecutionMonitor injected; provide one "
+                "to call create_execution_monitoring_report()."
+            )
+        report = monitor.create_report(schedule, state)
+        self.validator.validate_execution_monitoring_report(report)
+        return report

@@ -19,6 +19,10 @@ from app.services.planning.execution_intent_models import (
     ExecutionIntent,
     ExecutionIntentType,
 )
+from app.services.planning.execution_monitor_models import (
+    ExecutionHealthStatus,
+    ExecutionMonitoringReport,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
 )
@@ -120,6 +124,23 @@ _EXECUTION_STATE_MESSAGES = {
     ExecutionStateType.COMPLETED.value: "Execution is complete.",
     ExecutionStateType.FAILED.value: "Execution ran into a problem.",
     ExecutionStateType.CANCELLED.value: "Execution was cancelled.",
+}
+
+# User-language message per execution health status (no implementation terms).
+_HEALTH_STATUS_MESSAGES = {
+    ExecutionHealthStatus.HEALTHY.value: (
+        "Everything is progressing normally."
+    ),
+    ExecutionHealthStatus.WARNING.value: (
+        "There are a few things to keep an eye on."
+    ),
+    ExecutionHealthStatus.BLOCKED.value: (
+        "Things are on hold until some work is unblocked."
+    ),
+    ExecutionHealthStatus.COMPLETED.value: "All the work is finished.",
+    ExecutionHealthStatus.FAILED.value: (
+        "Something went wrong along the way."
+    ),
 }
 
 # User-language message per queue status (no implementation terms).
@@ -327,6 +348,30 @@ class PlanningExplanationBuilder:
                 f"{len(schedule.deferred_nodes)} more are ready and will "
                 "follow."
             )
+        return " ".join(segments)
+
+    def build_with_execution_monitoring_report(
+        self, plan: ExecutionPlan, report: ExecutionMonitoringReport
+    ) -> str:
+        """Explain ``plan`` and how its execution is going (no execution).
+
+        Sprint 13.12 extension. Reuses :meth:`build` for the step narration, then
+        describes — in everyday user language, never implementation terms — the
+        overall health, how far along the work is, and how many tasks are active,
+        waiting, or held up.
+        """
+        segments: List[str] = [self.build(plan)]
+        segments.append(
+            _HEALTH_STATUS_MESSAGES.get(
+                report.health_status, "Execution is being monitored."
+            )
+        )
+        segments.append(f"Progress: {report.overall_progress:.0f}%.")
+        segments.append(
+            f"{len(report.active_nodes)} task(s) active, "
+            f"{len(report.pending_nodes)} waiting, and "
+            f"{len(report.blocked_nodes)} held up."
+        )
         return " ".join(segments)
 
     def build_with_execution_dependency_graph(

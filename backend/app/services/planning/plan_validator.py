@@ -21,6 +21,10 @@ from app.services.planning.execution_intent_models import (
     ExecutionIntent,
     ExecutionIntentType,
 )
+from app.services.planning.execution_monitor_models import (
+    ExecutionHealthStatus,
+    ExecutionMonitoringReport,
+)
 from app.services.planning.execution_preparation_models import (
     ExecutionPreparation,
     ExecutionStrategy,
@@ -90,6 +94,11 @@ _VALID_SCHEDULING_STRATEGIES = frozenset(
 # The only overall states a well-formed execution state may carry.
 _VALID_EXECUTION_STATES = frozenset(
     state.value for state in ExecutionStateType
+)
+
+# The only health statuses a well-formed monitoring report may carry.
+_VALID_HEALTH_STATUSES = frozenset(
+    status.value for status in ExecutionHealthStatus
 )
 # The overall states that represent a fully terminated execution.
 _TERMINAL_EXECUTION_STATES = frozenset(
@@ -704,6 +713,82 @@ class PlanValidator:
         ):
             raise PlanValidationError(
                 "scheduled, deferred, and blocked nodes must be disjoint."
+            )
+
+    def validate_execution_monitoring_report(
+        self, report: ExecutionMonitoringReport
+    ) -> None:
+        """Raise :class:`PlanValidationError` if ``report`` is not well-formed.
+
+        Sprint 13.12 extension. Rejects an empty report/execution id, an unknown
+        execution status or health status, a progress percentage outside
+        ``0``–``100``, empty or duplicate ids within any node group, node groups
+        that overlap, an empty warning entry, and a health status inconsistent
+        with the execution status (a FAILED/COMPLETED execution must report the
+        matching health) or with the blocked group (BLOCKED health requires at
+        least one blocked node). Inspects only the report's plain data — no
+        execution, provider, or AI work.
+        """
+        if not report.report_id.strip():
+            raise PlanValidationError("report_id must not be empty.")
+        if not report.execution_id.strip():
+            raise PlanValidationError("execution_id must not be empty.")
+        if report.execution_status not in _VALID_EXECUTION_STATES:
+            raise PlanValidationError(
+                f"Invalid execution status: {report.execution_status!r}."
+            )
+        if report.health_status not in _VALID_HEALTH_STATUSES:
+            raise PlanValidationError(
+                f"Invalid health status: {report.health_status!r}."
+            )
+        if not 0.0 <= report.overall_progress <= 100.0:
+            raise PlanValidationError(
+                f"overall_progress {report.overall_progress} is outside 0..100."
+            )
+
+        groups = (
+            ("active", report.active_nodes),
+            ("blocked", report.blocked_nodes),
+            ("completed", report.completed_nodes),
+            ("pending", report.pending_nodes),
+        )
+        for label, nodes in groups:
+            if any(not node_id.strip() for node_id in nodes):
+                raise PlanValidationError(
+                    f"{label} node id must not be empty."
+                )
+            if len(set(nodes)) != len(nodes):
+                raise PlanValidationError(f"Duplicate {label} node ids.")
+
+        node_sets = [set(nodes) for _, nodes in groups]
+        for first_index in range(len(node_sets)):
+            for second_index in range(first_index + 1, len(node_sets)):
+                if node_sets[first_index] & node_sets[second_index]:
+                    raise PlanValidationError(
+                        "active, blocked, completed, and pending nodes must be "
+                        "disjoint."
+                    )
+
+        if any(not warning.strip() for warning in report.warnings):
+            raise PlanValidationError("A warning entry must not be empty.")
+
+        if report.execution_status == ExecutionStateType.FAILED.value and (
+            report.health_status != ExecutionHealthStatus.FAILED.value
+        ):
+            raise PlanValidationError(
+                "A FAILED execution must report FAILED health."
+            )
+        if report.execution_status == ExecutionStateType.COMPLETED.value and (
+            report.health_status != ExecutionHealthStatus.COMPLETED.value
+        ):
+            raise PlanValidationError(
+                "A COMPLETED execution must report COMPLETED health."
+            )
+        if report.health_status == ExecutionHealthStatus.BLOCKED.value and (
+            not report.blocked_nodes
+        ):
+            raise PlanValidationError(
+                "BLOCKED health requires at least one blocked node."
             )
 
     @staticmethod
