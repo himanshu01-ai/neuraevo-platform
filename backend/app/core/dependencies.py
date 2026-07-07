@@ -60,6 +60,9 @@ from app.services.runtime.runtime_execution_state_manager import (
 from app.services.runtime.runtime_execution_monitor import (
     RuntimeExecutionMonitor,
 )
+from app.services.runtime.runtime_pause_resume_manager import (
+    RuntimePauseResumeManager,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1107,6 +1110,24 @@ def get_runtime_execution_monitor() -> RuntimeExecutionMonitor:
 
 RuntimeExecutionMonitorDep = Annotated[
     RuntimeExecutionMonitor, Depends(get_runtime_execution_monitor)
+]
+
+
+def get_runtime_pause_resume_manager() -> RuntimePauseResumeManager:
+    """Provide the stateless :class:`RuntimePauseResumeManager` (Sprint 14.12).
+
+    Deterministic, offline coordination of a :class:`RuntimeExecutionHealth` into
+    a :class:`RuntimePauseResumeState` — a pause/resume status plus the pause/
+    resume capabilities and the operator-action flag. COORDINATION ONLY — no AI,
+    network, clock, UUID, SDK, capability knowledge, thread/process pausing,
+    resumption, recovery, Runtime global, or execution; it never changes the
+    runtime health.
+    """
+    return RuntimePauseResumeManager()
+
+
+RuntimePauseResumeManagerDep = Annotated[
+    RuntimePauseResumeManager, Depends(get_runtime_pause_resume_manager)
 ]
 
 
