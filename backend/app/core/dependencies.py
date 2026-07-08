@@ -69,6 +69,10 @@ from app.services.runtime.runtime_recovery_coordinator import (
 from app.services.runtime.runtime_resource_coordinator import (
     RuntimeResourceCoordinator,
 )
+from app.services.runtime.capability_registry import CapabilityRegistry
+from app.services.runtime.capability_registry_models import (
+    CapabilityDefinition,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1205,6 +1209,42 @@ def get_runtime_execution_orchestrator(
 
 RuntimeExecutionOrchestratorDep = Annotated[
     ExecutionRuntime, Depends(get_runtime_execution_orchestrator)
+]
+
+
+def get_capability_definitions() -> list[CapabilityDefinition]:
+    """Provide the registered capability definitions (Sprint 15.1; empty for now).
+
+    No concrete capability definitions exist yet, so this returns an empty list;
+    a later sprint supplies the real definitions here (the one composition-root
+    place they are registered). Exposed as a sub-dependency so the registry can be
+    resolved through a route's dependency graph, mirroring the Sprint 11.2 tool
+    registry wiring.
+    """
+    return []
+
+
+CapabilityDefinitionsDep = Annotated[
+    list[CapabilityDefinition], Depends(get_capability_definitions)
+]
+
+
+def get_capability_registry(
+    definitions: CapabilityDefinitionsDep = None,
+) -> CapabilityRegistry:
+    """Provide a :class:`CapabilityRegistry` over the registered definitions (15.1).
+
+    ``definitions`` is injected via the ``get_capability_definitions``
+    sub-dependency (empty until a later sprint), so the registry defaults to
+    empty. Constructor injection only — the registry is never instantiated inside
+    a service; it stores capability definitions and resolves, instantiates, and
+    executes nothing. Purely additive; changes no existing provider.
+    """
+    return CapabilityRegistry(definitions or [])
+
+
+CapabilityRegistryDep = Annotated[
+    CapabilityRegistry, Depends(get_capability_registry)
 ]
 
 
