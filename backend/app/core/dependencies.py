@@ -77,6 +77,11 @@ from app.services.runtime.capability_resolver import CapabilityResolver
 from app.services.runtime.capability_metadata import CapabilityMetadataManager
 from app.services.runtime.capability_discovery import CapabilityDiscoveryManager
 from app.services.runtime.capability_validation import CapabilityValidationManager
+from app.services.runtime.browser_capability import (
+    DEFAULT_NAVIGATION_TIMEOUT_MS,
+    BrowserCapability,
+    PlaywrightBrowserDriver,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1320,6 +1325,27 @@ def get_capability_validation_manager() -> CapabilityValidationManager:
 
 CapabilityValidationManagerDep = Annotated[
     CapabilityValidationManager, Depends(get_capability_validation_manager)
+]
+
+
+def get_browser_capability() -> BrowserCapability:
+    """Provide the :class:`BrowserCapability` — the first real capability (15.6).
+
+    Constructs a Playwright/Chromium-backed :class:`PlaywrightBrowserDriver` (the
+    SDK is imported lazily on first navigation, so building this provider needs no
+    browser installed) and injects it into the :class:`BrowserCapability`, which
+    implements the Sprint 14.3 :class:`ExecutionCapability` interface. Purely
+    additive: it introduces a new capability seam and does not change the existing
+    ``get_execution_capability`` placeholder or any Runtime/Planning wiring.
+    """
+    return BrowserCapability(
+        PlaywrightBrowserDriver(headless=True),
+        timeout_ms=DEFAULT_NAVIGATION_TIMEOUT_MS,
+    )
+
+
+BrowserCapabilityDep = Annotated[
+    BrowserCapability, Depends(get_browser_capability)
 ]
 
 
