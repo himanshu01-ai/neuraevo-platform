@@ -1171,6 +1171,43 @@ RuntimeResourceCoordinatorDep = Annotated[
 ]
 
 
+def get_runtime_execution_orchestrator(
+    capability_executor: CapabilityExecutorDep,
+) -> ExecutionRuntime:
+    """Provide the fully-wired :class:`ExecutionRuntime` coordinator (Sprint 14.15).
+
+    Integration seam only. Assembles the single runtime orchestration coordinator
+    by composing the existing Sprint 14 runtime collaborators through their
+    existing composition-root providers, so
+    ``create_runtime_execution_orchestration`` can run the complete context ->
+    dispatch -> capability dispatch -> execute -> progress -> control -> event ->
+    lifecycle -> state -> health -> pause/resume -> recovery -> resource pipeline.
+    The capability executor is injected through the existing Sprint 14.5 seam
+    (constructor injection); until a concrete capability is wired, resolving it
+    raises ``NotImplementedError`` like the other provider-backed services. It adds
+    no new behaviour and changes no existing provider.
+    """
+    return ExecutionRuntime(
+        task_dispatcher=get_task_dispatcher(),
+        capability_dispatcher=get_capability_dispatcher(),
+        capability_executor=capability_executor,
+        progress_runtime=get_execution_progress_runtime(),
+        controller=get_execution_controller(),
+        event_manager=get_execution_event_manager(),
+        lifecycle_manager=get_execution_lifecycle_manager(),
+        state_manager=get_runtime_execution_state_manager(),
+        monitor=get_runtime_execution_monitor(),
+        pause_resume_manager=get_runtime_pause_resume_manager(),
+        recovery_coordinator=get_runtime_recovery_coordinator(),
+        resource_coordinator=get_runtime_resource_coordinator(),
+    )
+
+
+RuntimeExecutionOrchestratorDep = Annotated[
+    ExecutionRuntime, Depends(get_runtime_execution_orchestrator)
+]
+
+
 def get_interaction_provider() -> InteractionProvider:
     """Provide the active interaction provider (Sprint 12.1).
 
