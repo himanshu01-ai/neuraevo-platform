@@ -29,6 +29,12 @@ from app.services.runtime.browser_capability_models import (
     BrowserSession,
     NavigationStatus,
 )
+from app.services.runtime.browser_dom import BrowserDOM
+from app.services.runtime.browser_dom_models import (
+    BrowserDOMSnapshot,
+    BrowserQueryRequest,
+    BrowserQueryResult,
+)
 from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.runtime.execution_capability_models import (
     CapabilityExecutionRequest,
@@ -122,9 +128,15 @@ class BrowserCapability(ExecutionCapability):
         self,
         browser_driver: BrowserDriver,
         timeout_ms: int = DEFAULT_NAVIGATION_TIMEOUT_MS,
+        browser_dom: BrowserDOM | None = None,
     ) -> None:
         self.browser_driver = browser_driver
         self.timeout_ms = timeout_ms
+        # Sprint 15.7 DOM collaborator. Stored only when injected so the Sprint 15.6
+        # constructor contract (driver + timeout only) is preserved; the DOM methods
+        # fall back to a default stateless BrowserDOM when none is supplied.
+        if browser_dom is not None:
+            self.browser_dom = browser_dom
 
     # --- browser-native API ---------------------------------------------
     def create_session(
@@ -235,6 +247,34 @@ class BrowserCapability(ExecutionCapability):
                 "navigation_status": navigation.navigation_status,
             },
         )
+
+    # --- DOM discovery (Sprint 15.7 — delegates to BrowserDOM) ----------
+    def capture_dom(
+        self, session: BrowserSession, page_content: str
+    ) -> BrowserDOMSnapshot:
+        """Build an immutable DOM snapshot from already-retrieved page HTML.
+
+        Delegates parsing to the injected :class:`BrowserDOM`, handing it plain
+        HTML (extracted from Playwright *inside* this capability) so no browser
+        object escapes. Reads only — nothing is clicked, typed, or executed.
+        """
+        return self._dom().build_snapshot(session, page_content)
+
+    def query_dom(
+        self, snapshot: BrowserDOMSnapshot, request: BrowserQueryRequest
+    ) -> BrowserQueryResult:
+        """Query a DOM snapshot by selector, delegating to :class:`BrowserDOM`.
+
+        The snapshot supplies the elements and the request the exact selector;
+        matching preserves document order and returns a fresh collection. Reads
+        only — it never mutates the snapshot or the DOM.
+        """
+        return self._dom().query(snapshot, request)
+
+    def _dom(self) -> BrowserDOM:
+        """Return the injected :class:`BrowserDOM`, or a default stateless one."""
+        dom = getattr(self, "browser_dom", None)
+        return dom if dom is not None else BrowserDOM()
 
     # --- deterministic helpers ------------------------------------------
     @staticmethod
