@@ -75,6 +75,7 @@ from app.services.runtime.capability_registry_models import (
 )
 from app.services.runtime.capability_resolver import CapabilityResolver
 from app.services.runtime.capability_metadata import CapabilityMetadataManager
+from app.services.runtime.capability_discovery import CapabilityDiscoveryManager
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1283,6 +1284,25 @@ def get_capability_metadata_manager(
 
 CapabilityMetadataManagerDep = Annotated[
     CapabilityMetadataManager, Depends(get_capability_metadata_manager)
+]
+
+
+def get_capability_discovery_manager(
+    metadata_manager: CapabilityMetadataManagerDep,
+) -> CapabilityDiscoveryManager:
+    """Provide a :class:`CapabilityDiscoveryManager` over the metadata (15.4).
+
+    Reuses the existing Sprint 15.3 ``CapabilityMetadataManagerDep`` (constructor
+    injection); the manager is never instantiated inside a service. It reads
+    metadata only — it discovers capabilities and executes, resolves,
+    instantiates, and mutates nothing. Purely additive; changes no existing
+    provider.
+    """
+    return CapabilityDiscoveryManager(metadata_manager)
+
+
+CapabilityDiscoveryManagerDep = Annotated[
+    CapabilityDiscoveryManager, Depends(get_capability_discovery_manager)
 ]
 
 
