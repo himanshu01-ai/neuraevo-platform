@@ -76,6 +76,7 @@ from app.services.runtime.capability_registry_models import (
 from app.services.runtime.capability_resolver import CapabilityResolver
 from app.services.runtime.capability_metadata import CapabilityMetadataManager
 from app.services.runtime.capability_discovery import CapabilityDiscoveryManager
+from app.services.runtime.capability_validation import CapabilityValidationManager
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1303,6 +1304,22 @@ def get_capability_discovery_manager(
 
 CapabilityDiscoveryManagerDep = Annotated[
     CapabilityDiscoveryManager, Depends(get_capability_discovery_manager)
+]
+
+
+def get_capability_validation_manager() -> CapabilityValidationManager:
+    """Provide the stateless :class:`CapabilityValidationManager` (Sprint 15.5).
+
+    Deterministic, offline validation of a capability invocation request against
+    its declared metadata. It holds no collaborator, session, or state — it reads
+    the request only and validates, executes, resolves, and mutates nothing.
+    Purely additive; changes no existing provider.
+    """
+    return CapabilityValidationManager()
+
+
+CapabilityValidationManagerDep = Annotated[
+    CapabilityValidationManager, Depends(get_capability_validation_manager)
 ]
 
 
