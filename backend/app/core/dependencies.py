@@ -74,6 +74,7 @@ from app.services.runtime.capability_registry_models import (
     CapabilityDefinition,
 )
 from app.services.runtime.capability_resolver import CapabilityResolver
+from app.services.runtime.capability_metadata import CapabilityMetadataManager
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1264,6 +1265,24 @@ def get_capability_resolver(
 
 CapabilityResolverDep = Annotated[
     CapabilityResolver, Depends(get_capability_resolver)
+]
+
+
+def get_capability_metadata_manager(
+    registry: CapabilityRegistryDep,
+) -> CapabilityMetadataManager:
+    """Provide a :class:`CapabilityMetadataManager` over the registry (15.3).
+
+    Reuses the existing Sprint 15.1 ``CapabilityRegistryDep`` (constructor
+    injection); the manager is never instantiated inside a service. It reads the
+    registry only — it exposes structured metadata and executes, instantiates,
+    and mutates nothing. Purely additive; changes no existing provider.
+    """
+    return CapabilityMetadataManager(registry)
+
+
+CapabilityMetadataManagerDep = Annotated[
+    CapabilityMetadataManager, Depends(get_capability_metadata_manager)
 ]
 
 
