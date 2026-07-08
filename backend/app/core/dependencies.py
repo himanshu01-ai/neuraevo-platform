@@ -66,6 +66,9 @@ from app.services.runtime.runtime_pause_resume_manager import (
 from app.services.runtime.runtime_recovery_coordinator import (
     RuntimeRecoveryCoordinator,
 )
+from app.services.runtime.runtime_resource_coordinator import (
+    RuntimeResourceCoordinator,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1148,6 +1151,23 @@ def get_runtime_recovery_coordinator() -> RuntimeRecoveryCoordinator:
 
 RuntimeRecoveryCoordinatorDep = Annotated[
     RuntimeRecoveryCoordinator, Depends(get_runtime_recovery_coordinator)
+]
+
+
+def get_runtime_resource_coordinator() -> RuntimeResourceCoordinator:
+    """Provide the stateless :class:`RuntimeResourceCoordinator` (Sprint 14.14).
+
+    Deterministic, offline coordination of a :class:`RuntimeRecoveryState` into a
+    :class:`RuntimeResourceState` — a resource status, a readiness flag, and the
+    (currently empty) required resources. RESOURCE READINESS ONLY — no AI,
+    network, clock, UUID, SDK, capability knowledge, allocation, reservation,
+    planning, Runtime global, or execution; it never changes the recovery state.
+    """
+    return RuntimeResourceCoordinator()
+
+
+RuntimeResourceCoordinatorDep = Annotated[
+    RuntimeResourceCoordinator, Depends(get_runtime_resource_coordinator)
 ]
 
 
