@@ -73,6 +73,7 @@ from app.services.runtime.capability_registry import CapabilityRegistry
 from app.services.runtime.capability_registry_models import (
     CapabilityDefinition,
 )
+from app.services.runtime.capability_resolver import CapabilityResolver
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1245,6 +1246,24 @@ def get_capability_registry(
 
 CapabilityRegistryDep = Annotated[
     CapabilityRegistry, Depends(get_capability_registry)
+]
+
+
+def get_capability_resolver(
+    registry: CapabilityRegistryDep,
+) -> CapabilityResolver:
+    """Provide a :class:`CapabilityResolver` bound to the capability registry (15.2).
+
+    Reuses the existing Sprint 15.1 ``CapabilityRegistryDep`` (constructor
+    injection); the resolver is never instantiated inside a service. It reads the
+    registry only — it resolves capability definitions and executes, instantiates,
+    and mutates nothing. Purely additive; changes no existing provider.
+    """
+    return CapabilityResolver(registry)
+
+
+CapabilityResolverDep = Annotated[
+    CapabilityResolver, Depends(get_capability_resolver)
 ]
 
 
