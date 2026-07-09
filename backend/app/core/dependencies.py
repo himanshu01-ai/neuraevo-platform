@@ -83,6 +83,7 @@ from app.services.runtime.browser_capability import (
     PlaywrightBrowserDriver,
 )
 from app.services.runtime.browser_dom import BrowserDOM
+from app.services.runtime.browser_interaction import BrowserInteraction
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1343,8 +1344,26 @@ def get_browser_dom() -> BrowserDOM:
 BrowserDOMDep = Annotated[BrowserDOM, Depends(get_browser_dom)]
 
 
+def get_browser_interaction() -> BrowserInteraction:
+    """Provide the stateless :class:`BrowserInteraction` collaborator (Sprint 15.8).
+
+    Deterministic performer of click/type/scroll/focus/select on a
+    :class:`BrowserElement`; it holds no state and delegates the low-level action
+    to the capability's :class:`BrowserDriver` (the only Playwright-facing layer),
+    turning provider failures into graceful results. Injected into the
+    :class:`BrowserCapability`. Purely additive.
+    """
+    return BrowserInteraction()
+
+
+BrowserInteractionDep = Annotated[
+    BrowserInteraction, Depends(get_browser_interaction)
+]
+
+
 def get_browser_capability(
     browser_dom: BrowserDOMDep = None,
+    browser_interaction: BrowserInteractionDep = None,
 ) -> BrowserCapability:
     """Provide the :class:`BrowserCapability` — the first real capability (15.6).
 
@@ -1352,15 +1371,18 @@ def get_browser_capability(
     SDK is imported lazily on first navigation, so building this provider needs no
     browser installed) and injects it into the :class:`BrowserCapability`, which
     implements the Sprint 14.3 :class:`ExecutionCapability` interface. Sprint 15.7
-    also injects the :class:`BrowserDOM` collaborator (via ``BrowserDOMDep``,
-    defaulting to a fresh one) so the capability can delegate DOM discovery. Purely
-    additive: it introduces new capability seams and does not change the existing
-    ``get_execution_capability`` placeholder or any Runtime/Planning wiring.
+    injects the :class:`BrowserDOM` collaborator and Sprint 15.8 the
+    :class:`BrowserInteraction` collaborator (each via its Dep, defaulting to a
+    fresh one) so the capability can delegate DOM discovery and interactions.
+    Purely additive: it introduces new capability seams and does not change the
+    existing ``get_execution_capability`` placeholder or any Runtime/Planning
+    wiring.
     """
     return BrowserCapability(
         PlaywrightBrowserDriver(headless=True),
         timeout_ms=DEFAULT_NAVIGATION_TIMEOUT_MS,
         browser_dom=browser_dom or get_browser_dom(),
+        browser_interaction=browser_interaction or get_browser_interaction(),
     )
 
 

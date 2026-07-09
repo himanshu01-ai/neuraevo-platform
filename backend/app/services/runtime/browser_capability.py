@@ -35,6 +35,12 @@ from app.services.runtime.browser_dom_models import (
     BrowserQueryRequest,
     BrowserQueryResult,
 )
+from app.services.runtime.browser_interaction import BrowserInteraction
+from app.services.runtime.browser_interaction_models import (
+    BrowserInteractionRequest,
+    BrowserInteractionResult,
+    InteractionType,
+)
 from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.runtime.execution_capability_models import (
     CapabilityExecutionRequest,
@@ -77,6 +83,27 @@ class BrowserDriver(ABC):
         turns that into a graceful ``FAILED`` navigation result.
         """
 
+    def perform_interaction(
+        self,
+        url: str,
+        action: str,
+        target: dict,
+        value: str,
+        timeout_ms: int,
+    ) -> None:
+        """Perform a low-level interaction on the element described by ``target``.
+
+        The single Playwright-facing interaction hook (Sprint 15.8). ``target`` is
+        a plain element descriptor (never a Playwright handle). Concrete because
+        Sprint 15.6/15.7 drivers need not implement it — the default reports the
+        interaction is unsupported by raising, which the interaction layer turns
+        into a graceful ``FAILED`` (the exception object never leaks). Raises on any
+        provider failure; :class:`PlaywrightBrowserDriver` overrides it.
+        """
+        raise NotImplementedError(
+            "This browser driver does not support interactions."
+        )
+
 
 class PlaywrightBrowserDriver(BrowserDriver):
     """Production :class:`BrowserDriver` backed by Playwright / Chromium.
@@ -111,17 +138,69 @@ class PlaywrightBrowserDriver(BrowserDriver):
             finally:
                 browser.close()
 
+    def perform_interaction(
+        self,
+        url: str,
+        action: str,
+        target: dict,
+        value: str,
+        timeout_ms: int,
+    ) -> None:
+        """Load ``url`` and perform ``action`` on the described element (Chromium).
+
+        Locates the element from the plain ``target`` descriptor (by id when
+        present, else by tag) and performs exactly the one action — click, fill,
+        focus, scroll-into-view, or select-option. No JavaScript, screenshots,
+        uploads, or downloads. Playwright is imported lazily; the browser is always
+        closed. Provider failures propagate for the interaction layer to catch.
+        """
+        from playwright.sync_api import sync_playwright  # lazy: SDK optional
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=self.headless)
+            try:
+                page = browser.new_page()
+                page.goto(url, timeout=timeout_ms, wait_until="load")
+                locator = self._locate(page, target)
+                if action == InteractionType.CLICK.value:
+                    locator.click(timeout=timeout_ms)
+                elif action == InteractionType.TYPE.value:
+                    locator.fill(value, timeout=timeout_ms)
+                elif action == InteractionType.FOCUS.value:
+                    locator.focus(timeout=timeout_ms)
+                elif action == InteractionType.SCROLL.value:
+                    locator.scroll_into_view_if_needed(timeout=timeout_ms)
+                elif action == InteractionType.SELECT.value:
+                    locator.select_option(value, timeout=timeout_ms)
+                else:
+                    raise ValueError(f"unsupported interaction: {action}")
+            finally:
+                browser.close()
+
+    @staticmethod
+    def _locate(page, target: dict):
+        """Locate the element from a plain descriptor (by id, else by tag)."""
+        attributes = target.get("attributes", {})
+        element_id = attributes.get("id")
+        if element_id:
+            return page.locator(f"#{element_id}")
+        return page.locator(target.get("tag_name", "*")).first
+
 
 class BrowserCapability(ExecutionCapability):
     """Browser foundation capability: sessions, navigation, page load, DOM.
 
-    Stateless beyond the injected :class:`BrowserDriver` and the default timeout —
-    it holds no live browser or session, so :class:`BrowserSession` DTOs are
-    immutable and threaded by the caller. ``create_session`` mints a deterministic
-    session; ``navigate`` loads one url through the driver and reports the updated
-    session plus DOM; ``execute`` bridges the Sprint 14.3 runtime contract to a
-    single navigation. It never clicks, types, fills forms, uploads, downloads,
-    runs JavaScript, takes screenshots, or browses autonomously.
+    Stateless beyond the injected :class:`BrowserDriver`, the default timeout, and
+    the optional DOM/interaction collaborators — it holds no live browser or
+    session, so :class:`BrowserSession` DTOs are immutable and threaded by the
+    caller. ``create_session`` mints a deterministic session; ``navigate`` loads
+    one url through the driver and reports the updated session plus DOM;
+    ``capture_dom``/``query_dom`` delegate DOM discovery to :class:`BrowserDOM`
+    (Sprint 15.7); ``interact`` delegates click/type/scroll/focus/select on a
+    :class:`BrowserElement` to :class:`BrowserInteraction` (Sprint 15.8); and
+    ``execute`` bridges the Sprint 14.3 runtime contract to a single navigation. It
+    never fills forms, uploads, downloads, runs JavaScript, takes screenshots, or
+    browses autonomously.
     """
 
     def __init__(
@@ -129,14 +208,18 @@ class BrowserCapability(ExecutionCapability):
         browser_driver: BrowserDriver,
         timeout_ms: int = DEFAULT_NAVIGATION_TIMEOUT_MS,
         browser_dom: BrowserDOM | None = None,
+        browser_interaction: BrowserInteraction | None = None,
     ) -> None:
         self.browser_driver = browser_driver
         self.timeout_ms = timeout_ms
-        # Sprint 15.7 DOM collaborator. Stored only when injected so the Sprint 15.6
-        # constructor contract (driver + timeout only) is preserved; the DOM methods
-        # fall back to a default stateless BrowserDOM when none is supplied.
+        # Sprint 15.7 DOM and Sprint 15.8 interaction collaborators. Each is stored
+        # only when injected so the Sprint 15.6 constructor contract (driver +
+        # timeout only) is preserved; the DOM/interaction methods fall back to a
+        # default stateless collaborator when none is supplied.
         if browser_dom is not None:
             self.browser_dom = browser_dom
+        if browser_interaction is not None:
+            self.browser_interaction = browser_interaction
 
     # --- browser-native API ---------------------------------------------
     def create_session(
@@ -275,6 +358,27 @@ class BrowserCapability(ExecutionCapability):
         """Return the injected :class:`BrowserDOM`, or a default stateless one."""
         dom = getattr(self, "browser_dom", None)
         return dom if dom is not None else BrowserDOM()
+
+    # --- interactions (Sprint 15.8 — delegates to BrowserInteraction) ---
+    def interact(
+        self, request: BrowserInteractionRequest
+    ) -> BrowserInteractionResult:
+        """Perform an interaction on a BrowserElement, via :class:`BrowserInteraction`.
+
+        Delegates to the injected interaction collaborator, handing it this
+        capability's own :class:`BrowserDriver` (the single Playwright-facing layer)
+        and timeout. The interaction operates only on the request's
+        :class:`BrowserElement`; provider failures come back as a graceful
+        ``FAILED`` result with no provider object.
+        """
+        return self._interaction().interact(
+            request, self.browser_driver, self.timeout_ms
+        )
+
+    def _interaction(self) -> BrowserInteraction:
+        """Return the injected :class:`BrowserInteraction`, or a default one."""
+        interaction = getattr(self, "browser_interaction", None)
+        return interaction if interaction is not None else BrowserInteraction()
 
     # --- deterministic helpers ------------------------------------------
     @staticmethod
