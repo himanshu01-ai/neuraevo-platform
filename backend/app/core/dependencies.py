@@ -85,6 +85,7 @@ from app.services.runtime.browser_capability import (
 from app.services.runtime.browser_dom import BrowserDOM
 from app.services.runtime.browser_interaction import BrowserInteraction
 from app.services.runtime.browser_workspace import BrowserWorkspace
+from app.services.runtime.python_capability import PythonCapability
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1409,6 +1410,26 @@ def get_browser_capability(
 
 BrowserCapabilityDep = Annotated[
     BrowserCapability, Depends(get_browser_capability)
+]
+
+
+def get_python_capability() -> PythonCapability:
+    """Provide the :class:`PythonCapability` — the Python capability (Sprint 15.10).
+
+    Assembles the capability with its default collaborators (a
+    :class:`SafePythonExecutor` sandbox, a :class:`PythonArtifactManager`, and a
+    :class:`PythonWorkspaceManager`); the safe executor imports third-party
+    libraries lazily, so building this provider needs none of numpy/pandas/openpyxl/
+    matplotlib installed. It implements the Sprint 14.3
+    :class:`ExecutionCapability` interface. Purely additive: it introduces a new
+    capability seam and does not change the existing ``get_execution_capability``
+    placeholder or any Runtime/Planning/Browser wiring.
+    """
+    return PythonCapability()
+
+
+PythonCapabilityDep = Annotated[
+    PythonCapability, Depends(get_python_capability)
 ]
 
 
