@@ -41,6 +41,13 @@ from app.services.runtime.browser_interaction_models import (
     BrowserInteractionResult,
     InteractionType,
 )
+from app.services.runtime.browser_workspace import BrowserWorkspace
+from app.services.runtime.browser_workspace_models import (
+    BrowserWorkspaceState,
+    WorkspaceActionRequest,
+    WorkspaceActionResult,
+    WorkspaceActionType,
+)
 from app.services.runtime.execution_capability import ExecutionCapability
 from app.services.runtime.execution_capability_models import (
     CapabilityExecutionRequest,
@@ -102,6 +109,27 @@ class BrowserDriver(ABC):
         """
         raise NotImplementedError(
             "This browser driver does not support interactions."
+        )
+
+    def perform_workspace_action(
+        self,
+        action: str,
+        url: str,
+        payload: dict,
+        timeout_ms: int,
+    ) -> dict:
+        """Perform a driver-backed workspace action and return plain result data.
+
+        The single Playwright-facing workspace hook (Sprint 15.9) for screenshots,
+        PDF, downloads, uploads, and cookie save/load. Returns only plain data
+        (paths, counts, cookie dicts) — never a Playwright object. Concrete because
+        earlier drivers need not implement it; the default reports the action is
+        unsupported by raising, which the workspace layer turns into a graceful
+        ``FAILED`` (the exception object never leaks). Raises on any provider
+        failure; :class:`PlaywrightBrowserDriver` overrides it.
+        """
+        raise NotImplementedError(
+            "This browser driver does not support workspace actions."
         )
 
 
@@ -186,6 +214,53 @@ class PlaywrightBrowserDriver(BrowserDriver):
             return page.locator(f"#{element_id}")
         return page.locator(target.get("tag_name", "*")).first
 
+    def perform_workspace_action(
+        self,
+        action: str,
+        url: str,
+        payload: dict,
+        timeout_ms: int,
+    ) -> dict:
+        """Load ``url`` and perform the workspace ``action`` in Chromium.
+
+        Captures a screenshot or PDF to a path, saves or loads cookies, or records
+        a download/upload coordination descriptor — returning only plain data
+        (paths, counts, cookie dicts), never a Playwright object. No JavaScript
+        execution or network interception. Playwright is imported lazily; the
+        browser is always closed. Provider failures propagate for the workspace
+        layer to catch.
+        """
+        from playwright.sync_api import sync_playwright  # lazy: SDK optional
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=self.headless)
+            try:
+                page = browser.new_page()
+                if url:
+                    page.goto(url, timeout=timeout_ms, wait_until="load")
+                if action == WorkspaceActionType.SCREENSHOT.value:
+                    path = payload.get("path", "screenshot.png")
+                    page.screenshot(path=path, timeout=timeout_ms)
+                    return {"path": path}
+                if action == WorkspaceActionType.PDF.value:
+                    path = payload.get("path", "page.pdf")
+                    page.pdf(path=path)
+                    return {"path": path}
+                if action == WorkspaceActionType.SAVE_COOKIES.value:
+                    cookies = page.context.cookies()
+                    return {"cookies": cookies, "count": len(cookies)}
+                if action == WorkspaceActionType.LOAD_COOKIES.value:
+                    cookies = payload.get("cookies", [])
+                    page.context.add_cookies(cookies)
+                    return {"loaded": len(cookies)}
+                if action == WorkspaceActionType.DOWNLOAD.value:
+                    return {"coordinated": True, "url": payload.get("url")}
+                if action == WorkspaceActionType.UPLOAD.value:
+                    return {"coordinated": True, "path": payload.get("path")}
+                raise ValueError(f"unsupported workspace action: {action}")
+            finally:
+                browser.close()
+
 
 class BrowserCapability(ExecutionCapability):
     """Browser foundation capability: sessions, navigation, page load, DOM.
@@ -197,10 +272,12 @@ class BrowserCapability(ExecutionCapability):
     one url through the driver and reports the updated session plus DOM;
     ``capture_dom``/``query_dom`` delegate DOM discovery to :class:`BrowserDOM`
     (Sprint 15.7); ``interact`` delegates click/type/scroll/focus/select on a
-    :class:`BrowserElement` to :class:`BrowserInteraction` (Sprint 15.8); and
-    ``execute`` bridges the Sprint 14.3 runtime contract to a single navigation. It
-    never fills forms, uploads, downloads, runs JavaScript, takes screenshots, or
-    browses autonomously.
+    :class:`BrowserElement` to :class:`BrowserInteraction` (Sprint 15.8);
+    ``create_workspace``/``workspace_action`` delegate tab, screenshot, PDF,
+    download, upload, and cookie management to :class:`BrowserWorkspace` (Sprint
+    15.9); and ``execute`` bridges the Sprint 14.3 runtime contract to a single
+    navigation. It never executes arbitrary JavaScript, intercepts network
+    traffic, or browses autonomously.
     """
 
     def __init__(
@@ -209,17 +286,21 @@ class BrowserCapability(ExecutionCapability):
         timeout_ms: int = DEFAULT_NAVIGATION_TIMEOUT_MS,
         browser_dom: BrowserDOM | None = None,
         browser_interaction: BrowserInteraction | None = None,
+        browser_workspace: BrowserWorkspace | None = None,
     ) -> None:
         self.browser_driver = browser_driver
         self.timeout_ms = timeout_ms
-        # Sprint 15.7 DOM and Sprint 15.8 interaction collaborators. Each is stored
-        # only when injected so the Sprint 15.6 constructor contract (driver +
-        # timeout only) is preserved; the DOM/interaction methods fall back to a
-        # default stateless collaborator when none is supplied.
+        # Sprint 15.7 DOM, Sprint 15.8 interaction, and Sprint 15.9 workspace
+        # collaborators. Each is stored only when injected so the Sprint 15.6
+        # constructor contract (driver + timeout only) is preserved; the
+        # DOM/interaction/workspace methods fall back to a default stateless
+        # collaborator when none is supplied.
         if browser_dom is not None:
             self.browser_dom = browser_dom
         if browser_interaction is not None:
             self.browser_interaction = browser_interaction
+        if browser_workspace is not None:
+            self.browser_workspace = browser_workspace
 
     # --- browser-native API ---------------------------------------------
     def create_session(
@@ -379,6 +460,32 @@ class BrowserCapability(ExecutionCapability):
         """Return the injected :class:`BrowserInteraction`, or a default one."""
         interaction = getattr(self, "browser_interaction", None)
         return interaction if interaction is not None else BrowserInteraction()
+
+    # --- workspace (Sprint 15.9 — delegates to BrowserWorkspace) --------
+    def create_workspace(self, session: BrowserSession) -> BrowserWorkspaceState:
+        """Create a fresh workspace for ``session`` via :class:`BrowserWorkspace`."""
+        return self._workspace().create_workspace(session)
+
+    def workspace_action(
+        self,
+        workspace: BrowserWorkspaceState,
+        request: WorkspaceActionRequest,
+    ) -> WorkspaceActionResult:
+        """Apply a workspace action, delegating to :class:`BrowserWorkspace`.
+
+        Tab actions transform the workspace deterministically; driver actions run
+        through this capability's own :class:`BrowserDriver` (the single
+        Playwright-facing layer) and come back as a graceful ``FAILED`` on any
+        provider failure, with no provider object.
+        """
+        return self._workspace().execute(
+            workspace, request, self.browser_driver, self.timeout_ms
+        )
+
+    def _workspace(self) -> BrowserWorkspace:
+        """Return the injected :class:`BrowserWorkspace`, or a default one."""
+        workspace = getattr(self, "browser_workspace", None)
+        return workspace if workspace is not None else BrowserWorkspace()
 
     # --- deterministic helpers ------------------------------------------
     @staticmethod

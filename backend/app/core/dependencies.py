@@ -84,6 +84,7 @@ from app.services.runtime.browser_capability import (
 )
 from app.services.runtime.browser_dom import BrowserDOM
 from app.services.runtime.browser_interaction import BrowserInteraction
+from app.services.runtime.browser_workspace import BrowserWorkspace
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1361,9 +1362,28 @@ BrowserInteractionDep = Annotated[
 ]
 
 
+def get_browser_workspace() -> BrowserWorkspace:
+    """Provide the stateless :class:`BrowserWorkspace` collaborator (Sprint 15.9).
+
+    Deterministic manager of browser tabs, screenshots, PDF, downloads, uploads,
+    and cookie save/load; it holds no state, transforms immutable workspace DTOs
+    for tab actions, and delegates I/O actions to the capability's
+    :class:`BrowserDriver` (the only Playwright-facing layer), turning provider
+    failures into graceful results. Injected into the :class:`BrowserCapability`.
+    Purely additive.
+    """
+    return BrowserWorkspace()
+
+
+BrowserWorkspaceDep = Annotated[
+    BrowserWorkspace, Depends(get_browser_workspace)
+]
+
+
 def get_browser_capability(
     browser_dom: BrowserDOMDep = None,
     browser_interaction: BrowserInteractionDep = None,
+    browser_workspace: BrowserWorkspaceDep = None,
 ) -> BrowserCapability:
     """Provide the :class:`BrowserCapability` — the first real capability (15.6).
 
@@ -1383,6 +1403,7 @@ def get_browser_capability(
         timeout_ms=DEFAULT_NAVIGATION_TIMEOUT_MS,
         browser_dom=browser_dom or get_browser_dom(),
         browser_interaction=browser_interaction or get_browser_interaction(),
+        browser_workspace=browser_workspace or get_browser_workspace(),
     )
 
 
