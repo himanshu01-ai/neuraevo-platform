@@ -86,6 +86,7 @@ from app.services.runtime.browser_dom import BrowserDOM
 from app.services.runtime.browser_interaction import BrowserInteraction
 from app.services.runtime.browser_workspace import BrowserWorkspace
 from app.services.runtime.python_capability import PythonCapability
+from app.services.runtime.filesystem_capability import FileSystemCapability
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1430,6 +1431,26 @@ def get_python_capability() -> PythonCapability:
 
 PythonCapabilityDep = Annotated[
     PythonCapability, Depends(get_python_capability)
+]
+
+
+def get_filesystem_capability() -> FileSystemCapability:
+    """Provide the :class:`FileSystemCapability` — the filesystem capability (15.11).
+
+    Assembles the capability with its default collaborators (a
+    :class:`LocalFileSystemExecutor` confined to the workspace root, a
+    :class:`FileSystemArtifactManager`, and a :class:`FileSystemWorkspaceManager`);
+    the executor uses only the Python standard library, so building this provider
+    needs no external SDK. It implements the Sprint 14.3
+    :class:`ExecutionCapability` interface. Purely additive: it introduces a new
+    capability seam and does not change the existing ``get_execution_capability``
+    placeholder or any Runtime/Planning/Browser/Python wiring.
+    """
+    return FileSystemCapability()
+
+
+FileSystemCapabilityDep = Annotated[
+    FileSystemCapability, Depends(get_filesystem_capability)
 ]
 
 
