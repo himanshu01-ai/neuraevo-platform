@@ -93,6 +93,7 @@ from app.services.runtime.github_capability import GitHubCapability
 from app.services.runtime.capability_router import CapabilityRouter
 from app.services.runtime.artifact_coordinator import ArtifactCoordinator
 from app.services.runtime.workflow_coordinator import WorkflowCoordinator
+from app.services.ai_employee import AIEmployee
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1604,6 +1605,33 @@ def get_workflow_coordinator(
 WorkflowCoordinatorDep = Annotated[
     WorkflowCoordinator, Depends(get_workflow_coordinator)
 ]
+
+
+def get_ai_employee(
+    planning_engine: PlanningEngineDep = None,
+    workflow_coordinator: WorkflowCoordinatorDep = None,
+) -> AIEmployee:
+    """Provide the :class:`AIEmployee` — the AI Employee Foundation (Sprint 16.1).
+
+    Composes the injected Sprint 13 :class:`PlanningEngine` and the Sprint 15.15
+    :class:`WorkflowCoordinator` (constructor injection; it instantiates neither).
+    The foundation owns employee sessions and task delegation and orchestrates
+    those two collaborators through their existing public contracts — it plans
+    nothing, executes no capability, and never touches Runtime, Memory,
+    Permission, or Capability internals directly. When called outside a FastAPI
+    request the ``= None`` defaults fall back to the fully-wired
+    ``get_execution_orchestration_engine`` (a ready :class:`PlanningEngine`) and
+    ``get_workflow_coordinator``, both callable with no arguments. Purely
+    additive: it introduces a new foundation seam and changes no existing
+    Planning, Runtime, Workflow, or capability wiring.
+    """
+    return AIEmployee(
+        planning_engine or get_execution_orchestration_engine(),
+        workflow_coordinator or get_workflow_coordinator(),
+    )
+
+
+AIEmployeeDep = Annotated[AIEmployee, Depends(get_ai_employee)]
 
 
 def get_interaction_provider() -> InteractionProvider:
