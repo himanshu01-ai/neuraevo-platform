@@ -88,6 +88,7 @@ from app.services.runtime.browser_workspace import BrowserWorkspace
 from app.services.runtime.python_capability import PythonCapability
 from app.services.runtime.filesystem_capability import FileSystemCapability
 from app.services.runtime.email_capability import EmailCapability
+from app.services.runtime.calendar_capability import CalendarCapability
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1475,6 +1476,30 @@ def get_email_capability() -> EmailCapability:
 
 EmailCapabilityDep = Annotated[
     EmailCapability, Depends(get_email_capability)
+]
+
+
+def get_calendar_capability() -> CalendarCapability:
+    """Provide the :class:`CalendarCapability` — the calendar capability (Sprint 15.13).
+
+    Assembles the capability with its default collaborators (a
+    :class:`LocalCalendarExecutor` in-memory calendar, a
+    :class:`CalendarArtifactManager`, and a :class:`CalendarWorkspaceManager`); the
+    local executor uses only the Python standard library and holds no credential, so
+    building this provider needs no external SDK or calendar server. Swapping in a
+    real provider (Google Calendar, Microsoft Graph, Outlook, Exchange, Apple
+    Calendar, CalDAV) is a one-line change here — inject a different
+    :class:`CalendarExecutor` — with no impact on the capability or the Runtime. It
+    implements the Sprint 14.3 :class:`ExecutionCapability` interface. Purely
+    additive: it introduces a new capability seam and does not change the existing
+    ``get_execution_capability`` placeholder or any Runtime/Planning/Browser/Python/
+    File System/Email wiring.
+    """
+    return CalendarCapability()
+
+
+CalendarCapabilityDep = Annotated[
+    CalendarCapability, Depends(get_calendar_capability)
 ]
 
 
