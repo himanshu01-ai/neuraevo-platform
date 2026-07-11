@@ -90,6 +90,9 @@ from app.services.runtime.filesystem_capability import FileSystemCapability
 from app.services.runtime.email_capability import EmailCapability
 from app.services.runtime.calendar_capability import CalendarCapability
 from app.services.runtime.github_capability import GitHubCapability
+from app.services.runtime.capability_router import CapabilityRouter
+from app.services.runtime.artifact_coordinator import ArtifactCoordinator
+from app.services.runtime.workflow_coordinator import WorkflowCoordinator
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1525,6 +1528,81 @@ def get_github_capability() -> GitHubCapability:
 
 GitHubCapabilityDep = Annotated[
     GitHubCapability, Depends(get_github_capability)
+]
+
+
+def get_capability_router(
+    browser: BrowserCapabilityDep = None,
+    python: PythonCapabilityDep = None,
+    filesystem: FileSystemCapabilityDep = None,
+    email: EmailCapabilityDep = None,
+    calendar: CalendarCapabilityDep = None,
+    github: GitHubCapabilityDep = None,
+) -> CapabilityRouter:
+    """Provide the :class:`CapabilityRouter` over the Sprint 15 capabilities (15.15).
+
+    Composes the six existing capability providers — Browser (15.6), Python (15.10),
+    File System (15.11), Email (15.12), Calendar (15.13), and GitHub (15.14) — into a
+    name→:class:`ExecutionCapability` mapping (constructor injection; the router
+    instantiates nothing itself). Each is resolved through its own existing provider,
+    so no capability wiring changes. The router only knows the Sprint 14.3
+    :class:`ExecutionCapability` contract, so providers plug in behind a name without
+    the router changing. Purely additive.
+    """
+    return CapabilityRouter(
+        {
+            "browser": browser or get_browser_capability(),
+            "python": python or get_python_capability(),
+            "filesystem": filesystem or get_filesystem_capability(),
+            "email": email or get_email_capability(),
+            "calendar": calendar or get_calendar_capability(),
+            "github": github or get_github_capability(),
+        }
+    )
+
+
+CapabilityRouterDep = Annotated[
+    CapabilityRouter, Depends(get_capability_router)
+]
+
+
+def get_artifact_coordinator() -> ArtifactCoordinator:
+    """Provide the stateless :class:`ArtifactCoordinator` (Sprint 15.15).
+
+    Deterministic, offline extractor of shared :class:`WorkflowArtifactReference`
+    records from a capability's plain outputs — it holds no state, reads no file
+    contents, and exposes no provider object. Purely additive.
+    """
+    return ArtifactCoordinator()
+
+
+ArtifactCoordinatorDep = Annotated[
+    ArtifactCoordinator, Depends(get_artifact_coordinator)
+]
+
+
+def get_workflow_coordinator(
+    router: CapabilityRouterDep = None,
+    artifact_coordinator: ArtifactCoordinatorDep = None,
+) -> WorkflowCoordinator:
+    """Provide the :class:`WorkflowCoordinator` — sequential multi-capability runner (15.15).
+
+    Composes the injected :class:`CapabilityRouter` (over the six Sprint 15
+    capabilities) and the :class:`ArtifactCoordinator` (constructor injection; it
+    instantiates neither). It executes a given list of :class:`WorkflowStep` records,
+    threading outputs and artifacts between capabilities and stopping on the first
+    failure. It performs no planning and no AI autonomy — Planning produces the steps
+    in an earlier layer. Purely additive: it introduces a new coordination seam and
+    changes no existing capability, Runtime, or Planning wiring.
+    """
+    return WorkflowCoordinator(
+        router or get_capability_router(),
+        artifact_coordinator or get_artifact_coordinator(),
+    )
+
+
+WorkflowCoordinatorDep = Annotated[
+    WorkflowCoordinator, Depends(get_workflow_coordinator)
 ]
 
 
