@@ -87,6 +87,7 @@ from app.services.runtime.browser_interaction import BrowserInteraction
 from app.services.runtime.browser_workspace import BrowserWorkspace
 from app.services.runtime.python_capability import PythonCapability
 from app.services.runtime.filesystem_capability import FileSystemCapability
+from app.services.runtime.email_capability import EmailCapability
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1451,6 +1452,29 @@ def get_filesystem_capability() -> FileSystemCapability:
 
 FileSystemCapabilityDep = Annotated[
     FileSystemCapability, Depends(get_filesystem_capability)
+]
+
+
+def get_email_capability() -> EmailCapability:
+    """Provide the :class:`EmailCapability` — the email capability (Sprint 15.12).
+
+    Assembles the capability with its default collaborators (a
+    :class:`LocalEmailExecutor` in-memory mailbox, an :class:`EmailArtifactManager`,
+    and an :class:`EmailWorkspaceManager`); the local executor uses only the Python
+    standard library and holds no credential, so building this provider needs no
+    external SDK or mail server. Swapping in a real provider (Gmail API, Microsoft
+    Graph, IMAP, SMTP, Exchange) is a one-line change here — inject a different
+    :class:`EmailExecutor` — with no impact on the capability or the Runtime. It
+    implements the Sprint 14.3 :class:`ExecutionCapability` interface. Purely
+    additive: it introduces a new capability seam and does not change the existing
+    ``get_execution_capability`` placeholder or any Runtime/Planning/Browser/Python/
+    File System wiring.
+    """
+    return EmailCapability()
+
+
+EmailCapabilityDep = Annotated[
+    EmailCapability, Depends(get_email_capability)
 ]
 
 
