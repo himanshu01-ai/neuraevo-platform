@@ -122,6 +122,10 @@ import app.services.ai_employee.persistence as persistence_engine
 # from the frozen ``app.services.memory`` semantic-memory services) so the
 # composition root reads unambiguously.
 import app.services.ai_employee.memory as memory_engine
+# Sprint 16.7 Scheduling Platform — imported as a namespaced module so its
+# ``ExecutionScheduler`` (distinct from the frozen Sprint 13.11 planning
+# ``ExecutionScheduler`` imported above) never collides in the composition root.
+import app.services.ai_employee.scheduler as scheduler_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2123,6 +2127,107 @@ def get_memory_orchestrator(
 
 MemoryOrchestratorDep = Annotated[
     memory_engine.MemoryOrchestrator, Depends(get_memory_orchestrator)
+]
+
+
+def get_schedule_policy() -> scheduler_engine.SchedulePolicy:
+    """Provide the default schedule policy — :class:`RequestSchedulePolicy` (16.7).
+
+    The default respects each request's own schedule type; the abstraction lets
+    :class:`ImmediatePolicy`/:class:`DelayedPolicy`/:class:`RecurringPolicy` or a
+    later Sprint 16.x policy swap in with no change to the manager. Stateless,
+    deterministic. Purely additive.
+    """
+    return scheduler_engine.RequestSchedulePolicy()
+
+
+SchedulePolicyDep = Annotated[
+    scheduler_engine.SchedulePolicy, Depends(get_schedule_policy)
+]
+
+
+def get_schedule_planner() -> scheduler_engine.SchedulePlanner:
+    """Provide the deterministic :class:`SchedulePlanner` (Sprint 16.7).
+
+    Computes next-execution *ticks* for IMMEDIATE/DELAYED/AT_TIME/RECURRING from a
+    caller-supplied tick — no wall-clock, timer, or sleep. Stateless. Purely
+    additive.
+    """
+    return scheduler_engine.SchedulePlanner()
+
+
+SchedulePlannerDep = Annotated[
+    scheduler_engine.SchedulePlanner, Depends(get_schedule_planner)
+]
+
+
+def get_schedule_queue() -> scheduler_engine.ScheduleQueue:
+    """Provide the deterministic tick-ordered :class:`ScheduleQueue` (Sprint 16.7).
+
+    Orders entries by next-execution tick (insertion order breaks ties) with no
+    background worker; each request resolves a fresh queue. Purely additive.
+    """
+    return scheduler_engine.ScheduleQueue()
+
+
+ScheduleQueueDep = Annotated[
+    scheduler_engine.ScheduleQueue, Depends(get_schedule_queue)
+]
+
+
+def get_workflow_execution_scheduler(
+    lifecycle_manager: WorkflowLifecycleManagerDep = None,
+) -> scheduler_engine.ExecutionScheduler:
+    """Provide the Sprint 16.7 :class:`ExecutionScheduler` (distinct from planning's).
+
+    Composes the frozen Sprint 16.2 :class:`WorkflowLifecycleManager` (constructor
+    injection; it instantiates none). It executes due scheduled workflows only
+    through the lifecycle manager's ``run`` — never the Workflow Coordinator and
+    never a capability. When called outside a FastAPI request the ``= None`` default
+    falls back to the fully-wired lifecycle manager. Purely additive.
+    """
+    return scheduler_engine.ExecutionScheduler(
+        lifecycle_manager or get_workflow_lifecycle_manager()
+    )
+
+
+WorkflowExecutionSchedulerDep = Annotated[
+    scheduler_engine.ExecutionScheduler,
+    Depends(get_workflow_execution_scheduler),
+]
+
+
+def get_scheduler_manager(
+    policy: SchedulePolicyDep = None,
+    planner: SchedulePlannerDep = None,
+    queue: ScheduleQueueDep = None,
+    execution_scheduler: WorkflowExecutionSchedulerDep = None,
+    persistence: PersistenceEngineDep = None,
+    notification: NotificationEngineDep = None,
+) -> scheduler_engine.SchedulerManager:
+    """Provide the Sprint 16.7 :class:`SchedulerManager`.
+
+    Composes the injected schedule policy, planner, queue, and
+    :class:`ExecutionScheduler`, plus the Sprint 16.5 :class:`PersistenceManager` and
+    the Sprint 16.4 notification engine (constructor injection; it instantiates none
+    of them). It decides *when* workflows execute and delegates the running of due
+    schedules to the execution scheduler — it executes no workflow or capability
+    itself and uses only deterministic caller-supplied ticks. When called outside a
+    FastAPI request the ``= None`` defaults fall back to fresh provider instances.
+    Purely additive: a new scheduling seam that changes no existing wiring.
+    """
+    return scheduler_engine.SchedulerManager(
+        policy or get_schedule_policy(),
+        planner or get_schedule_planner(),
+        queue or get_schedule_queue(),
+        execution_scheduler or get_workflow_execution_scheduler(),
+        persistence or get_persistence_engine(),
+        notification or get_notification_engine(),
+    )
+
+
+SchedulerManagerDep = Annotated[
+    scheduler_engine.SchedulerManager, Depends(get_scheduler_manager)
 ]
 
 
