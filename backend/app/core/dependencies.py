@@ -106,6 +106,10 @@ from app.services.ai_employee import (
     RecoveryManager as WorkflowRecoveryManager,
     WorkflowLifecycleManager,
 )
+# Sprint 16.3 Human Approval Engine — imported as a namespaced module so its
+# ``ApprovalManager``/``AutoApprovalPolicy`` (distinct from the frozen Sprint 16.2
+# classes of the same name imported above) never collide in the composition root.
+import app.services.ai_employee.approval as approval_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1761,6 +1765,103 @@ def get_workflow_lifecycle_manager(
 
 WorkflowLifecycleManagerDep = Annotated[
     WorkflowLifecycleManager, Depends(get_workflow_lifecycle_manager)
+]
+
+
+def get_approval_risk_model() -> approval_engine.RiskModel:
+    """Provide the configurable :class:`RiskModel` — action → risk (Sprint 16.3).
+
+    Deterministic, offline assessment of a requested action's
+    :class:`ApprovalRiskLevel` from the default (override-able) mapping. It holds no
+    workflow state and executes nothing. Purely additive.
+    """
+    return approval_engine.RiskModel()
+
+
+ApprovalRiskModelDep = Annotated[
+    approval_engine.RiskModel, Depends(get_approval_risk_model)
+]
+
+
+def get_approval_policy() -> approval_engine.ApprovalPolicy:
+    """Provide the default approval policy — :class:`RiskBasedApprovalPolicy` (16.3).
+
+    The production default gates on risk (approval required at or above ``HIGH``);
+    the abstraction lets :class:`AutoApprovalPolicy` or a later Sprint 16.x policy
+    swap in with no change to the engine. Stateless, deterministic. Purely
+    additive.
+    """
+    return approval_engine.RiskBasedApprovalPolicy()
+
+
+ApprovalPolicyDep = Annotated[
+    approval_engine.ApprovalPolicy, Depends(get_approval_policy)
+]
+
+
+def get_approval_queue() -> approval_engine.ApprovalQueueManager:
+    """Provide the deterministic in-memory :class:`ApprovalQueueManager` (16.3).
+
+    Holds pending approval requests in enqueue order with no background worker;
+    each request resolves a fresh queue. Purely additive.
+    """
+    return approval_engine.ApprovalQueueManager()
+
+
+ApprovalQueueDep = Annotated[
+    approval_engine.ApprovalQueueManager, Depends(get_approval_queue)
+]
+
+
+def get_approval_engine(
+    policy: ApprovalPolicyDep = None,
+    risk_model: ApprovalRiskModelDep = None,
+    queue: ApprovalQueueDep = None,
+) -> approval_engine.ApprovalManager:
+    """Provide the Sprint 16.3 :class:`ApprovalManager` engine — approval entry point.
+
+    Composes the injected approval policy, configurable risk model, and in-memory
+    queue (constructor injection; it instantiates none of them). The engine
+    coordinates the approval flow only — it executes no workflow, no capability, and
+    persists no workflow. When called outside a FastAPI request the ``= None``
+    defaults fall back to the fresh provider instances, all callable with no
+    arguments. Purely additive: a new approval seam that changes no existing wiring.
+    """
+    return approval_engine.ApprovalManager(
+        policy or get_approval_policy(),
+        risk_model or get_approval_risk_model(),
+        queue or get_approval_queue(),
+    )
+
+
+ApprovalEngineDep = Annotated[
+    approval_engine.ApprovalManager, Depends(get_approval_engine)
+]
+
+
+def get_approval_workflow_coordinator(
+    lifecycle_manager: WorkflowLifecycleManagerDep = None,
+    engine: ApprovalEngineDep = None,
+) -> approval_engine.ApprovalWorkflowCoordinator:
+    """Provide the :class:`ApprovalWorkflowCoordinator` — approval↔workflow (16.3).
+
+    Composes the frozen Sprint 16.2 :class:`WorkflowLifecycleManager` and the Sprint
+    16.3 :class:`ApprovalManager` engine (constructor injection; it instantiates
+    neither). It maps approval outcomes to the lifecycle manager's existing
+    ``pause``/``resume``/``cancel`` transitions — pause when approval is required,
+    resume on approval, cancel on rejection — redesigning neither frozen component.
+    When called outside a FastAPI request the ``= None`` defaults fall back to the
+    fully-wired providers. Purely additive.
+    """
+    return approval_engine.ApprovalWorkflowCoordinator(
+        lifecycle_manager or get_workflow_lifecycle_manager(),
+        engine or get_approval_engine(),
+    )
+
+
+ApprovalWorkflowCoordinatorDep = Annotated[
+    approval_engine.ApprovalWorkflowCoordinator,
+    Depends(get_approval_workflow_coordinator),
 ]
 
 
