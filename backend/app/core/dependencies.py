@@ -137,6 +137,9 @@ import app.services.ai_employee.coordination as coordination_platform
 # Sprint 16.10 AI Employee Service Layer — imported as a namespaced module so its
 # service/session/validator/health names stay isolated in the composition root.
 import app.services.ai_employee.service as ai_employee_service
+# Sprint 16.11 Enterprise Operations Layer — imported as a namespaced module so its
+# authorization/audit/observability/deployment names stay isolated in the root.
+import app.services.ai_employee.operations as enterprise_operations
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2595,6 +2598,201 @@ def get_ai_employee_service(
 
 AIEmployeeServiceDep = Annotated[
     ai_employee_service.AIEmployeeService, Depends(get_ai_employee_service)
+]
+
+
+# =====================================================================
+# Sprint 16.11 — Enterprise Operations Layer
+# =====================================================================
+def get_authorization_manager() -> (
+    enterprise_operations.AuthorizationManager
+):
+    """Provide the default local :class:`AuthorizationManager` (16.11).
+
+    A deterministic, local :class:`LocalAuthorizationManager` whose default policy
+    binds the ``system`` principal to an ``admin`` role holding the ``"*"`` (all)
+    permission; other principals are denied unmapped actions. No authentication, no
+    OAuth, no identity provider. Stateless, deterministic. Purely additive.
+    """
+    return enterprise_operations.LocalAuthorizationManager(
+        role_bindings={"system": {"admin"}},
+        role_permissions={"admin": {"*"}},
+    )
+
+
+AuthorizationManagerDep = Annotated[
+    enterprise_operations.AuthorizationManager,
+    Depends(get_authorization_manager),
+]
+
+
+def get_audit_manager() -> enterprise_operations.AuditManager:
+    """Provide a fresh :class:`AuditManager` — the append-only audit ledger (16.11).
+
+    An in-memory, append-only ledger of immutable audit records; it never mutates a
+    record and runs nothing. Stateful (holds the ledger); a fresh instance per call.
+    Purely additive.
+    """
+    return enterprise_operations.AuditManager()
+
+
+AuditManagerDep = Annotated[
+    enterprise_operations.AuditManager, Depends(get_audit_manager)
+]
+
+
+def get_configuration_manager() -> (
+    enterprise_operations.ConfigurationManager
+):
+    """Provide the default :class:`ConfigurationManager` (16.11).
+
+    Validates the platform's operational configuration deterministically over a small
+    default set of settings and required keys. Stateless beyond its immutable config;
+    it runs nothing. Purely additive.
+    """
+    return enterprise_operations.ConfigurationManager(
+        defaults={
+            "environment": "local",
+            "service_name": "ai-employee",
+            "max_active_sessions": 100,
+        },
+        required_keys=["environment", "service_name"],
+    )
+
+
+ConfigurationManagerDep = Annotated[
+    enterprise_operations.ConfigurationManager,
+    Depends(get_configuration_manager),
+]
+
+
+def get_observability_manager(
+    service: AIEmployeeServiceDep = None,
+    health_manager: HealthManagerDep = None,
+    audit_manager: AuditManagerDep = None,
+) -> enterprise_operations.ObservabilityManager:
+    """Provide the Sprint 16.11 :class:`ObservabilityManager`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` and
+    :class:`HealthManager` and the Sprint 16.11 :class:`AuditManager` (constructor
+    injection; it instantiates none). It collects deterministic telemetry by reading
+    their public surfaces only — it connects to no external telemetry system. When
+    called outside a FastAPI request the ``= None`` defaults fall back to fresh
+    provider instances. Purely additive.
+    """
+    return enterprise_operations.ObservabilityManager(
+        service or get_ai_employee_service(),
+        health_manager or get_health_manager(),
+        audit_manager or get_audit_manager(),
+    )
+
+
+ObservabilityManagerDep = Annotated[
+    enterprise_operations.ObservabilityManager,
+    Depends(get_observability_manager),
+]
+
+
+def get_deployment_validator(
+    configuration_manager: ConfigurationManagerDep = None,
+    health_manager: HealthManagerDep = None,
+) -> enterprise_operations.DeploymentValidator:
+    """Provide the Sprint 16.11 :class:`DeploymentValidator`.
+
+    Composes the injected :class:`ConfigurationManager` and the frozen Sprint 16.10
+    :class:`HealthManager` (constructor injection; it instantiates none). It validates
+    deployment readiness by reading configuration and health — it deploys and starts
+    nothing. When called outside a FastAPI request the ``= None`` defaults fall back to
+    fresh provider instances. Purely additive.
+    """
+    return enterprise_operations.DeploymentValidator(
+        configuration_manager or get_configuration_manager(),
+        health_manager or get_health_manager(),
+    )
+
+
+DeploymentValidatorDep = Annotated[
+    enterprise_operations.DeploymentValidator,
+    Depends(get_deployment_validator),
+]
+
+
+def get_diagnostics_manager(
+    observability_manager: ObservabilityManagerDep = None,
+    deployment_validator: DeploymentValidatorDep = None,
+) -> enterprise_operations.DiagnosticsManager:
+    """Provide the Sprint 16.11 :class:`DiagnosticsManager`.
+
+    Composes the injected :class:`ObservabilityManager` and
+    :class:`DeploymentValidator` (constructor injection; it instantiates none). It
+    aggregates diagnostics by reading them only — it connects to no external
+    monitoring. When called outside a FastAPI request the ``= None`` defaults fall back
+    to fresh provider instances. Purely additive.
+    """
+    return enterprise_operations.DiagnosticsManager(
+        observability_manager or get_observability_manager(),
+        deployment_validator or get_deployment_validator(),
+    )
+
+
+DiagnosticsManagerDep = Annotated[
+    enterprise_operations.DiagnosticsManager,
+    Depends(get_diagnostics_manager),
+]
+
+
+def get_enterprise_operations_manager(
+    authorization: AuthorizationManagerDep = None,
+    audit: AuditManagerDep = None,
+    observability: ObservabilityManagerDep = None,
+    configuration: ConfigurationManagerDep = None,
+    deployment: DeploymentValidatorDep = None,
+    diagnostics: DiagnosticsManagerDep = None,
+    service: AIEmployeeServiceDep = None,
+    health_manager: HealthManagerDep = None,
+) -> enterprise_operations.EnterpriseOperationsManager:
+    """Provide the Sprint 16.11 :class:`EnterpriseOperationsManager` — the ops entry point.
+
+    Composes the injected authorization, audit, observability, configuration,
+    deployment, and diagnostics managers over the frozen Sprint 16.10
+    :class:`AIEmployeeService` (constructor injection; it instantiates none). To keep
+    telemetry and audit consistent, when building the defaults it threads a single
+    shared :class:`AIEmployeeService`, :class:`HealthManager`, and
+    :class:`AuditManager` through the observability, deployment, and diagnostics
+    seams. It adds operational capabilities only — it executes no workflow or
+    capability, never calls the Workflow Coordinator, and delegates every business
+    request to the service. When called outside a FastAPI request the ``= None``
+    defaults fall back to these shared instances. Purely additive: a new operations
+    seam that changes no existing wiring.
+    """
+    service = service or get_ai_employee_service()
+    health_manager = health_manager or get_health_manager()
+    audit = audit or get_audit_manager()
+    authorization = authorization or get_authorization_manager()
+    configuration = configuration or get_configuration_manager()
+    observability = observability or get_observability_manager(
+        service, health_manager, audit
+    )
+    deployment = deployment or get_deployment_validator(
+        configuration, health_manager
+    )
+    diagnostics = diagnostics or get_diagnostics_manager(
+        observability, deployment
+    )
+    return enterprise_operations.EnterpriseOperationsManager(
+        authorization,
+        audit,
+        observability,
+        configuration,
+        deployment,
+        diagnostics,
+        service,
+    )
+
+
+EnterpriseOperationsManagerDep = Annotated[
+    enterprise_operations.EnterpriseOperationsManager,
+    Depends(get_enterprise_operations_manager),
 ]
 
 
