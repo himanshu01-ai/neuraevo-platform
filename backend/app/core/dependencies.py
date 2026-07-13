@@ -118,6 +118,10 @@ import app.services.ai_employee.notification as notification_engine
 # ``PersistenceManager`` (distinct from the frozen Sprint 16.2 class of the same
 # name imported above) never collides in the composition root.
 import app.services.ai_employee.persistence as persistence_engine
+# Sprint 16.6 Memory Orchestrator — imported as a namespaced module (kept distinct
+# from the frozen ``app.services.memory`` semantic-memory services) so the
+# composition root reads unambiguously.
+import app.services.ai_employee.memory as memory_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2044,6 +2048,81 @@ def get_persistence_engine(
 
 PersistenceEngineDep = Annotated[
     persistence_engine.PersistenceManager, Depends(get_persistence_engine)
+]
+
+
+def get_memory_policy() -> memory_engine.MemoryPolicy:
+    """Provide the default memory policy — :class:`RuleBasedMemoryPolicy` (16.6).
+
+    The default remembers every category except transient notifications; the
+    abstraction lets a later Sprint 16.x policy swap in with no change to the
+    orchestrator. Stateless, deterministic. Purely additive.
+    """
+    return memory_engine.RuleBasedMemoryPolicy()
+
+
+MemoryPolicyDep = Annotated[
+    memory_engine.MemoryPolicy, Depends(get_memory_policy)
+]
+
+
+def get_memory_classifier() -> memory_engine.MemoryClassifier:
+    """Provide the default memory classifier — :class:`RuleBasedMemoryClassifier` (16.6).
+
+    The default maps preferences/system to ``PERMANENT``, workflow/task results to
+    ``LONG_TERM``, approvals to ``SHORT_TERM``, and notifications to ``TEMPORARY``;
+    the mapping is configurable. Stateless, deterministic. Purely additive.
+    """
+    return memory_engine.RuleBasedMemoryClassifier()
+
+
+MemoryClassifierDep = Annotated[
+    memory_engine.MemoryClassifier, Depends(get_memory_classifier)
+]
+
+
+def get_memory_retriever() -> memory_engine.MemoryRetriever:
+    """Provide the deterministic in-memory :class:`MemoryRetriever` index (16.6).
+
+    Holds the memory index and retrieves with exact filters (workflow/category/
+    priority/tag/latest) — no embeddings, vectors, or semantic search — with no
+    background worker; each request resolves a fresh index. Purely additive.
+    """
+    return memory_engine.MemoryRetriever()
+
+
+MemoryRetrieverDep = Annotated[
+    memory_engine.MemoryRetriever, Depends(get_memory_retriever)
+]
+
+
+def get_memory_orchestrator(
+    policy: MemoryPolicyDep = None,
+    classifier: MemoryClassifierDep = None,
+    retriever: MemoryRetrieverDep = None,
+    persistence: PersistenceEngineDep = None,
+) -> memory_engine.MemoryOrchestrator:
+    """Provide the Sprint 16.6 :class:`MemoryOrchestrator`.
+
+    Composes the injected memory policy, classifier, retriever, and the Sprint 16.5
+    :class:`PersistenceManager` (constructor injection; it instantiates none of
+    them). The orchestrator decides what to remember/retrieve and always routes
+    durable workflow-state storage through the Persistence Layer — it stores no
+    record itself, touches no repository or database, and executes no workflow. When
+    called outside a FastAPI request the ``= None`` defaults fall back to fresh
+    provider instances. Purely additive: a new memory seam that changes no existing
+    wiring.
+    """
+    return memory_engine.MemoryOrchestrator(
+        policy or get_memory_policy(),
+        classifier or get_memory_classifier(),
+        retriever or get_memory_retriever(),
+        persistence or get_persistence_engine(),
+    )
+
+
+MemoryOrchestratorDep = Annotated[
+    memory_engine.MemoryOrchestrator, Depends(get_memory_orchestrator)
 ]
 
 
