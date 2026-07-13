@@ -110,6 +110,10 @@ from app.services.ai_employee import (
 # ``ApprovalManager``/``AutoApprovalPolicy`` (distinct from the frozen Sprint 16.2
 # classes of the same name imported above) never collide in the composition root.
 import app.services.ai_employee.approval as approval_engine
+# Sprint 16.4 Notification Engine — imported as a namespaced module so its
+# ``NotificationManager`` (distinct from the frozen Sprint 16.2 class of the same
+# name imported above) never collides in the composition root.
+import app.services.ai_employee.notification as notification_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1862,6 +1866,140 @@ def get_approval_workflow_coordinator(
 ApprovalWorkflowCoordinatorDep = Annotated[
     approval_engine.ApprovalWorkflowCoordinator,
     Depends(get_approval_workflow_coordinator),
+]
+
+
+def get_notification_priority_model() -> notification_engine.PriorityModel:
+    """Provide the configurable :class:`PriorityModel` — event → priority (16.4).
+
+    Deterministic, offline assignment of a notification event's
+    :class:`NotificationPriority` from the default (override-able) mapping. It holds
+    no workflow state and executes nothing. Purely additive.
+    """
+    return notification_engine.PriorityModel()
+
+
+NotificationPriorityModelDep = Annotated[
+    notification_engine.PriorityModel, Depends(get_notification_priority_model)
+]
+
+
+def get_notification_policy() -> notification_engine.NotificationPolicy:
+    """Provide the default notification policy — :class:`ImmediateNotificationPolicy` (16.4).
+
+    The default dispatches each notification as it is created; the abstraction lets
+    :class:`BatchedNotificationPolicy` or a later Sprint 16.x policy swap in with no
+    change to the engine. Stateless, deterministic. Purely additive.
+    """
+    return notification_engine.ImmediateNotificationPolicy()
+
+
+NotificationPolicyDep = Annotated[
+    notification_engine.NotificationPolicy, Depends(get_notification_policy)
+]
+
+
+def get_notification_queue() -> notification_engine.NotificationQueue:
+    """Provide the deterministic in-memory priority :class:`NotificationQueue` (16.4).
+
+    Orders queued notifications by priority (``CRITICAL`` → ``LOW``, FIFO within a
+    priority) with no background worker; each request resolves a fresh queue.
+    Purely additive.
+    """
+    return notification_engine.NotificationQueue()
+
+
+NotificationQueueDep = Annotated[
+    notification_engine.NotificationQueue, Depends(get_notification_queue)
+]
+
+
+def get_notification_dispatcher() -> notification_engine.NotificationDispatcher:
+    """Provide the basic :class:`NotificationDispatcher` — in-memory (16.4).
+
+    The abstraction is the seam a later Sprint 16.x delivery channel plugs into;
+    the Sprint 16.4 default records dispatched/delivered notifications in memory and
+    delivers nothing externally (no Email/Slack/Teams/Discord/SMS/Push/WebSocket).
+    Each request resolves a fresh dispatcher. Purely additive.
+    """
+    return notification_engine.InMemoryNotificationDispatcher()
+
+
+NotificationDispatcherDep = Annotated[
+    notification_engine.NotificationDispatcher,
+    Depends(get_notification_dispatcher),
+]
+
+
+def get_notification_history() -> notification_engine.NotificationHistory:
+    """Provide the deterministic in-memory :class:`NotificationHistory` store (16.4).
+
+    Records immutable notification history and answers find-by-workflow/type/status
+    queries with no background worker; each request resolves a fresh store. Purely
+    additive.
+    """
+    return notification_engine.NotificationHistory()
+
+
+NotificationHistoryDep = Annotated[
+    notification_engine.NotificationHistory, Depends(get_notification_history)
+]
+
+
+def get_notification_engine(
+    policy: NotificationPolicyDep = None,
+    queue: NotificationQueueDep = None,
+    dispatcher: NotificationDispatcherDep = None,
+    history: NotificationHistoryDep = None,
+    priority_model: NotificationPriorityModelDep = None,
+) -> notification_engine.NotificationManager:
+    """Provide the Sprint 16.4 :class:`NotificationManager` engine.
+
+    Composes the injected notification policy, priority queue, in-memory dispatcher,
+    history store, and configurable priority model (constructor injection; it
+    instantiates none of them). The engine coordinates the notification lifecycle
+    only — it executes no workflow, no capability, and delivers nothing externally.
+    When called outside a FastAPI request the ``= None`` defaults fall back to the
+    fresh provider instances, all callable with no arguments. Purely additive: a new
+    notification seam that changes no existing wiring.
+    """
+    return notification_engine.NotificationManager(
+        policy or get_notification_policy(),
+        queue or get_notification_queue(),
+        dispatcher or get_notification_dispatcher(),
+        history or get_notification_history(),
+        priority_model or get_notification_priority_model(),
+    )
+
+
+NotificationEngineDep = Annotated[
+    notification_engine.NotificationManager, Depends(get_notification_engine)
+]
+
+
+def get_notification_workflow_coordinator(
+    lifecycle_manager: WorkflowLifecycleManagerDep = None,
+    engine: NotificationEngineDep = None,
+) -> notification_engine.NotificationWorkflowCoordinator:
+    """Provide the :class:`NotificationWorkflowCoordinator` — notification↔workflow (16.4).
+
+    Composes the frozen Sprint 16.2 :class:`WorkflowLifecycleManager` and the Sprint
+    16.4 :class:`NotificationManager` engine (constructor injection; it instantiates
+    neither). It records a mapped notification from each lifecycle transition
+    (``start``/``pause``/``resume``/``cancel``/``complete``/``fail``), redesigning
+    neither frozen component and delivering nothing externally. When called outside
+    a FastAPI request the ``= None`` defaults fall back to the fully-wired providers.
+    Purely additive.
+    """
+    return notification_engine.NotificationWorkflowCoordinator(
+        lifecycle_manager or get_workflow_lifecycle_manager(),
+        engine or get_notification_engine(),
+    )
+
+
+NotificationWorkflowCoordinatorDep = Annotated[
+    notification_engine.NotificationWorkflowCoordinator,
+    Depends(get_notification_workflow_coordinator),
 ]
 
 
