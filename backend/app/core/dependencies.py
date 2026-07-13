@@ -114,6 +114,10 @@ import app.services.ai_employee.approval as approval_engine
 # ``NotificationManager`` (distinct from the frozen Sprint 16.2 class of the same
 # name imported above) never collides in the composition root.
 import app.services.ai_employee.notification as notification_engine
+# Sprint 16.5 Persistence Layer — imported as a namespaced module so its
+# ``PersistenceManager`` (distinct from the frozen Sprint 16.2 class of the same
+# name imported above) never collides in the composition root.
+import app.services.ai_employee.persistence as persistence_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2000,6 +2004,46 @@ def get_notification_workflow_coordinator(
 NotificationWorkflowCoordinatorDep = Annotated[
     notification_engine.NotificationWorkflowCoordinator,
     Depends(get_notification_workflow_coordinator),
+]
+
+
+def get_persistence_repository() -> persistence_engine.PersistenceRepository:
+    """Provide the basic :class:`PersistenceRepository` — in-memory store (16.5).
+
+    The abstraction is the seam a later Sprint 16.x storage provider plugs into; the
+    Sprint 16.5 default keeps versioned snapshots in a deterministic in-memory
+    dictionary with no database, SQLite, PostgreSQL, Redis, or cloud storage. The
+    repository owns storage; each request resolves a fresh one. Purely additive.
+    """
+    return persistence_engine.InMemoryPersistenceRepository()
+
+
+PersistenceRepositoryDep = Annotated[
+    persistence_engine.PersistenceRepository,
+    Depends(get_persistence_repository),
+]
+
+
+def get_persistence_engine(
+    repository: PersistenceRepositoryDep = None,
+) -> persistence_engine.PersistenceManager:
+    """Provide the Sprint 16.5 :class:`PersistenceManager` engine.
+
+    Composes the injected :class:`PersistenceRepository` (constructor injection; it
+    instantiates none). The engine owns persistence *decisions* — versioning,
+    snapshotting, and validation — and delegates all storage to the repository; it
+    executes no workflow, no capability, and contains no storage logic. When called
+    outside a FastAPI request the ``= None`` default falls back to a fresh in-memory
+    repository. Purely additive: a new persistence seam that changes no existing
+    wiring.
+    """
+    return persistence_engine.PersistenceManager(
+        repository or get_persistence_repository()
+    )
+
+
+PersistenceEngineDep = Annotated[
+    persistence_engine.PersistenceManager, Depends(get_persistence_engine)
 ]
 
 
