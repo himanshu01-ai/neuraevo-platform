@@ -94,6 +94,18 @@ from app.services.runtime.capability_router import CapabilityRouter
 from app.services.runtime.artifact_coordinator import ArtifactCoordinator
 from app.services.runtime.workflow_coordinator import WorkflowCoordinator
 from app.services.ai_employee import AIEmployee
+from app.services.ai_employee import (
+    ApprovalManager,
+    AutoApprovalPolicy,
+    BasicRecoveryManager,
+    InMemoryNotificationManager,
+    InMemoryPersistenceManager,
+    NotificationManager,
+    PersistenceManager,
+    ProgressTracker,
+    RecoveryManager as WorkflowRecoveryManager,
+    WorkflowLifecycleManager,
+)
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -1632,6 +1644,124 @@ def get_ai_employee(
 
 
 AIEmployeeDep = Annotated[AIEmployee, Depends(get_ai_employee)]
+
+
+def get_progress_tracker() -> ProgressTracker:
+    """Provide the stateless :class:`ProgressTracker` (Sprint 16.2).
+
+    Deterministic, offline derivation of a :class:`WorkflowProgress` from a step
+    count or a Sprint 15.15 :class:`WorkflowExecutionResult`. It holds no state and
+    executes, dispatches, and mutates nothing. Purely additive.
+    """
+    return ProgressTracker()
+
+
+ProgressTrackerDep = Annotated[ProgressTracker, Depends(get_progress_tracker)]
+
+
+def get_approval_manager() -> ApprovalManager:
+    """Provide the basic :class:`ApprovalManager` — :class:`AutoApprovalPolicy` (16.2).
+
+    The abstraction lets a later Sprint 16.x policy swap in behind
+    ``requires_approval``/``approve``/``reject`` with no change to the lifecycle
+    manager; the Sprint 16.2 default auto-approves every job and never gates a run.
+    Stateless, deterministic; no UI, voice, mobile, or permission system. Purely
+    additive.
+    """
+    return AutoApprovalPolicy()
+
+
+ApprovalManagerDep = Annotated[ApprovalManager, Depends(get_approval_manager)]
+
+
+def get_notification_manager() -> NotificationManager:
+    """Provide the basic :class:`NotificationManager` — in-memory store (16.2).
+
+    The abstraction lets a later Sprint 16.x implementation (push, email, webhook)
+    swap in behind ``record``/``notifications`` with no change to the lifecycle
+    manager; the Sprint 16.2 default stores notifications in memory and delivers
+    none. Deterministic; each request resolves a fresh store. Purely additive.
+    """
+    return InMemoryNotificationManager()
+
+
+NotificationManagerDep = Annotated[
+    NotificationManager, Depends(get_notification_manager)
+]
+
+
+def get_workflow_recovery_manager() -> WorkflowRecoveryManager:
+    """Provide the basic workflow :class:`RecoveryManager` — bounded retries (16.2).
+
+    Named ``workflow`` to stay distinct from the Sprint 13 planning
+    :class:`RecoveryManager`. The abstraction lets a later Sprint 16.x policy swap
+    in behind ``can_retry``/``retry``/``abort`` with no change to the lifecycle
+    manager; the Sprint 16.2 default allows a bounded number of whole-job retries
+    and no advanced recovery. Stateless, deterministic. Purely additive.
+    """
+    return BasicRecoveryManager()
+
+
+WorkflowRecoveryManagerDep = Annotated[
+    WorkflowRecoveryManager, Depends(get_workflow_recovery_manager)
+]
+
+
+def get_persistence_manager() -> PersistenceManager:
+    """Provide the basic :class:`PersistenceManager` — in-memory store (16.2).
+
+    The abstraction lets a later Sprint 16.x implementation (PostgreSQL, Redis,
+    file) swap in behind ``save_instance``/``load_instance``/``delete_instance``
+    with no change to the lifecycle manager; the Sprint 16.2 default keeps instances
+    in a deterministic in-memory dictionary with no database or file I/O. Each
+    request resolves a fresh store. Purely additive.
+    """
+    return InMemoryPersistenceManager()
+
+
+PersistenceManagerDep = Annotated[
+    PersistenceManager, Depends(get_persistence_manager)
+]
+
+
+def get_workflow_lifecycle_manager(
+    planning_engine: PlanningEngineDep = None,
+    workflow_coordinator: WorkflowCoordinatorDep = None,
+    progress_tracker: ProgressTrackerDep = None,
+    approval_manager: ApprovalManagerDep = None,
+    notification_manager: NotificationManagerDep = None,
+    recovery_manager: WorkflowRecoveryManagerDep = None,
+    persistence_manager: PersistenceManagerDep = None,
+) -> WorkflowLifecycleManager:
+    """Provide the :class:`WorkflowLifecycleManager` — the Execution Platform (16.2).
+
+    Composes the injected Sprint 13 :class:`PlanningEngine`, the Sprint 15.15
+    :class:`WorkflowCoordinator`, and the five Sprint 16.2 managers
+    (:class:`ProgressTracker`, :class:`ApprovalManager`,
+    :class:`NotificationManager`, workflow :class:`RecoveryManager`,
+    :class:`PersistenceManager`) — constructor injection; it instantiates none of
+    them. The lifecycle manager owns a delegated job's life (create, start, pause,
+    resume, cancel, retry, complete, fail, run) and reaches capabilities only
+    through the Workflow Coordinator — never importing a capability module. When
+    called outside a FastAPI request the ``= None`` defaults fall back to the
+    fully-wired ``get_execution_orchestration_engine`` and ``get_workflow_coordinator``
+    plus fresh managers, all callable with no arguments. Purely additive: it
+    introduces a new coordination seam and changes no existing wiring.
+    """
+    return WorkflowLifecycleManager(
+        planning_engine or get_execution_orchestration_engine(),
+        workflow_coordinator or get_workflow_coordinator(),
+        progress_tracker or get_progress_tracker(),
+        approval_manager or get_approval_manager(),
+        notification_manager or get_notification_manager(),
+        recovery_manager or get_workflow_recovery_manager(),
+        persistence_manager or get_persistence_manager(),
+    )
+
+
+WorkflowLifecycleManagerDep = Annotated[
+    WorkflowLifecycleManager, Depends(get_workflow_lifecycle_manager)
+]
 
 
 def get_interaction_provider() -> InteractionProvider:
