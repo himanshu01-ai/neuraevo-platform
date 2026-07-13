@@ -131,6 +131,9 @@ import app.services.ai_employee.scheduler as scheduler_engine
 # 16.2 workflow ``RecoveryManager`` imported above) never collides in the
 # composition root.
 import app.services.ai_employee.recovery as recovery_engine
+# Sprint 16.9 Agent Coordination Platform — imported as a namespaced module so its
+# coordinator/registry/resolver/policy names stay isolated in the composition root.
+import app.services.ai_employee.coordination as coordination_platform
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2336,6 +2339,127 @@ def get_recovery_engine(
 
 RecoveryEngineDep = Annotated[
     recovery_engine.RecoveryManager, Depends(get_recovery_engine)
+]
+
+
+# =====================================================================
+# Sprint 16.9 — Agent Coordination Platform
+# =====================================================================
+def get_agent_registry() -> coordination_platform.AgentRegistry:
+    """Provide a fresh :class:`AgentRegistry` — the roster of AI Employees (16.9).
+
+    An in-memory roster that maintains registered agents and decides nothing about
+    which agent handles work (the resolver and policy decide). Stateful (holds the
+    roster); a fresh instance per call. Purely additive.
+    """
+    return coordination_platform.AgentRegistry()
+
+
+AgentRegistryDep = Annotated[
+    coordination_platform.AgentRegistry, Depends(get_agent_registry)
+]
+
+
+def get_agent_resolver() -> coordination_platform.AgentResolver:
+    """Provide the default :class:`AgentResolver` — availability/role/capability (16.9).
+
+    Filters candidate agents by the configured criteria (available, role match, all
+    required capabilities) and ranks them by priority; the flags let a caller relax
+    any criterion with no change to the coordinator. Stateless, deterministic.
+    Purely additive.
+    """
+    return coordination_platform.AgentResolver()
+
+
+AgentResolverDep = Annotated[
+    coordination_platform.AgentResolver, Depends(get_agent_resolver)
+]
+
+
+def get_coordination_policy() -> coordination_platform.CoordinationPolicy:
+    """Provide the default coordination policy — :class:`SingleAgentPolicy` (16.9).
+
+    The default assigns a task to the single most suitable agent; the abstraction
+    lets :class:`CollaborativePolicy`/:class:`PriorityPolicy` or a later policy swap
+    in with no change to the coordinator. Stateless, deterministic. Purely additive.
+    """
+    return coordination_platform.SingleAgentPolicy()
+
+
+CoordinationPolicyDep = Annotated[
+    coordination_platform.CoordinationPolicy, Depends(get_coordination_policy)
+]
+
+
+def get_task_delegator(
+    ai_employee: AIEmployeeDep = None,
+) -> coordination_platform.TaskDelegator:
+    """Provide the Sprint 16.9 :class:`TaskDelegator`.
+
+    Composes the frozen Sprint 16.1 :class:`AIEmployee` (constructor injection; it
+    instantiates none). It assigns work by delegating the running to the
+    :class:`AIEmployee` — never the Workflow Coordinator and never a capability. When
+    called outside a FastAPI request the ``= None`` default falls back to the
+    fully-wired :class:`AIEmployee`. Purely additive.
+    """
+    return coordination_platform.TaskDelegator(
+        ai_employee or get_ai_employee()
+    )
+
+
+TaskDelegatorDep = Annotated[
+    coordination_platform.TaskDelegator, Depends(get_task_delegator)
+]
+
+
+def get_collaboration_context() -> coordination_platform.CollaborationContext:
+    """Provide a fresh :class:`CollaborationContext` — the collaboration ledger (16.9).
+
+    An in-memory ledger of participating agents, delegated tasks, and their
+    ownership; it decides nothing and runs nothing. Stateful (holds the ledger); a
+    fresh instance per call. Purely additive.
+    """
+    return coordination_platform.CollaborationContext()
+
+
+CollaborationContextDep = Annotated[
+    coordination_platform.CollaborationContext,
+    Depends(get_collaboration_context),
+]
+
+
+def get_agent_coordinator(
+    registry: AgentRegistryDep = None,
+    resolver: AgentResolverDep = None,
+    policy: CoordinationPolicyDep = None,
+    delegator: TaskDelegatorDep = None,
+    collaboration: CollaborationContextDep = None,
+    notification: NotificationEngineDep = None,
+) -> coordination_platform.AgentCoordinator:
+    """Provide the Sprint 16.9 :class:`AgentCoordinator`.
+
+    Composes the injected :class:`AgentRegistry`, :class:`AgentResolver`,
+    :class:`CoordinationPolicy`, :class:`TaskDelegator`, and
+    :class:`CollaborationContext`, plus the Sprint 16.4 notification engine
+    (constructor injection; it instantiates none of them). It coordinates *which*
+    agent handles *which* work and delegates every run through the delegator — it
+    executes no workflow or capability itself and does no networking, RPC, or
+    messaging. When called outside a FastAPI request the ``= None`` defaults fall
+    back to fresh provider instances. Purely additive: a new coordination seam that
+    changes no existing wiring.
+    """
+    return coordination_platform.AgentCoordinator(
+        registry or get_agent_registry(),
+        resolver or get_agent_resolver(),
+        policy or get_coordination_policy(),
+        delegator or get_task_delegator(),
+        collaboration or get_collaboration_context(),
+        notification or get_notification_engine(),
+    )
+
+
+AgentCoordinatorDep = Annotated[
+    coordination_platform.AgentCoordinator, Depends(get_agent_coordinator)
 ]
 
 
