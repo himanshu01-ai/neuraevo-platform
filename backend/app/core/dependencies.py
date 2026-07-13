@@ -126,6 +126,11 @@ import app.services.ai_employee.memory as memory_engine
 # ``ExecutionScheduler`` (distinct from the frozen Sprint 13.11 planning
 # ``ExecutionScheduler`` imported above) never collides in the composition root.
 import app.services.ai_employee.scheduler as scheduler_engine
+# Sprint 16.8 Recovery engine — imported as a namespaced module so its
+# ``RecoveryManager`` (distinct from the frozen Sprint 13.13 planning and Sprint
+# 16.2 workflow ``RecoveryManager`` imported above) never collides in the
+# composition root.
+import app.services.ai_employee.recovery as recovery_engine
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2228,6 +2233,109 @@ def get_scheduler_manager(
 
 SchedulerManagerDep = Annotated[
     scheduler_engine.SchedulerManager, Depends(get_scheduler_manager)
+]
+
+
+def get_failure_classifier() -> recovery_engine.FailureClassifier:
+    """Provide the default :class:`FailureClassifier` — keyword-based (16.8).
+
+    Maps a failure reason to a :class:`FailureType` from a configurable keyword
+    ruleset (transient/permanent/user-action/system, else unknown). Stateless,
+    deterministic. Purely additive.
+    """
+    return recovery_engine.RuleBasedFailureClassifier()
+
+
+FailureClassifierDep = Annotated[
+    recovery_engine.FailureClassifier, Depends(get_failure_classifier)
+]
+
+
+def get_recovery_policy() -> recovery_engine.RecoveryPolicy:
+    """Provide the default recovery policy — :class:`LimitedRetryPolicy` (16.8).
+
+    The default retries a retryable failure up to three attempts, flags a
+    permanent/user-action failure for manual handling, and aborts when retries are
+    exhausted; the abstraction lets :class:`ImmediateRetryPolicy`/
+    :class:`ManualRecoveryPolicy` or a later Sprint 16.x policy swap in with no change
+    to the manager. Stateless, deterministic. Purely additive.
+    """
+    return recovery_engine.LimitedRetryPolicy()
+
+
+RecoveryPolicyDep = Annotated[
+    recovery_engine.RecoveryPolicy, Depends(get_recovery_policy)
+]
+
+
+def get_retry_strategy() -> recovery_engine.RetryStrategy:
+    """Provide the default :class:`RetryStrategy` — exponential backoff (16.8).
+
+    Computes next-retry *ticks* deterministically from a caller-supplied tick — no
+    timers or wall-clock. Stateless. Purely additive.
+    """
+    return recovery_engine.RetryStrategy(
+        recovery_engine.RetryStrategyType.EXPONENTIAL_BACKOFF
+    )
+
+
+RetryStrategyDep = Annotated[
+    recovery_engine.RetryStrategy, Depends(get_retry_strategy)
+]
+
+
+def get_recovery_coordinator(
+    lifecycle_manager: WorkflowLifecycleManagerDep = None,
+) -> recovery_engine.RecoveryCoordinator:
+    """Provide the Sprint 16.8 :class:`RecoveryCoordinator`.
+
+    Composes the frozen Sprint 16.2 :class:`WorkflowLifecycleManager` (constructor
+    injection; it instantiates none). It executes recovery only through the lifecycle
+    manager's transitions — never the Workflow Coordinator and never a capability.
+    When called outside a FastAPI request the ``= None`` default falls back to the
+    fully-wired lifecycle manager. Purely additive.
+    """
+    return recovery_engine.RecoveryCoordinator(
+        lifecycle_manager or get_workflow_lifecycle_manager()
+    )
+
+
+RecoveryCoordinatorDep = Annotated[
+    recovery_engine.RecoveryCoordinator, Depends(get_recovery_coordinator)
+]
+
+
+def get_recovery_engine(
+    policy: RecoveryPolicyDep = None,
+    strategy: RetryStrategyDep = None,
+    coordinator: RecoveryCoordinatorDep = None,
+    classifier: FailureClassifierDep = None,
+    persistence: PersistenceEngineDep = None,
+    notification: NotificationEngineDep = None,
+) -> recovery_engine.RecoveryManager:
+    """Provide the Sprint 16.8 :class:`RecoveryManager` engine (distinct from planning's).
+
+    Composes the injected recovery policy, retry strategy, :class:`RecoveryCoordinator`,
+    and failure classifier, plus the Sprint 16.5 :class:`PersistenceManager` and the
+    Sprint 16.4 notification engine (constructor injection; it instantiates none of
+    them). It decides *how* failed workflows recover and delegates every retry/abort
+    through the coordinator — it executes no workflow or capability itself and uses
+    only deterministic caller-supplied ticks. When called outside a FastAPI request
+    the ``= None`` defaults fall back to fresh provider instances. Purely additive: a
+    new recovery seam that changes no existing wiring.
+    """
+    return recovery_engine.RecoveryManager(
+        policy or get_recovery_policy(),
+        strategy or get_retry_strategy(),
+        coordinator or get_recovery_coordinator(),
+        classifier or get_failure_classifier(),
+        persistence or get_persistence_engine(),
+        notification or get_notification_engine(),
+    )
+
+
+RecoveryEngineDep = Annotated[
+    recovery_engine.RecoveryManager, Depends(get_recovery_engine)
 ]
 
 
