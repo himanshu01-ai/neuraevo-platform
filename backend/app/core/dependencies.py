@@ -134,6 +134,9 @@ import app.services.ai_employee.recovery as recovery_engine
 # Sprint 16.9 Agent Coordination Platform — imported as a namespaced module so its
 # coordinator/registry/resolver/policy names stay isolated in the composition root.
 import app.services.ai_employee.coordination as coordination_platform
+# Sprint 16.10 AI Employee Service Layer — imported as a namespaced module so its
+# service/session/validator/health names stay isolated in the composition root.
+import app.services.ai_employee.service as ai_employee_service
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2460,6 +2463,138 @@ def get_agent_coordinator(
 
 AgentCoordinatorDep = Annotated[
     coordination_platform.AgentCoordinator, Depends(get_agent_coordinator)
+]
+
+
+# =====================================================================
+# Sprint 16.10 — AI Employee Service Layer
+# =====================================================================
+def get_service_session_manager() -> ai_employee_service.SessionManager:
+    """Provide a fresh :class:`SessionManager` — the service session ledger (16.10).
+
+    An in-memory ledger of AI Employee service sessions; it holds no execution state
+    and runs nothing. Stateful (holds the ledger); a fresh instance per call. Purely
+    additive.
+    """
+    return ai_employee_service.SessionManager()
+
+
+ServiceSessionManagerDep = Annotated[
+    ai_employee_service.SessionManager, Depends(get_service_session_manager)
+]
+
+
+def get_request_validator() -> ai_employee_service.RequestValidator:
+    """Provide the stateless :class:`RequestValidator` (16.10).
+
+    Validates incoming :class:`TaskSubmissionRequest`\\ s and raises deterministic
+    validation errors. Stateless. Purely additive.
+    """
+    return ai_employee_service.RequestValidator()
+
+
+RequestValidatorDep = Annotated[
+    ai_employee_service.RequestValidator, Depends(get_request_validator)
+]
+
+
+def get_response_builder() -> ai_employee_service.ResponseBuilder:
+    """Provide the stateless :class:`ResponseBuilder` (16.10).
+
+    Builds the service's stable, provider-independent response DTOs. Stateless.
+    Purely additive.
+    """
+    return ai_employee_service.ResponseBuilder()
+
+
+ResponseBuilderDep = Annotated[
+    ai_employee_service.ResponseBuilder, Depends(get_response_builder)
+]
+
+
+def get_idempotency_manager() -> ai_employee_service.IdempotencyManager:
+    """Provide a fresh :class:`IdempotencyManager` — the dedup ledger (16.10).
+
+    An in-memory ledger that deduplicates submissions by idempotency key; it stores
+    records and computes digests only. Stateful (holds the ledger); a fresh instance
+    per call. Purely additive.
+    """
+    return ai_employee_service.IdempotencyManager()
+
+
+IdempotencyManagerDep = Annotated[
+    ai_employee_service.IdempotencyManager, Depends(get_idempotency_manager)
+]
+
+
+def get_health_manager() -> ai_employee_service.HealthManager:
+    """Provide the :class:`HealthManager` over the platform's wired subsystems (16.10).
+
+    Reports provider-independent health/readiness for Planning, Runtime, AIEmployee,
+    Memory, Scheduler, Recovery, and Persistence. Each subsystem is reported available
+    because it has a wired composition-root provider — the manager holds only these
+    plain availability flags, never a provider/SDK object. Stateless, deterministic.
+    Purely additive.
+    """
+    return ai_employee_service.HealthManager(
+        {name: True for name in ai_employee_service.HEALTH_COMPONENTS}
+    )
+
+
+HealthManagerDep = Annotated[
+    ai_employee_service.HealthManager, Depends(get_health_manager)
+]
+
+
+def get_error_mapper() -> ai_employee_service.ErrorMapper:
+    """Provide the stateless :class:`ErrorMapper` (16.10).
+
+    Converts any internal exception into a stable, provider-independent
+    :class:`ServiceError`; no raw exception crosses the service boundary. Stateless.
+    Purely additive.
+    """
+    return ai_employee_service.ErrorMapper()
+
+
+ErrorMapperDep = Annotated[
+    ai_employee_service.ErrorMapper, Depends(get_error_mapper)
+]
+
+
+def get_ai_employee_service(
+    ai_employee: AIEmployeeDep = None,
+    session_manager: ServiceSessionManagerDep = None,
+    validator: RequestValidatorDep = None,
+    response_builder: ResponseBuilderDep = None,
+    idempotency_manager: IdempotencyManagerDep = None,
+    health_manager: HealthManagerDep = None,
+    error_mapper: ErrorMapperDep = None,
+) -> ai_employee_service.AIEmployeeService:
+    """Provide the Sprint 16.10 :class:`AIEmployeeService` — the public entry point.
+
+    Composes the frozen Sprint 16.1 :class:`AIEmployee` plus the injected
+    :class:`SessionManager`, :class:`RequestValidator`, :class:`ResponseBuilder`,
+    :class:`IdempotencyManager`, :class:`HealthManager`, and :class:`ErrorMapper`
+    (constructor injection; it instantiates none of them). It coordinates external
+    task submission/control and always delegates the running to the
+    :class:`AIEmployee` — it executes no workflow or capability itself, never calls
+    the Workflow Coordinator, and never surfaces a raw exception. When called outside
+    a FastAPI request the ``= None`` defaults fall back to fresh provider instances.
+    Purely additive: a new public service seam that changes no existing wiring.
+    """
+    return ai_employee_service.AIEmployeeService(
+        ai_employee or get_ai_employee(),
+        session_manager or get_service_session_manager(),
+        validator or get_request_validator(),
+        response_builder or get_response_builder(),
+        idempotency_manager or get_idempotency_manager(),
+        health_manager or get_health_manager(),
+        error_mapper or get_error_mapper(),
+    )
+
+
+AIEmployeeServiceDep = Annotated[
+    ai_employee_service.AIEmployeeService, Depends(get_ai_employee_service)
 ]
 
 
