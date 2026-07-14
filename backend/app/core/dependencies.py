@@ -143,6 +143,9 @@ import app.services.ai_employee.operations as enterprise_operations
 # Sprint 16.12 Experience Intelligence Platform — imported as a namespaced module so
 # its feedback/analyzer/evaluator/reporter names stay isolated in the root.
 import app.services.ai_employee.experience as experience_intelligence
+# Sprint 16.13 Production Validation Platform — imported as a namespaced module so its
+# system/integration/security/compatibility validator names stay isolated in the root.
+import app.services.ai_employee.validation as production_validation
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2987,6 +2990,196 @@ def get_experience_intelligence_manager(
 ExperienceIntelligenceManagerDep = Annotated[
     experience_intelligence.ExperienceIntelligenceManager,
     Depends(get_experience_intelligence_manager),
+]
+
+
+# =====================================================================
+# Sprint 16.13 — Production Validation Platform
+# =====================================================================
+def get_system_validator(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.SystemValidator:
+    """Provide the Sprint 16.13 :class:`SystemValidator`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It validates each subsystem by reading the
+    operations status surface — it observes, never executes. When called outside a
+    FastAPI request the ``= None`` default falls back to a fresh operations manager.
+    Purely additive.
+    """
+    return production_validation.SystemValidator(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+SystemValidatorDep = Annotated[
+    production_validation.SystemValidator, Depends(get_system_validator)
+]
+
+
+def get_integration_validator(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.IntegrationValidator:
+    """Provide the Sprint 16.13 :class:`IntegrationValidator`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It validates the wiring between subsystems by
+    reading the DI graph and health surface — it exercises no interaction. When called
+    outside a FastAPI request the ``= None`` default falls back to a fresh operations
+    manager. Purely additive.
+    """
+    return production_validation.IntegrationValidator(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+IntegrationValidatorDep = Annotated[
+    production_validation.IntegrationValidator,
+    Depends(get_integration_validator),
+]
+
+
+def get_performance_validator(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.PerformanceValidator:
+    """Provide the Sprint 16.13 :class:`PerformanceValidator`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It measures deterministic counters by reading the
+    observability surface — no timer, benchmark, or load generator. When called outside
+    a FastAPI request the ``= None`` default falls back to a fresh operations manager.
+    Purely additive.
+    """
+    return production_validation.PerformanceValidator(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+PerformanceValidatorDep = Annotated[
+    production_validation.PerformanceValidator,
+    Depends(get_performance_validator),
+]
+
+
+def get_reliability_validator(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.ReliabilityValidator:
+    """Provide the Sprint 16.13 :class:`ReliabilityValidator`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It validates reliability through read-only state
+    checks — it exercises no recovery. When called outside a FastAPI request the
+    ``= None`` default falls back to a fresh operations manager. Purely additive.
+    """
+    return production_validation.ReliabilityValidator(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+ReliabilityValidatorDep = Annotated[
+    production_validation.ReliabilityValidator,
+    Depends(get_reliability_validator),
+]
+
+
+def get_security_validator() -> production_validation.SecurityValidator:
+    """Provide the stateless :class:`SecurityValidator` (16.13).
+
+    Validates boundaries and isolation by statically inspecting the platform packages'
+    source and DTO config — it contacts no host and runs no scanner. It holds no
+    collaborator or state. Purely additive.
+    """
+    return production_validation.SecurityValidator()
+
+
+SecurityValidatorDep = Annotated[
+    production_validation.SecurityValidator, Depends(get_security_validator)
+]
+
+
+def get_compatibility_validator(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.CompatibilityValidator:
+    """Provide the Sprint 16.13 :class:`CompatibilityValidator`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It validates the DI graph, configuration,
+    providers, and module compatibility by reading the wired graph — it constructs no
+    graph. When called outside a FastAPI request the ``= None`` default falls back to a
+    fresh operations manager. Purely additive.
+    """
+    return production_validation.CompatibilityValidator(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+CompatibilityValidatorDep = Annotated[
+    production_validation.CompatibilityValidator,
+    Depends(get_compatibility_validator),
+]
+
+
+def get_validation_reporter() -> production_validation.ValidationReporter:
+    """Provide the stateless :class:`ValidationReporter` (16.13).
+
+    Formats already-computed validation results and the readiness verdict into immutable
+    reports. It is a pure formatter — it holds no state and runs nothing. Purely
+    additive.
+    """
+    return production_validation.ValidationReporter()
+
+
+ValidationReporterDep = Annotated[
+    production_validation.ValidationReporter, Depends(get_validation_reporter)
+]
+
+
+def get_production_validation_manager(
+    system: SystemValidatorDep = None,
+    integration: IntegrationValidatorDep = None,
+    performance: PerformanceValidatorDep = None,
+    reliability: ReliabilityValidatorDep = None,
+    security: SecurityValidatorDep = None,
+    compatibility: CompatibilityValidatorDep = None,
+    reporter: ValidationReporterDep = None,
+    operations: EnterpriseOperationsManagerDep = None,
+) -> production_validation.ProductionValidationManager:
+    """Provide the Sprint 16.13 :class:`ProductionValidationManager` — the entry point.
+
+    Composes the injected system, integration, performance, reliability, security, and
+    compatibility validators plus the reporter over the frozen Sprint 16.11
+    :class:`EnterpriseOperationsManager` (constructor injection; it instantiates none).
+    So every validator reads the same platform state, when building the defaults it
+    threads a single shared :class:`EnterpriseOperationsManager` through the
+    operations-backed validator seams. It validates only — it executes no workflow or
+    capability, never calls the Workflow Coordinator, and delegates only to the
+    operations manager for the platform's overall state. When called outside a FastAPI
+    request the ``= None`` defaults fall back to these shared instances. Purely additive:
+    a new validation seam that changes no existing wiring.
+    """
+    operations = operations or get_enterprise_operations_manager()
+    system = system or get_system_validator(operations)
+    integration = integration or get_integration_validator(operations)
+    performance = performance or get_performance_validator(operations)
+    reliability = reliability or get_reliability_validator(operations)
+    security = security or get_security_validator()
+    compatibility = compatibility or get_compatibility_validator(operations)
+    reporter = reporter or get_validation_reporter()
+    return production_validation.ProductionValidationManager(
+        system,
+        integration,
+        performance,
+        reliability,
+        security,
+        compatibility,
+        reporter,
+        operations,
+    )
+
+
+ProductionValidationManagerDep = Annotated[
+    production_validation.ProductionValidationManager,
+    Depends(get_production_validation_manager),
 ]
 
 
