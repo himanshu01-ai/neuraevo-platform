@@ -140,6 +140,9 @@ import app.services.ai_employee.service as ai_employee_service
 # Sprint 16.11 Enterprise Operations Layer — imported as a namespaced module so its
 # authorization/audit/observability/deployment names stay isolated in the root.
 import app.services.ai_employee.operations as enterprise_operations
+# Sprint 16.12 Experience Intelligence Platform — imported as a namespaced module so
+# its feedback/analyzer/evaluator/reporter names stay isolated in the root.
+import app.services.ai_employee.experience as experience_intelligence
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -2793,6 +2796,197 @@ def get_enterprise_operations_manager(
 EnterpriseOperationsManagerDep = Annotated[
     enterprise_operations.EnterpriseOperationsManager,
     Depends(get_enterprise_operations_manager),
+]
+
+
+# =====================================================================
+# Sprint 16.12 — Experience Intelligence Platform
+# =====================================================================
+def get_feedback_manager() -> experience_intelligence.FeedbackManager:
+    """Provide a fresh :class:`FeedbackManager` — the append-only feedback ledger (16.12).
+
+    An in-memory, append-only ledger of immutable feedback records; it never mutates a
+    record and runs nothing. Stateful (holds the ledger); a fresh instance per call.
+    Purely additive.
+    """
+    return experience_intelligence.FeedbackManager()
+
+
+FeedbackManagerDep = Annotated[
+    experience_intelligence.FeedbackManager, Depends(get_feedback_manager)
+]
+
+
+def get_experience_analyzer(
+    service: AIEmployeeServiceDep = None,
+) -> experience_intelligence.ExperienceAnalyzer:
+    """Provide the Sprint 16.12 :class:`ExperienceAnalyzer`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none). It measures task experience by reading the service's task
+    list only — it observes, never executes. When called outside a FastAPI request the
+    ``= None`` default falls back to a fresh service instance. Purely additive.
+    """
+    return experience_intelligence.ExperienceAnalyzer(
+        service or get_ai_employee_service()
+    )
+
+
+ExperienceAnalyzerDep = Annotated[
+    experience_intelligence.ExperienceAnalyzer,
+    Depends(get_experience_analyzer),
+]
+
+
+def get_behavior_analyzer(
+    service: AIEmployeeServiceDep = None,
+) -> experience_intelligence.BehaviorAnalyzer:
+    """Provide the Sprint 16.12 :class:`BehaviorAnalyzer`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none). It measures usage behaviour by reading the service's task
+    and session state only — it observes, never executes. When called outside a FastAPI
+    request the ``= None`` default falls back to a fresh service instance. Purely
+    additive.
+    """
+    return experience_intelligence.BehaviorAnalyzer(
+        service or get_ai_employee_service()
+    )
+
+
+BehaviorAnalyzerDep = Annotated[
+    experience_intelligence.BehaviorAnalyzer, Depends(get_behavior_analyzer)
+]
+
+
+def get_quality_evaluator(
+    service: AIEmployeeServiceDep = None,
+) -> experience_intelligence.QualityEvaluator:
+    """Provide the Sprint 16.12 :class:`QualityEvaluator`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none). It evaluates task quality with a fixed rule-based score by
+    reading observed task state only — no AI, no LLM evaluation. When called outside a
+    FastAPI request the ``= None`` default falls back to a fresh service instance.
+    Purely additive.
+    """
+    return experience_intelligence.QualityEvaluator(
+        service or get_ai_employee_service()
+    )
+
+
+QualityEvaluatorDep = Annotated[
+    experience_intelligence.QualityEvaluator, Depends(get_quality_evaluator)
+]
+
+
+def get_friction_detector(
+    service: AIEmployeeServiceDep = None,
+) -> experience_intelligence.FrictionDetector:
+    """Provide the Sprint 16.12 :class:`FrictionDetector`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none) with deterministic default thresholds. It detects workflow
+    friction by reading observed task state only — it observes, never executes. When
+    called outside a FastAPI request the ``= None`` default falls back to a fresh
+    service instance. Purely additive.
+    """
+    return experience_intelligence.FrictionDetector(
+        service or get_ai_employee_service()
+    )
+
+
+FrictionDetectorDep = Annotated[
+    experience_intelligence.FrictionDetector, Depends(get_friction_detector)
+]
+
+
+def get_recommendation_engine() -> (
+    experience_intelligence.RecommendationEngine
+):
+    """Provide the stateless :class:`RecommendationEngine` (16.12).
+
+    Generates deterministic, rule-based improvement recommendations from the computed
+    metrics — there is NO AI generation. It holds no collaborator, session, or state
+    beyond its immutable thresholds and runs nothing. Purely additive.
+    """
+    return experience_intelligence.RecommendationEngine()
+
+
+RecommendationEngineDep = Annotated[
+    experience_intelligence.RecommendationEngine,
+    Depends(get_recommendation_engine),
+]
+
+
+def get_improvement_reporter() -> (
+    experience_intelligence.ImprovementReporter
+):
+    """Provide the stateless :class:`ImprovementReporter` (16.12).
+
+    Formats already-computed metrics, friction, quality, and recommendations into
+    immutable reports and the platform summary. It is a pure formatter — it holds no
+    state and runs nothing. Purely additive.
+    """
+    return experience_intelligence.ImprovementReporter()
+
+
+ImprovementReporterDep = Annotated[
+    experience_intelligence.ImprovementReporter,
+    Depends(get_improvement_reporter),
+]
+
+
+def get_experience_intelligence_manager(
+    feedback: FeedbackManagerDep = None,
+    experience_analyzer: ExperienceAnalyzerDep = None,
+    behavior_analyzer: BehaviorAnalyzerDep = None,
+    quality_evaluator: QualityEvaluatorDep = None,
+    friction_detector: FrictionDetectorDep = None,
+    recommendation_engine: RecommendationEngineDep = None,
+    reporter: ImprovementReporterDep = None,
+    service: AIEmployeeServiceDep = None,
+) -> experience_intelligence.ExperienceIntelligenceManager:
+    """Provide the Sprint 16.12 :class:`ExperienceIntelligenceManager` — the entry point.
+
+    Composes the injected feedback, experience/behaviour analyzers, quality evaluator,
+    friction detector, recommendation engine, and reporter over the frozen Sprint 16.10
+    :class:`AIEmployeeService` (constructor injection; it instantiates none). So every
+    analyzer observes the same platform state, when building the defaults it threads a
+    single shared :class:`AIEmployeeService` through the analyzer/evaluator/detector
+    seams. It observes only — it executes no workflow or capability, never calls the
+    Workflow Coordinator, and delegates every business request to the service. When
+    called outside a FastAPI request the ``= None`` defaults fall back to these shared
+    instances. Purely additive: a new observational seam that changes no existing
+    wiring.
+    """
+    service = service or get_ai_employee_service()
+    feedback = feedback or get_feedback_manager()
+    experience_analyzer = experience_analyzer or get_experience_analyzer(
+        service
+    )
+    behavior_analyzer = behavior_analyzer or get_behavior_analyzer(service)
+    quality_evaluator = quality_evaluator or get_quality_evaluator(service)
+    friction_detector = friction_detector or get_friction_detector(service)
+    recommendation_engine = (
+        recommendation_engine or get_recommendation_engine()
+    )
+    reporter = reporter or get_improvement_reporter()
+    return experience_intelligence.ExperienceIntelligenceManager(
+        feedback,
+        experience_analyzer,
+        behavior_analyzer,
+        quality_evaluator,
+        friction_detector,
+        recommendation_engine,
+        reporter,
+        service,
+    )
+
+
+ExperienceIntelligenceManagerDep = Annotated[
+    experience_intelligence.ExperienceIntelligenceManager,
+    Depends(get_experience_intelligence_manager),
 ]
 
 
