@@ -146,6 +146,9 @@ import app.services.ai_employee.experience as experience_intelligence
 # Sprint 16.13 Production Validation Platform — imported as a namespaced module so its
 # system/integration/security/compatibility validator names stay isolated in the root.
 import app.services.ai_employee.validation as production_validation
+# Sprint 16.14 Developer Dashboard — imported as a namespaced module so its
+# inspector/reporter names stay isolated in the composition root.
+import app.services.ai_employee.dashboard as developer_dashboard
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -3180,6 +3183,269 @@ def get_production_validation_manager(
 ProductionValidationManagerDep = Annotated[
     production_validation.ProductionValidationManager,
     Depends(get_production_validation_manager),
+]
+
+
+# =====================================================================
+# Sprint 16.14 — Developer Dashboard
+# =====================================================================
+def get_workflow_inspector(
+    service: AIEmployeeServiceDep = None,
+) -> developer_dashboard.WorkflowInspector:
+    """Provide the Sprint 16.14 :class:`WorkflowInspector`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none). It projects the workflow view by reading the task list — it
+    visualises, never executes. When called outside a FastAPI request the ``= None``
+    default falls back to a fresh service. Purely additive.
+    """
+    return developer_dashboard.WorkflowInspector(
+        service or get_ai_employee_service()
+    )
+
+
+WorkflowInspectorDep = Annotated[
+    developer_dashboard.WorkflowInspector, Depends(get_workflow_inspector)
+]
+
+
+def get_agent_inspector(
+    service: AIEmployeeServiceDep = None,
+) -> developer_dashboard.AgentInspector:
+    """Provide the Sprint 16.14 :class:`AgentInspector`.
+
+    Composes the frozen Sprint 16.10 :class:`AIEmployeeService` (constructor injection;
+    it instantiates none). It projects the agent view by reading the sessions — it
+    visualises, never executes. When called outside a FastAPI request the ``= None``
+    default falls back to a fresh service. Purely additive.
+    """
+    return developer_dashboard.AgentInspector(
+        service or get_ai_employee_service()
+    )
+
+
+AgentInspectorDep = Annotated[
+    developer_dashboard.AgentInspector, Depends(get_agent_inspector)
+]
+
+
+def get_memory_inspector(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> developer_dashboard.MemoryInspector:
+    """Provide the Sprint 16.14 :class:`MemoryInspector`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It projects the memory subsystem status — it
+    visualises, never executes. When called outside a FastAPI request the ``= None``
+    default falls back to a fresh operations manager. Purely additive.
+    """
+    return developer_dashboard.MemoryInspector(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+MemoryInspectorDep = Annotated[
+    developer_dashboard.MemoryInspector, Depends(get_memory_inspector)
+]
+
+
+def get_scheduler_inspector(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> developer_dashboard.SchedulerInspector:
+    """Provide the Sprint 16.14 :class:`SchedulerInspector`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It projects the scheduling view from execution
+    counters — it visualises, never executes. When called outside a FastAPI request the
+    ``= None`` default falls back to a fresh operations manager. Purely additive.
+    """
+    return developer_dashboard.SchedulerInspector(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+SchedulerInspectorDep = Annotated[
+    developer_dashboard.SchedulerInspector, Depends(get_scheduler_inspector)
+]
+
+
+def get_recovery_inspector(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> developer_dashboard.RecoveryInspector:
+    """Provide the Sprint 16.14 :class:`RecoveryInspector`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It projects the recovery view from audit and
+    execution state — it visualises, never executes. When called outside a FastAPI
+    request the ``= None`` default falls back to a fresh operations manager. Purely
+    additive.
+    """
+    return developer_dashboard.RecoveryInspector(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+RecoveryInspectorDep = Annotated[
+    developer_dashboard.RecoveryInspector, Depends(get_recovery_inspector)
+]
+
+
+def get_capability_inspector(
+    experience: ExperienceIntelligenceManagerDep = None,
+) -> developer_dashboard.CapabilityInspector:
+    """Provide the Sprint 16.14 :class:`CapabilityInspector`.
+
+    Composes the frozen Sprint 16.12 :class:`ExperienceIntelligenceManager` (constructor
+    injection; it instantiates none). It projects capability usage/success from the
+    experience metrics — it visualises, never executes. When called outside a FastAPI
+    request the ``= None`` default falls back to a fresh experience manager. Purely
+    additive.
+    """
+    return developer_dashboard.CapabilityInspector(
+        experience or get_experience_intelligence_manager()
+    )
+
+
+CapabilityInspectorDep = Annotated[
+    developer_dashboard.CapabilityInspector, Depends(get_capability_inspector)
+]
+
+
+def get_validation_inspector(
+    production: ProductionValidationManagerDep = None,
+) -> developer_dashboard.ValidationInspector:
+    """Provide the Sprint 16.14 :class:`ValidationInspector`.
+
+    Composes the frozen Sprint 16.13 :class:`ProductionValidationManager` (constructor
+    injection; it instantiates none). It projects the validation view from the readiness
+    verdict and final report — it visualises, never executes. When called outside a
+    FastAPI request the ``= None`` default falls back to a fresh production validator.
+    Purely additive.
+    """
+    return developer_dashboard.ValidationInspector(
+        production or get_production_validation_manager()
+    )
+
+
+ValidationInspectorDep = Annotated[
+    developer_dashboard.ValidationInspector, Depends(get_validation_inspector)
+]
+
+
+def get_experience_inspector(
+    experience: ExperienceIntelligenceManagerDep = None,
+) -> developer_dashboard.ExperienceInspector:
+    """Provide the Sprint 16.14 :class:`ExperienceInspector`.
+
+    Composes the frozen Sprint 16.12 :class:`ExperienceIntelligenceManager` (constructor
+    injection; it instantiates none). It projects the experience view from the feedback,
+    quality, friction, and recommendation surfaces — it visualises, never executes. When
+    called outside a FastAPI request the ``= None`` default falls back to a fresh
+    experience manager. Purely additive.
+    """
+    return developer_dashboard.ExperienceInspector(
+        experience or get_experience_intelligence_manager()
+    )
+
+
+ExperienceInspectorDep = Annotated[
+    developer_dashboard.ExperienceInspector, Depends(get_experience_inspector)
+]
+
+
+def get_operations_inspector(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> developer_dashboard.OperationsInspector:
+    """Provide the Sprint 16.14 :class:`OperationsInspector`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It projects the operations view from the audit,
+    authorization, configuration, deployment, and diagnostics surfaces (non-mutating
+    only) — it visualises, never executes. When called outside a FastAPI request the
+    ``= None`` default falls back to a fresh operations manager. Purely additive.
+    """
+    return developer_dashboard.OperationsInspector(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+OperationsInspectorDep = Annotated[
+    developer_dashboard.OperationsInspector, Depends(get_operations_inspector)
+]
+
+
+def get_dashboard_reporter() -> developer_dashboard.DashboardReporter:
+    """Provide the stateless :class:`DashboardReporter` (16.14).
+
+    Assembles already-projected inspector views into composite dashboard reports. It is
+    a pure formatter — it holds no state and runs nothing. Purely additive.
+    """
+    return developer_dashboard.DashboardReporter()
+
+
+DashboardReporterDep = Annotated[
+    developer_dashboard.DashboardReporter, Depends(get_dashboard_reporter)
+]
+
+
+def get_developer_dashboard_manager(
+    workflow: WorkflowInspectorDep = None,
+    agent: AgentInspectorDep = None,
+    memory: MemoryInspectorDep = None,
+    scheduler: SchedulerInspectorDep = None,
+    recovery: RecoveryInspectorDep = None,
+    capability: CapabilityInspectorDep = None,
+    validation: ValidationInspectorDep = None,
+    experience: ExperienceInspectorDep = None,
+    operations: OperationsInspectorDep = None,
+    reporter: DashboardReporterDep = None,
+    production: ProductionValidationManagerDep = None,
+) -> developer_dashboard.DeveloperDashboardManager:
+    """Provide the Sprint 16.14 :class:`DeveloperDashboardManager` — the entry point.
+
+    Composes the nine injected inspectors plus the reporter over the frozen Sprint 16.13
+    :class:`ProductionValidationManager` (constructor injection; it instantiates none).
+    So every inspector observes the same platform state, when building the defaults it
+    threads a single shared :class:`ProductionValidationManager` (and its
+    :class:`EnterpriseOperationsManager` and :class:`AIEmployeeService`, plus an
+    experience manager over that same service) through the inspector seams. It visualises
+    only — it executes no workflow or capability, never calls the Workflow Coordinator,
+    and delegates only to the production validator for the platform's overall state. When
+    called outside a FastAPI request the ``= None`` defaults fall back to these shared
+    instances. Purely additive: a new dashboard seam that changes no existing wiring.
+    """
+    production = production or get_production_validation_manager()
+    ops_manager = production.operations
+    service = ops_manager.service
+    exp_manager = get_experience_intelligence_manager(service=service)
+    workflow = workflow or get_workflow_inspector(service)
+    agent = agent or get_agent_inspector(service)
+    memory = memory or get_memory_inspector(ops_manager)
+    scheduler = scheduler or get_scheduler_inspector(ops_manager)
+    recovery = recovery or get_recovery_inspector(ops_manager)
+    capability = capability or get_capability_inspector(exp_manager)
+    validation = validation or get_validation_inspector(production)
+    experience = experience or get_experience_inspector(exp_manager)
+    operations = operations or get_operations_inspector(ops_manager)
+    reporter = reporter or get_dashboard_reporter()
+    return developer_dashboard.DeveloperDashboardManager(
+        workflow,
+        agent,
+        memory,
+        scheduler,
+        recovery,
+        capability,
+        validation,
+        experience,
+        operations,
+        reporter,
+        production,
+    )
+
+
+DeveloperDashboardManagerDep = Annotated[
+    developer_dashboard.DeveloperDashboardManager,
+    Depends(get_developer_dashboard_manager),
 ]
 
 
