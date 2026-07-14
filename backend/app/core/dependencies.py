@@ -149,6 +149,9 @@ import app.services.ai_employee.validation as production_validation
 # Sprint 16.14 Developer Dashboard — imported as a namespaced module so its
 # inspector/reporter names stay isolated in the composition root.
 import app.services.ai_employee.dashboard as developer_dashboard
+# Sprint 16.15 Release Candidate — imported as a namespaced module so its
+# contract/auditor/reporter names stay isolated in the composition root.
+import app.services.ai_employee.release as release_candidate
 from app.services.memory import MemoryPersistenceService, MemoryRetrievalService
 from app.services.embeddings import EmbeddingProvider, EmbeddingService
 from app.services.vector_store import (
@@ -3446,6 +3449,179 @@ def get_developer_dashboard_manager(
 DeveloperDashboardManagerDep = Annotated[
     developer_dashboard.DeveloperDashboardManager,
     Depends(get_developer_dashboard_manager),
+]
+
+
+# =====================================================================
+# Sprint 16.15 — Release Candidate
+# =====================================================================
+def get_contract_manager(
+    production: ProductionValidationManagerDep = None,
+) -> release_candidate.ContractManager:
+    """Provide the Sprint 16.15 :class:`ContractManager`.
+
+    Composes the frozen Sprint 16.13 :class:`ProductionValidationManager` (constructor
+    injection; it instantiates none). It validates the stable public API, DTO, and
+    dependency contracts by introspection and the frozen validators — it prepares, never
+    executes. When called outside a FastAPI request the ``= None`` default falls back to
+    a fresh production validator. Purely additive.
+    """
+    return release_candidate.ContractManager(
+        production or get_production_validation_manager()
+    )
+
+
+ContractManagerDep = Annotated[
+    release_candidate.ContractManager, Depends(get_contract_manager)
+]
+
+
+def get_dependency_auditor(
+    production: ProductionValidationManagerDep = None,
+) -> release_candidate.DependencyAuditor:
+    """Provide the Sprint 16.15 :class:`DependencyAuditor`.
+
+    Composes the frozen Sprint 16.13 :class:`ProductionValidationManager` (constructor
+    injection; it instantiates none). It audits dependency versions, duplicates,
+    architecture boundaries, and module integrity — it reads only. When called outside a
+    FastAPI request the ``= None`` default falls back to a fresh production validator.
+    Purely additive.
+    """
+    return release_candidate.DependencyAuditor(
+        production or get_production_validation_manager()
+    )
+
+
+DependencyAuditorDep = Annotated[
+    release_candidate.DependencyAuditor, Depends(get_dependency_auditor)
+]
+
+
+def get_configuration_auditor(
+    operations: EnterpriseOperationsManagerDep = None,
+) -> release_candidate.ConfigurationAuditor:
+    """Provide the Sprint 16.15 :class:`ConfigurationAuditor`.
+
+    Composes the frozen Sprint 16.11 :class:`EnterpriseOperationsManager` (constructor
+    injection; it instantiates none). It audits configuration completeness and
+    environment compatibility by reading the configuration surface — it changes no
+    configuration. When called outside a FastAPI request the ``= None`` default falls
+    back to a fresh operations manager. Purely additive.
+    """
+    return release_candidate.ConfigurationAuditor(
+        operations or get_enterprise_operations_manager()
+    )
+
+
+ConfigurationAuditorDep = Annotated[
+    release_candidate.ConfigurationAuditor,
+    Depends(get_configuration_auditor),
+]
+
+
+def get_documentation_generator(
+    dashboard: DeveloperDashboardManagerDep = None,
+) -> release_candidate.DocumentationGenerator:
+    """Provide the Sprint 16.15 :class:`DocumentationGenerator`.
+
+    Composes the frozen Sprint 16.14 :class:`DeveloperDashboardManager` (constructor
+    injection; it instantiates none). It generates the architecture/module/service/
+    capability inventories and release notes by reading the dashboard overview — it
+    reads only. When called outside a FastAPI request the ``= None`` default falls back
+    to a fresh dashboard manager. Purely additive.
+    """
+    return release_candidate.DocumentationGenerator(
+        dashboard or get_developer_dashboard_manager()
+    )
+
+
+DocumentationGeneratorDep = Annotated[
+    release_candidate.DocumentationGenerator,
+    Depends(get_documentation_generator),
+]
+
+
+def get_backup_validator(
+    dashboard: DeveloperDashboardManagerDep = None,
+) -> release_candidate.BackupValidator:
+    """Provide the Sprint 16.15 :class:`BackupValidator`.
+
+    Composes the frozen Sprint 16.14 :class:`DeveloperDashboardManager` (constructor
+    injection; it instantiates none). It validates snapshot backup/restore integrity in
+    memory over a state snapshot — it writes to no store. When called outside a FastAPI
+    request the ``= None`` default falls back to a fresh dashboard manager. Purely
+    additive.
+    """
+    return release_candidate.BackupValidator(
+        dashboard or get_developer_dashboard_manager()
+    )
+
+
+BackupValidatorDep = Annotated[
+    release_candidate.BackupValidator, Depends(get_backup_validator)
+]
+
+
+def get_release_reporter() -> release_candidate.ReleaseReporter:
+    """Provide the stateless :class:`ReleaseReporter` (16.15).
+
+    Assembles the contract verdict and audit reports into the release outputs and the
+    go/no-go decision. It is a pure formatter — it holds no state and runs nothing.
+    Purely additive.
+    """
+    return release_candidate.ReleaseReporter()
+
+
+ReleaseReporterDep = Annotated[
+    release_candidate.ReleaseReporter, Depends(get_release_reporter)
+]
+
+
+def get_release_manager(
+    contract: ContractManagerDep = None,
+    dependency: DependencyAuditorDep = None,
+    configuration: ConfigurationAuditorDep = None,
+    documentation: DocumentationGeneratorDep = None,
+    backup: BackupValidatorDep = None,
+    reporter: ReleaseReporterDep = None,
+    dashboard: DeveloperDashboardManagerDep = None,
+) -> release_candidate.ReleaseManager:
+    """Provide the Sprint 16.15 :class:`ReleaseManager` — the release entry point.
+
+    Composes the injected contract manager, dependency/configuration auditors,
+    documentation generator, backup validator, and reporter over the frozen Sprint 16.14
+    :class:`DeveloperDashboardManager` (constructor injection; it instantiates none). So
+    every check reads the same platform state, when building the defaults it threads a
+    single shared :class:`DeveloperDashboardManager` (and its
+    :class:`ProductionValidationManager` and :class:`EnterpriseOperationsManager`)
+    through the component seams. It prepares the release only — it executes no workflow or
+    capability, never calls the Workflow Coordinator, and delegates only to the dashboard
+    for the platform's overall state. When called outside a FastAPI request the ``= None``
+    defaults fall back to these shared instances. Purely additive: a new release seam that
+    changes no existing wiring.
+    """
+    dashboard = dashboard or get_developer_dashboard_manager()
+    production = dashboard.production
+    operations = production.operations
+    contract = contract or get_contract_manager(production)
+    dependency = dependency or get_dependency_auditor(production)
+    configuration = configuration or get_configuration_auditor(operations)
+    documentation = documentation or get_documentation_generator(dashboard)
+    backup = backup or get_backup_validator(dashboard)
+    reporter = reporter or get_release_reporter()
+    return release_candidate.ReleaseManager(
+        contract,
+        dependency,
+        configuration,
+        documentation,
+        backup,
+        reporter,
+        dashboard,
+    )
+
+
+ReleaseManagerDep = Annotated[
+    release_candidate.ReleaseManager, Depends(get_release_manager)
 ]
 
 
