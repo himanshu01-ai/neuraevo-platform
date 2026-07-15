@@ -39,7 +39,7 @@ export const siteConfig = {
     { label: "How it works", href: "#workflow" },
     { label: "Enterprise", href: "#enterprise" },
   ] satisfies NavItem[],
-  primaryCta: { label: "Get started", href: "#get-started" } satisfies NavItem,
+  primaryCta: { label: "Get started", href: "/signup" } satisfies NavItem,
   secondaryCta: { label: "See how it works", href: "#workflow" } satisfies NavItem,
 
   capabilities: [
