@@ -1,13 +1,19 @@
-import type { Metadata } from "next";
-import { AuthGuard } from "@/features/auth/components/auth-guard";
-import { WorkspaceLoading } from "./workspace-loading";
+import dynamic from "next/dynamic";
+import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
+import { LoadingState } from "@/components/ui/loading-state";
 
-export const metadata: Metadata = { title: "Workspace" };
+// Lazy-load the workspace home so the section is code-split from the shell.
+const WorkspaceHome = dynamic(
+  () => import("@/features/workspace/components/workspace-home").then((m) => m.WorkspaceHome),
+  {
+    loading: () => (
+      <WorkspaceContent>
+        <LoadingState rows={6} />
+      </WorkspaceContent>
+    ),
+  }
+);
 
 export default function WorkspacePage() {
-  return (
-    <AuthGuard>
-      <WorkspaceLoading />
-    </AuthGuard>
-  );
+  return <WorkspaceHome />;
 }
