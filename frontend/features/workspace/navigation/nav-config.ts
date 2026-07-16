@@ -36,7 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { id: "home", label: "Home", href: "/workspace", icon: Home },
       { id: "canvas", label: "Workspace", href: "/workspace/canvas", icon: LayoutDashboard },
       { id: "tasks", label: "Tasks", href: "/workspace/tasks", icon: ListChecks },
-      { id: "employees", label: "AI Employees", href: "/workspace/ai-employees", icon: Bot },
+      { id: "employees", label: "AI Employees", href: "/workspace/employees", icon: Bot },
     ],
   },
   {
