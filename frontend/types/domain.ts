@@ -35,6 +35,18 @@ export const NODE_STATUS = [
 ] as const;
 export type NodeStatus = (typeof NODE_STATUS)[number];
 
+/**
+ * Status of a workflow *definition* — how ready its structure is, not how a run
+ * of it is going (backend planning.execution_workflow_models.WorkflowStatus).
+ * A run's progress is `LifecycleStatus`; the two are different facets.
+ */
+export const WORKFLOW_STATUS = ["PLANNED", "READY", "WAITING", "BLOCKED"] as const;
+export type WorkflowStatus = (typeof WORKFLOW_STATUS)[number];
+
+/** How a workflow's steps would be ordered (backend ExecutionMode). */
+export const EXECUTION_MODE = ["SEQUENTIAL", "PARALLEL", "HYBRID"] as const;
+export type ExecutionMode = (typeof EXECUTION_MODE)[number];
+
 /** System health rollup (backend HealthState). */
 export type HealthState = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
 
@@ -92,6 +104,13 @@ export const HEALTH_TONE: Record<HealthState, StatusTone> = {
   UNKNOWN: "neutral",
 };
 
+export const WORKFLOW_TONE: Record<WorkflowStatus, StatusTone> = {
+  PLANNED: "neutral",
+  READY: "success",
+  WAITING: "warning",
+  BLOCKED: "danger",
+};
+
 /** Human-readable labels (sentence case for UI; backend stays UPPERCASE). */
 export const LIFECYCLE_LABEL: Record<LifecycleStatus, string> = {
   PENDING: "Pending",
@@ -141,6 +160,19 @@ export const PRIORITY_TONE: Record<Priority, StatusTone> = {
   MEDIUM: "info",
   HIGH: "warning",
   URGENT: "danger",
+};
+
+export const WORKFLOW_LABEL: Record<WorkflowStatus, string> = {
+  PLANNED: "Planned",
+  READY: "Ready",
+  WAITING: "Waiting",
+  BLOCKED: "Blocked",
+};
+
+export const EXECUTION_MODE_LABEL: Record<ExecutionMode, string> = {
+  SEQUENTIAL: "Sequential",
+  PARALLEL: "Parallel",
+  HYBRID: "Hybrid",
 };
 
 export const CAPABILITY_LABEL: Record<Capability, string> = {

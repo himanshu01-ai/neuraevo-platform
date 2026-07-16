@@ -1,0 +1,155 @@
+import { TEMPLATES, WORKFLOWS } from "./fixtures";
+import {
+  WorkflowError,
+  type WorkflowDetail,
+  type WorkflowDraft,
+  type WorkflowSummary,
+  type WorkflowTemplate,
+  type WorkflowTemplateSummary,
+  type WorkflowsAdapter,
+} from "./types";
+
+/**
+ * Deterministic in-browser mock of a workflow backend. No network, no clock, no
+ * randomness. Saves are written to localStorage to simulate server persistence
+ * so a draft survives a reload — the same approach `MockAuthAdapter` uses for
+ * its session (Sprint 17.2).
+ *
+ * This mock stores structure only. It never runs a workflow, never invokes a
+ * capability, and never derives a status from anything but the fixtures and
+ * what the user saved.
+ */
+
+const STORE_KEY = "neuraevo.mock.workflows";
+const LATENCY_MS = 350;
+
+const delay = (ms = LATENCY_MS) => new Promise((r) => setTimeout(r, ms));
+
+/** Structured clone via JSON — fixtures and stored rows are plain data. */
+const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+function readStore(): WorkflowDetail[] {
+  if (typeof window === "undefined") return copy(WORKFLOWS as unknown as WorkflowDetail[]);
+  try {
+    const raw = window.localStorage.getItem(STORE_KEY);
+    if (!raw) return copy(WORKFLOWS as unknown as WorkflowDetail[]);
+    const parsed = JSON.parse(raw) as WorkflowDetail[];
+    return Array.isArray(parsed) ? parsed : copy(WORKFLOWS as unknown as WorkflowDetail[]);
+  } catch {
+    return copy(WORKFLOWS as unknown as WorkflowDetail[]);
+  }
+}
+
+function writeStore(rows: WorkflowDetail[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORE_KEY, JSON.stringify(rows));
+  } catch {
+    /* quota or private mode — the draft simply doesn't persist */
+  }
+}
+
+const toSummary = (detail: WorkflowDetail): WorkflowSummary => ({
+  id: detail.id,
+  name: detail.name,
+  description: detail.description,
+  status: detail.status,
+  nodeCount: detail.graph.nodes.length,
+  sequence: detail.sequence,
+});
+
+const toTemplateSummary = (template: WorkflowTemplate): WorkflowTemplateSummary => ({
+  id: template.id,
+  name: template.name,
+  description: template.description,
+  category: template.category,
+  nodeCount: template.nodeCount,
+});
+
+/** Deterministic id from the existing rows — no randomness, no timestamps. */
+function nextId(rows: WorkflowDetail[], prefix: string): string {
+  let n = rows.length + 1;
+  while (rows.some((r) => r.id === `${prefix}_${n}`)) n++;
+  return `${prefix}_${n}`;
+}
+
+const nextSequence = (rows: WorkflowDetail[]): number =>
+  rows.reduce((max, r) => Math.max(max, r.sequence), 0) + 1;
+
+export class MockWorkflowsAdapter implements WorkflowsAdapter {
+  async list(): Promise<WorkflowSummary[]> {
+    await delay();
+    return readStore()
+      .slice()
+      .sort((a, b) => b.sequence - a.sequence)
+      .map(toSummary);
+  }
+
+  async detail(id: string): Promise<WorkflowDetail> {
+    await delay();
+    const found = readStore().find((w) => w.id === id);
+    if (!found) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    return copy(found);
+  }
+
+  async save(draft: WorkflowDraft): Promise<WorkflowDetail> {
+    await delay();
+    const rows = readStore();
+    const index = rows.findIndex((w) => w.id === draft.id);
+    const existing = index >= 0 ? rows[index] : undefined;
+
+    const saved: WorkflowDetail = {
+      id: existing ? existing.id : nextId(rows, "wfl"),
+      name: draft.name,
+      description: draft.description,
+      // Structure is authored; readiness stays the platform's call. A saved
+      // draft is PLANNED — never promoted to READY by this layer.
+      status: existing ? existing.status : "PLANNED",
+      nodeCount: draft.graph.nodes.length,
+      sequence: existing ? existing.sequence : nextSequence(rows),
+      graph: copy(draft.graph),
+      settings: copy(draft.settings),
+    };
+
+    if (index >= 0) rows[index] = saved;
+    else rows.push(saved);
+    writeStore(rows);
+    return copy(saved);
+  }
+
+  async duplicate(id: string): Promise<WorkflowDetail> {
+    await delay();
+    const rows = readStore();
+    const source = rows.find((w) => w.id === id);
+    if (!source) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+
+    const clone: WorkflowDetail = {
+      ...copy(source),
+      id: nextId(rows, "wfl"),
+      name: `${source.name} (copy)`,
+      status: "PLANNED",
+      sequence: nextSequence(rows),
+    };
+    rows.push(clone);
+    writeStore(rows);
+    return copy(clone);
+  }
+
+  async remove(id: string): Promise<void> {
+    await delay();
+    const rows = readStore().filter((w) => w.id !== id);
+    writeStore(rows);
+  }
+
+  async templates(): Promise<WorkflowTemplateSummary[]> {
+    await delay();
+    return TEMPLATES.map(toTemplateSummary);
+  }
+
+  async template(id: string): Promise<WorkflowTemplate> {
+    await delay();
+    const found = TEMPLATES.find((t) => t.id === id);
+    if (!found) throw new WorkflowError("not_found", "That template doesn't exist.");
+    return copy(found);
+  }
+}

@@ -9,11 +9,14 @@ import {
   LIFECYCLE_TONE,
   NODE_LABEL,
   NODE_TONE,
+  WORKFLOW_LABEL,
+  WORKFLOW_TONE,
   type ApprovalStatus,
   type HealthState,
   type LifecycleStatus,
   type NodeStatus,
   type StatusTone,
+  type WorkflowStatus,
 } from "@/types/domain";
 
 /** Tone → Badge variant. `neutral` has no dedicated variant; it reads as default. */
@@ -40,6 +43,7 @@ export type StatusBadgeProps = { className?: string } & (
   | { kind: "approval"; status: ApprovalStatus }
   | { kind: "node"; status: NodeStatus }
   | { kind: "health"; status: HealthState }
+  | { kind: "workflow"; status: WorkflowStatus }
 );
 
 function resolve(props: StatusBadgeProps): { label: string; tone: StatusTone; isLive: boolean } {
@@ -60,6 +64,8 @@ function resolve(props: StatusBadgeProps): { label: string; tone: StatusTone; is
       };
     case "health":
       return { label: HEALTH_LABEL[props.status], tone: HEALTH_TONE[props.status], isLive: false };
+    case "workflow":
+      return { label: WORKFLOW_LABEL[props.status], tone: WORKFLOW_TONE[props.status], isLive: false };
   }
 }
 

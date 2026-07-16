@@ -1,0 +1,31 @@
+import type { ReactNode } from "react";
+import type { WorkflowStatus } from "@/types/domain";
+import { WorkspaceHeader } from "@/features/workspace/components/workspace-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+
+export interface WorkflowHeaderProps {
+  title: string;
+  description?: string;
+  status?: WorkflowStatus;
+  actions?: ReactNode;
+}
+
+/**
+ * Page header for the workflow screens. Wraps the workspace's header rather than
+ * restating it, adding the one thing these screens need: the workflow's status
+ * next to its name.
+ */
+export function WorkflowHeader({ title, description, status, actions }: WorkflowHeaderProps) {
+  return (
+    <WorkspaceHeader
+      title={
+        <span className="flex min-w-0 items-center gap-3">
+          <span className="truncate">{title}</span>
+          {status ? <StatusBadge kind="workflow" status={status} /> : null}
+        </span>
+      }
+      description={description}
+      actions={actions}
+    />
+  );
+}
