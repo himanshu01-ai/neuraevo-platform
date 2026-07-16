@@ -103,6 +103,46 @@ export const LIFECYCLE_LABEL: Record<LifecycleStatus, string> = {
   CANCELLED: "Cancelled",
 };
 
+export const APPROVAL_LABEL: Record<ApprovalStatus, string> = {
+  PENDING: "Pending",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+};
+
+export const NODE_LABEL: Record<NodeStatus, string> = {
+  PENDING: "Pending",
+  RUNNING: "Running",
+  COMPLETED: "Completed",
+  FAILED: "Failed",
+  SKIPPED: "Skipped",
+};
+
+/**
+ * Readiness wording. DEGRADED reads as "Warning" and UNHEALTHY as "Offline" —
+ * the operator-facing words for those states. The backend vocabulary is
+ * unchanged; only the label differs.
+ */
+export const HEALTH_LABEL: Record<HealthState, string> = {
+  HEALTHY: "Healthy",
+  DEGRADED: "Warning",
+  UNHEALTHY: "Offline",
+  UNKNOWN: "Unknown",
+};
+
+export const PRIORITY_LABEL: Record<Priority, string> = {
+  LOW: "Low",
+  MEDIUM: "Medium",
+  HIGH: "High",
+  URGENT: "Urgent",
+};
+
+export const PRIORITY_TONE: Record<Priority, StatusTone> = {
+  LOW: "neutral",
+  MEDIUM: "info",
+  HIGH: "warning",
+  URGENT: "danger",
+};
+
 export const CAPABILITY_LABEL: Record<Capability, string> = {
   browser: "Browser",
   python: "Python",
