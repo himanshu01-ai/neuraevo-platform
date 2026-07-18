@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowLeft, Archive, Copy, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { UNSUPPORTED_ACTION_HINT, employeesService } from "@/services/employees";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Panel } from "@/features/workspace/panels/panel";
@@ -36,6 +37,7 @@ export function EmployeeProfile({ id }: { id: string }) {
   const query = useEmployeeDetail(id);
   const duplicate = useDuplicateEmployee();
   const archive = useArchiveEmployee();
+  const support = employeesService.support;
   const [notice, setNotice] = useState<string | null>(null);
 
   if (query.isPending) {
@@ -95,15 +97,25 @@ export function EmployeeProfile({ id }: { id: string }) {
               <Button
                 variant="outline"
                 onClick={handleArchive}
-                disabled={archive.isPending || employee.status === "OFFLINE"}
+                disabled={archive.isPending || employee.status === "OFFLINE" || !support.archive}
+                title={support.archive ? undefined : UNSUPPORTED_ACTION_HINT}
               >
                 <Archive className="size-4" aria-hidden="true" />
                 Archive
               </Button>
-              <Button href={`/workspace/employees/${employee.id}/edit`}>
-                <Pencil className="size-4" aria-hidden="true" />
-                Edit
-              </Button>
+              {/* A link can't be disabled, so an unsupported edit renders as a
+                  disabled button rather than a dead-end navigation. */}
+              {support.update ? (
+                <Button href={`/workspace/employees/${employee.id}/edit`}>
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Edit
+                </Button>
+              ) : (
+                <Button disabled title={UNSUPPORTED_ACTION_HINT}>
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Edit
+                </Button>
+              )}
             </>
           }
         />

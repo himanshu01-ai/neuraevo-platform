@@ -1,3 +1,4 @@
+import { DEFAULT_CONFIGURATION } from "./defaults";
 import {
   EMPLOYEE_PERMISSIONS,
   PERMISSION_DEFAULT_LEVEL,
@@ -36,15 +37,6 @@ export const CAPABILITY_AVAILABILITY_CATALOG: Record<EmployeeCapability, Capabil
   memory: "GENERAL",
   approval: "PREVIEW",
   notification: "PREVIEW",
-};
-
-const DEFAULT_CONFIGURATION: EmployeeConfiguration = {
-  autonomy: "balanced",
-  tone: "professional",
-  executionMode: "SEQUENTIAL",
-  priority: "MEDIUM",
-  requireApproval: true,
-  language: "en",
 };
 
 const config = (patch: Partial<EmployeeConfiguration> = {}): EmployeeConfiguration => ({

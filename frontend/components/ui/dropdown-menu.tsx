@@ -13,6 +13,8 @@ export interface DropdownItem {
   onSelect?: () => void;
   destructive?: boolean;
   disabled?: boolean;
+  /** Why the item is unavailable. Surfaced as a native tooltip. */
+  hint?: string;
 }
 
 export interface DropdownTriggerProps {
@@ -131,8 +133,18 @@ export function DropdownMenu({ renderTrigger, items, menuLabel, align = "end", h
                 <span className="truncate">{item.label}</span>
               </>
             );
-            return item.href ? (
-              <Link key={item.key} role="menuitem" href={item.href} className={classes} onClick={() => setOpen(false)}>
+            // A disabled link still takes focus and follows on Enter, so a
+            // disabled item always renders as a button — `disabled` there is
+            // enforced by the browser rather than by styling alone.
+            return item.href && !item.disabled ? (
+              <Link
+                key={item.key}
+                role="menuitem"
+                href={item.href}
+                title={item.hint}
+                className={classes}
+                onClick={() => setOpen(false)}
+              >
                 {inner}
               </Link>
             ) : (
@@ -142,6 +154,7 @@ export function DropdownMenu({ renderTrigger, items, menuLabel, align = "end", h
                 type="button"
                 disabled={item.disabled}
                 aria-disabled={item.disabled}
+                title={item.hint}
                 className={classes}
                 onClick={() => {
                   setOpen(false);

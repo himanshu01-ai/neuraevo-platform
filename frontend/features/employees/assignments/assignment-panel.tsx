@@ -4,6 +4,7 @@ import type { EmployeeAssignments } from "@/services/employees";
 import { EXECUTION_MODE_LABEL, PRIORITY_LABEL, PRIORITY_TONE } from "@/types/domain";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { employeesService } from "@/services/employees";
 import { Progress } from "@/components/ui/progress";
 import { StatusBadge, TONE_VARIANT } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
@@ -26,12 +27,22 @@ export function AssignmentPanel({ assignments, className }: AssignmentPanelProps
   const isIdle = workflows.length === 0 && currentTask === null && queue.length === 0;
 
   if (isIdle) {
-    return (
+    // "Assigned to nothing" and "assignments aren't tracked yet" look the same
+    // from here, so the copy follows what the backend can actually report.
+    return employeesService.support.assignments ? (
       <EmptyState
         compact
         icon={Workflow}
         title="Nothing assigned"
         description="This employee isn't on any workflows yet."
+        className={className}
+      />
+    ) : (
+      <EmptyState
+        compact
+        icon={Workflow}
+        title="Not yet available"
+        description="Workflow assignments aren't tracked by the backend yet."
         className={className}
       />
     );

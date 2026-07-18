@@ -2,7 +2,11 @@
 
 import { memo, useState } from "react";
 import { Archive, Copy, Ellipsis, Pencil, Trash2 } from "lucide-react";
-import type { EmployeeSummary } from "@/services/employees";
+import {
+  UNSUPPORTED_ACTION_HINT,
+  employeesService,
+  type EmployeeSummary,
+} from "@/services/employees";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -43,6 +47,8 @@ export const EmployeeCard = memo(function EmployeeCard({
   onDelete,
 }: EmployeeCardProps) {
   const [isConfirming, setIsConfirming] = useState(false);
+  // Module-level constant on the service, so reading it never triggers a render.
+  const support = employeesService.support;
   const role = roleLabel(employee.role, employee.customRole);
 
   return (
@@ -81,21 +87,34 @@ export const EmployeeCard = memo(function EmployeeCard({
           <DropdownMenu
             menuLabel={`Actions for ${employee.name}`}
             align="end"
+            // Actions the backend can't perform yet stay listed but disabled,
+            // with a tooltip saying why — never offered as something that works.
             items={[
               {
                 key: "edit",
                 label: "Edit employee",
                 icon: Pencil,
                 href: `/workspace/employees/${employee.id}/edit`,
+                disabled: !support.update,
+                hint: support.update ? undefined : UNSUPPORTED_ACTION_HINT,
               },
               { key: "duplicate", label: "Duplicate", icon: Copy, onSelect: () => onDuplicate(employee.id) },
-              { key: "archive", label: "Archive", icon: Archive, onSelect: () => onArchive(employee.id) },
+              {
+                key: "archive",
+                label: "Archive",
+                icon: Archive,
+                onSelect: () => onArchive(employee.id),
+                disabled: !support.archive,
+                hint: support.archive ? undefined : UNSUPPORTED_ACTION_HINT,
+              },
               {
                 key: "delete",
                 label: "Delete",
                 icon: Trash2,
                 destructive: true,
                 onSelect: () => setIsConfirming(true),
+                disabled: !support.remove,
+                hint: support.remove ? undefined : UNSUPPORTED_ACTION_HINT,
               },
             ]}
             renderTrigger={(props) => (

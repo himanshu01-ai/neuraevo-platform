@@ -15,6 +15,7 @@
  */
 
 import { CAPABILITIES, type Capability, type ExecutionMode, type HealthState, type LifecycleStatus, type Priority, type StatusTone } from "@/types/domain";
+import type { EmployeesBackendSupport } from "./support";
 
 /**
  * Deterministic ordinal standing in for recency, mirroring the backend's
@@ -397,7 +398,13 @@ export interface EmployeeTemplate extends EmployeeTemplateSummary {
 // Errors & the adapter seam
 // =====================================================================
 
-export type EmployeeErrorCode = "not_found" | "unavailable" | "invalid_draft" | "unknown";
+export type EmployeeErrorCode =
+  | "not_found"
+  | "unavailable"
+  | "invalid_draft"
+  /** The operation exists on the seam but the active backend can't perform it. */
+  | "unsupported"
+  | "unknown";
 
 export class EmployeeError extends Error {
   code: EmployeeErrorCode;
@@ -410,6 +417,8 @@ export class EmployeeError extends Error {
 
 /** The single seam every employee backend must implement. */
 export interface EmployeesAdapter {
+  /** Which operations this adapter's backend can actually perform. */
+  readonly support: EmployeesBackendSupport;
   list(): Promise<EmployeeSummary[]>;
   detail(id: string): Promise<EmployeeDetail>;
   save(draft: EmployeeDraft): Promise<EmployeeDetail>;

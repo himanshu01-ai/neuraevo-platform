@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { DEFAULT_CONFIGURATION } from "@/services/employees";
 import type {
   EmployeeAccent,
   EmployeeCapability,
@@ -27,14 +28,9 @@ import type {
  * Nothing here executes anything. It describes an employee.
  */
 
-export const DEFAULT_CONFIGURATION: EmployeeConfiguration = {
-  autonomy: "balanced",
-  tone: "professional",
-  executionMode: "SEQUENTIAL",
-  priority: "MEDIUM",
-  requireApproval: true,
-  language: "en",
-};
+// Re-exported so existing importers keep working; the single declaration now
+// lives in the services layer, which the backend mapping also falls back to.
+export { DEFAULT_CONFIGURATION };
 
 interface BuilderState {
   /** `null` while creating; the employee's id once it exists. */

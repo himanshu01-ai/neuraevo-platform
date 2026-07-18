@@ -1,6 +1,12 @@
 export { employeesService, type EmployeesService } from "./employees-service";
 export { employeeKeys } from "./keys";
 export { CAPABILITY_AVAILABILITY_CATALOG } from "./fixtures";
+export { DEFAULT_CONFIGURATION } from "./defaults";
+export {
+  UNSUPPORTED_ACTION_HINT,
+  UNSUPPORTED_MESSAGE,
+  type EmployeesBackendSupport,
+} from "./support";
 export {
   ACTIVITY_KINDS,
   AUTONOMY_LEVELS,

@@ -20,11 +20,17 @@ const envSchema = z.object({
    * choice is app-wide — the two are never mixed within a session.
    */
   NEXT_PUBLIC_AUTH_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
+  /**
+   * Which employees adapter the app runs against. `backend` (default) talks to
+   * FastAPI; `mock` keeps the Sprint 17.6 offline adapter for UI-only work.
+   */
+  NEXT_PUBLIC_EMPLOYEES_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
 });
 
 const parsed = envSchema.safeParse({
   NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
   NEXT_PUBLIC_AUTH_ADAPTER: process.env.NEXT_PUBLIC_AUTH_ADAPTER,
+  NEXT_PUBLIC_EMPLOYEES_ADAPTER: process.env.NEXT_PUBLIC_EMPLOYEES_ADAPTER,
 });
 
 if (!parsed.success) {
