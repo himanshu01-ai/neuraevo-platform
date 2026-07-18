@@ -59,6 +59,8 @@ export function useAuth() {
 
   const forgotPassword = useMutation({ mutationFn: authService.forgotPassword });
 
+  const resetPassword = useMutation({ mutationFn: authService.resetPassword });
+
   const verifyEmail = useMutation({
     mutationFn: authService.verifyEmail,
     onSuccess: (updated) => setUser(updated),
@@ -80,6 +82,7 @@ export function useAuth() {
     login,
     signup,
     forgotPassword,
+    resetPassword,
     verifyEmail,
     resendVerification,
     logout,

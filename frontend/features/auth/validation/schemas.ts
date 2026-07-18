@@ -33,6 +33,17 @@ export const signupSchema = z
 
 export const forgotPasswordSchema = z.object({ email: emailSchema });
 
+/** Choosing a new password from a reset link — same rules as signup. */
+export const resetPasswordSchema = z
+  .object({
+    password: strongPasswordSchema,
+    confirmPassword: z.string().min(1, "Confirm your password"),
+  })
+  .refine((d) => d.password === d.confirmPassword, {
+    path: ["confirmPassword"],
+    message: "Passwords do not match",
+  });
+
 export const verifyEmailSchema = z.object({
   code: z
     .string()
@@ -43,4 +54,5 @@ export const verifyEmailSchema = z.object({
 export type LoginValues = z.infer<typeof loginSchema>;
 export type SignupValues = z.infer<typeof signupSchema>;
 export type ForgotPasswordValues = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordValues = z.infer<typeof resetPasswordSchema>;
 export type VerifyEmailValues = z.infer<typeof verifyEmailSchema>;

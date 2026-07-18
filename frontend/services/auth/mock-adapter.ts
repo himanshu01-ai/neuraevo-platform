@@ -5,6 +5,7 @@ import {
   type ForgotPasswordInput,
   type LoginInput,
   type ResendVerificationInput,
+  type ResetPasswordInput,
   type Session,
   type SignupInput,
   type VerifyEmailInput,
@@ -20,6 +21,7 @@ import {
  *  - signup → taken@neuraevo.com → email_exists
  *  - verify → code "000000" → invalid_code (any other 6 digits succeed)
  *  - forgotPassword → always { sent: true } (no user enumeration)
+ *  - resetPassword → token "expired" → invalid_token (any other token succeeds)
  */
 
 const SESSION_KEY = "neuraevo.mock.session";
@@ -122,6 +124,16 @@ export class MockAuthAdapter implements AuthAdapter {
   ): Promise<{ sent: true }> {
     await delay();
     return { sent: true };
+  }
+
+  async resetPassword(input: ResetPasswordInput): Promise<void> {
+    await delay();
+    if (input.token === "expired") {
+      throw new AuthError(
+        "invalid_token",
+        "This password reset link is invalid or has expired.",
+      );
+    }
   }
 
   async verifyEmail(input: VerifyEmailInput): Promise<AuthUser> {

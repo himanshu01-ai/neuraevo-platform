@@ -9,5 +9,6 @@ export {
   type ForgotPasswordInput,
   type VerifyEmailInput,
   type ResendVerificationInput,
+  type ResetPasswordInput,
   type AuthErrorCode,
 } from "./types";

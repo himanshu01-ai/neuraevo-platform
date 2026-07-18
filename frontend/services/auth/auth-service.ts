@@ -6,6 +6,7 @@ import type {
   ForgotPasswordInput,
   LoginInput,
   ResendVerificationInput,
+  ResetPasswordInput,
   SignupInput,
   VerifyEmailInput,
 } from "./types";
@@ -27,6 +28,7 @@ export const authService = {
   signup: (input: SignupInput) => adapter.signup(input),
   logout: () => adapter.logout(),
   forgotPassword: (input: ForgotPasswordInput) => adapter.forgotPassword(input),
+  resetPassword: (input: ResetPasswordInput) => adapter.resetPassword(input),
   verifyEmail: (input: VerifyEmailInput) => adapter.verifyEmail(input),
   resendVerification: (input: ResendVerificationInput) =>
     adapter.resendVerification(input),

@@ -44,6 +44,12 @@ export interface ResendVerificationInput {
   email: string;
 }
 
+export interface ResetPasswordInput {
+  /** Single-use token from the emailed reset link. */
+  token: string;
+  newPassword: string;
+}
+
 export type AuthErrorCode =
   | "invalid_credentials"
   | "email_exists"
@@ -52,6 +58,9 @@ export type AuthErrorCode =
   | "network_error"
   | "rate_limited"
   | "validation_error"
+  /** A reset link that is expired, malformed, or already used — one code for
+   *  all three, matching the backend's deliberately indistinguishable reply. */
+  | "invalid_token"
   | "unknown";
 
 export class AuthError extends Error {
@@ -75,6 +84,7 @@ export interface AuthAdapter {
   signup(input: SignupInput): Promise<Session>;
   logout(): Promise<void>;
   forgotPassword(input: ForgotPasswordInput): Promise<{ sent: true }>;
+  resetPassword(input: ResetPasswordInput): Promise<void>;
   verifyEmail(input: VerifyEmailInput): Promise<AuthUser>;
   resendVerification(input: ResendVerificationInput): Promise<{ sent: true }>;
   refreshSession(): Promise<Session | null>;

@@ -14,6 +14,7 @@ import {
   type ForgotPasswordInput,
   type LoginInput,
   type ResendVerificationInput,
+  type ResetPasswordInput,
   type Session,
   type SignupInput,
   type VerifyEmailInput,
@@ -32,6 +33,7 @@ import {
  *   GET  /auth/me                  -> 200 UserResponse   (authoritative profile)
  *   POST /auth/logout              -> 204                (revokes issued tokens)
  *   POST /auth/forgot-password     -> 202 MessageResponse
+ *   POST /auth/reset-password      -> 204                (consumes a reset token)
  *   POST /auth/verify-email        -> 200 UserResponse
  *   POST /auth/resend-verification -> 202 MessageResponse
  *
@@ -206,6 +208,30 @@ export class BackendAuthAdapter implements AuthAdapter {
       return { sent: true };
     } catch (error) {
       throw toAuthError(error, "Unable to send the reset email.");
+    }
+  }
+
+  /**
+   * Consume a reset token and set a new password.
+   *
+   * The backend answers 400 identically for an expired, malformed, or
+   * already-used token — deliberately, so the response is not an oracle. That
+   * whole class maps to `invalid_token`, which the UI turns into "request a new
+   * link" rather than a retry.
+   */
+  async resetPassword(input: ResetPasswordInput): Promise<void> {
+    try {
+      await request<void>("/auth/reset-password", {
+        method: "POST",
+        body: { token: input.token, new_password: input.newPassword },
+        auth: false,
+      });
+    } catch (error) {
+      const mapped = toAuthError(error, "Unable to reset your password.");
+      if (mapped.code === "invalid_code") {
+        throw new AuthError("invalid_token", mapped.message);
+      }
+      throw mapped;
     }
   }
 
