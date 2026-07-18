@@ -18,7 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 
 export function LoginForm() {
   const router = useRouter();
-  const { login } = useAuth();
+  const { login, capabilities } = useAuth();
   const {
     register,
     handleSubmit,
@@ -89,9 +89,12 @@ export function LoginForm() {
             <Checkbox {...register("remember")} />
             Remember me
           </label>
-          <Link href="/forgot-password" className="text-sm font-medium text-primary hover:underline">
-            Forgot password?
-          </Link>
+          {/* Hidden unless the active backend can actually reset a password. */}
+          {capabilities.forgotPassword ? (
+            <Link href="/forgot-password" className="text-sm font-medium text-primary hover:underline">
+              Forgot password?
+            </Link>
+          ) : null}
         </div>
 
         <Button type="submit" className="w-full" disabled={login.isPending}>

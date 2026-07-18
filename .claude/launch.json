@@ -3,8 +3,9 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
-      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--app-dir", "backend", "--port", "8000"],
+      "runtimeExecutable": "C:/Users/hv322/OneDrive/Desktop/NEURAEVO/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+      "cwd": "C:/Users/hv322/OneDrive/Desktop/NEURAEVO/backend",
       "port": 8000
     },
     {

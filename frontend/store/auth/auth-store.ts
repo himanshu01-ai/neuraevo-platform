@@ -3,8 +3,9 @@ import type { AuthUser } from "@/services/auth";
 
 /**
  * Client (UI) auth state only — the render-time source of truth. The actual
- * "session" lives in the mock service adapter; this store is hydrated from it on
- * bootstrap (see features/auth/hooks/use-auth). Intentionally NOT persisted.
+ * session (JWT pair) lives in the auth service adapter; this store is hydrated
+ * from it on bootstrap (see features/auth/hooks/use-auth). Intentionally NOT
+ * persisted — token persistence belongs to services/auth/token-storage.
  */
 export type AuthStatus = "idle" | "loading" | "authenticated" | "unauthenticated";
 

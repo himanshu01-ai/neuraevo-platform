@@ -4,13 +4,18 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { AuthError, authService } from "@/services/auth";
+import { onSessionExpired } from "@/services/http";
 import { useAuthStore } from "@/store/auth";
 
-/** Bootstraps auth state once from the mock session (hydrates the store). */
+/**
+ * Bootstraps auth state once from the persisted session (hydrates the store),
+ * and keeps it in sync when the backend ends the session.
+ */
 export function useSessionBootstrap() {
   const status = useAuthStore((s) => s.status);
   const setStatus = useAuthStore((s) => s.setStatus);
   const setUser = useAuthStore((s) => s.setUser);
+  const reset = useAuthStore((s) => s.reset);
 
   useEffect(() => {
     if (status !== "idle") return;
@@ -20,6 +25,11 @@ export function useSessionBootstrap() {
       .then((session) => setUser(session?.user ?? null))
       .catch(() => setUser(null));
   }, [status, setStatus, setUser]);
+
+  // A failed token refresh (expired/revoked refresh token) clears the session in
+  // the HTTP client; mirror that into the store so guards redirect. Unsubscribes
+  // on unmount so the listener set never leaks.
+  useEffect(() => onSessionExpired(reset), [reset]);
 }
 
 /** Human-readable message for any auth error. */
@@ -29,7 +39,7 @@ export function authErrorMessage(error: unknown, fallback = "Something went wron
   return fallback;
 }
 
-/** Auth actions as TanStack Query mutations (future backend calls) + logout. */
+/** Auth actions as TanStack Query mutations + logout. */
 export function useAuth() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -60,5 +70,15 @@ export function useAuth() {
     router.replace("/login");
   };
 
-  return { user, status, login, signup, forgotPassword, verifyEmail, logout };
+  return {
+    user,
+    status,
+    login,
+    signup,
+    forgotPassword,
+    verifyEmail,
+    logout,
+    /** What the active backend supports — gate UI entry points on this. */
+    capabilities: authService.capabilities,
+  };
 }

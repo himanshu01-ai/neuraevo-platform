@@ -1,6 +1,7 @@
 import {
   AuthError,
   type AuthAdapter,
+  type AuthCapabilities,
   type AuthUser,
   type ForgotPasswordInput,
   type LoginInput,
@@ -70,6 +71,12 @@ function makeSession(user: AuthUser): Session {
 }
 
 export class MockAuthAdapter implements AuthAdapter {
+  /** The mock simulates the full surface, so every operation is available. */
+  readonly capabilities: AuthCapabilities = {
+    forgotPassword: true,
+    verifyEmail: true,
+  };
+
   async login(input: LoginInput): Promise<Session> {
     await delay();
     if (input.email.toLowerCase() === "error@neuraevo.com" || input.password === "wrongpassword") {
