@@ -1,10 +1,10 @@
 import {
   AuthError,
   type AuthAdapter,
-  type AuthCapabilities,
   type AuthUser,
   type ForgotPasswordInput,
   type LoginInput,
+  type ResendVerificationInput,
   type Session,
   type SignupInput,
   type VerifyEmailInput,
@@ -71,12 +71,6 @@ function makeSession(user: AuthUser): Session {
 }
 
 export class MockAuthAdapter implements AuthAdapter {
-  /** The mock simulates the full surface, so every operation is available. */
-  readonly capabilities: AuthCapabilities = {
-    forgotPassword: true,
-    verifyEmail: true,
-  };
-
   async login(input: LoginInput): Promise<Session> {
     await delay();
     if (input.email.toLowerCase() === "error@neuraevo.com" || input.password === "wrongpassword") {
@@ -86,6 +80,7 @@ export class MockAuthAdapter implements AuthAdapter {
       id: hashId(input.email),
       email: input.email,
       name: nameFromEmail(input.email),
+      avatarUrl: null,
       emailVerified: true,
       createdAt: new Date().toISOString(),
     };
@@ -103,6 +98,7 @@ export class MockAuthAdapter implements AuthAdapter {
       id: hashId(input.email),
       email: input.email,
       name: input.name,
+      avatarUrl: null,
       emailVerified: false,
       createdAt: new Date().toISOString(),
     };
@@ -121,6 +117,13 @@ export class MockAuthAdapter implements AuthAdapter {
     return { sent: true };
   }
 
+  async resendVerification(
+    _input: ResendVerificationInput,
+  ): Promise<{ sent: true }> {
+    await delay();
+    return { sent: true };
+  }
+
   async verifyEmail(input: VerifyEmailInput): Promise<AuthUser> {
     await delay();
     if (input.code === "000000") {
@@ -133,6 +136,7 @@ export class MockAuthAdapter implements AuthAdapter {
           id: hashId(input.email),
           email: input.email,
           name: nameFromEmail(input.email),
+          avatarUrl: null,
           emailVerified: true,
           createdAt: new Date().toISOString(),
         };

@@ -51,6 +51,41 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
 
+    # --- Email verification / password reset (Sprint 18.1A) --------------
+    # Verification uses a short numeric code (entered in the UI); password
+    # reset uses a long URL-safe token delivered as a link. Both are stored
+    # only as SHA-256 hashes and are single-use.
+    EMAIL_VERIFICATION_CODE_TTL_MINUTES: int = Field(default=15)
+    PASSWORD_RESET_TOKEN_TTL_MINUTES: int = Field(default=60)
+
+    # --- Rate limiting (Sprint 18.1A) ------------------------------------
+    # Fixed-window limits for the sensitive auth endpoints. The default
+    # limiter is in-process; see app/services/rate_limiter.py for the
+    # multi-worker caveat.
+    AUTH_RATE_LIMIT_ENABLED: bool = Field(default=True)
+    LOGIN_RATE_LIMIT_ATTEMPTS: int = Field(default=10)
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=300)
+    EMAIL_SEND_RATE_LIMIT_ATTEMPTS: int = Field(default=5)
+    EMAIL_SEND_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=3600)
+    VERIFY_RATE_LIMIT_ATTEMPTS: int = Field(default=10)
+    VERIFY_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=900)
+
+    # --- Email delivery (Sprint 18.1A) -----------------------------------
+    # ``console`` logs rendered emails (development default, no SMTP needed);
+    # ``smtp`` delivers via the configured server. Authentication never talks
+    # to SMTP directly — it depends on the EmailService abstraction.
+    EMAIL_PROVIDER: str = Field(default="console")
+    EMAIL_FROM_ADDRESS: str = Field(default="no-reply@neuraevo.com")
+    EMAIL_FROM_NAME: str = Field(default="NeuraEvo")
+    # Public base URL of the frontend, used to build links in emails.
+    FRONTEND_BASE_URL: str = Field(default="http://localhost:3000")
+    SMTP_HOST: str | None = Field(default=None)
+    SMTP_PORT: int = Field(default=587)
+    SMTP_USERNAME: str | None = Field(default=None)
+    SMTP_PASSWORD: str | None = Field(default=None)
+    SMTP_USE_TLS: bool = Field(default=True)
+    SMTP_TIMEOUT_SECONDS: float = Field(default=10.0)
+
     # --- AI / Anthropic (Claude) ----------------------------------------
     # Never hardcode credentials. ANTHROPIC_API_KEY is read from the
     # environment; the model name is configurable so it is not embedded in

@@ -1,24 +1,19 @@
 import { z } from "zod";
-import { ApiError, refreshAccessToken, request } from "../http";
+import { ApiError, request } from "../http";
 import {
   accessTokenExpiry,
   clearSession,
-  decodeAccessToken,
   getAccessToken,
-  getStoredUser,
   getTokens,
-  isAccessTokenExpired,
-  setStoredUser,
   setTokens,
 } from "./token-storage";
 import {
   AuthError,
-  AuthFeatureUnavailableError,
   type AuthAdapter,
-  type AuthCapabilities,
   type AuthUser,
   type ForgotPasswordInput,
   type LoginInput,
+  type ResendVerificationInput,
   type Session,
   type SignupInput,
   type VerifyEmailInput,
@@ -26,31 +21,28 @@ import {
 
 /**
  * Real auth adapter, backed by the FastAPI service. Implements the same
- * `AuthAdapter` seam as the Sprint 17 mock, so no caller changes.
+ * `AuthAdapter` seam as the mock, so no caller changes.
  *
- * The backend (backend/app/api/v1/auth.py) implements exactly three endpoints:
+ * Sprint 18.1A completed the backend, so this adapter no longer derives
+ * anything it cannot read:
  *
- *   POST /auth/register  -> 201 UserResponse   (no tokens)
- *   POST /auth/login     -> 200 TokenResponse  (no user)
- *   POST /auth/refresh   -> 200 TokenResponse
+ *   POST /auth/register            -> 201 UserResponse
+ *   POST /auth/login               -> 200 TokenResponse
+ *   POST /auth/refresh             -> 200 TokenResponse
+ *   GET  /auth/me                  -> 200 UserResponse   (authoritative profile)
+ *   POST /auth/logout              -> 204                (revokes issued tokens)
+ *   POST /auth/forgot-password     -> 202 MessageResponse
+ *   POST /auth/verify-email        -> 200 UserResponse
+ *   POST /auth/resend-verification -> 202 MessageResponse
  *
- * Everything else in the interface is derived from those, or reported as
- * unavailable. Nothing is simulated.
- *
- * Consequences of that contract, handled here:
- *  - `signup` composes register + login, because register issues no tokens.
- *  - `logout` is client-side only; JWTs are stateless and there is no denylist
- *    endpoint to call.
- *  - `currentUser` reads the cached profile and the access-token claims, because
- *    no `/auth/me` endpoint exists.
- *  - `forgotPassword` / `verifyEmail` have no backend at all and therefore
- *    reject with `AuthFeatureUnavailableError`.
+ * The profile always comes from `GET /auth/me` — never from JWT claims, the
+ * submitted email, or a cached snapshot. Token refresh stays in `http.ts`, so
+ * an expired access token is renewed transparently underneath these calls.
  */
 
 // --- Backend wire schemas ------------------------------------------------
 // Mirrors of the Pydantic models in backend/app/schemas/auth.py, validated at
-// the boundary. These are the backend's models, not a parallel set of DTOs —
-// they are mapped straight into the domain types below.
+// the boundary and mapped straight into the domain types below.
 
 const tokenResponseSchema = z.object({
   access_token: z.string(),
@@ -62,25 +54,25 @@ const userResponseSchema = z.object({
   id: z.string(),
   email: z.string(),
   full_name: z.string().nullable().optional(),
+  avatar_url: z.string().nullable().optional(),
   is_active: z.boolean(),
+  email_verified: z.boolean(),
+  email_verified_at: z.string().nullable().optional(),
   created_at: z.string(),
+  updated_at: z.string(),
 });
 
 type UserResponse = z.infer<typeof userResponseSchema>;
 
 // --- Mapping -------------------------------------------------------------
 
-/**
- * The backend `User` model has no email-verification concept (only
- * `is_active`), so every backend-issued user is treated as verified. Mapping
- * `is_active` onto `emailVerified` would conflate two unrelated states.
- */
 function toAuthUser(user: UserResponse): AuthUser {
   return {
     id: user.id,
     email: user.email,
     name: user.full_name ?? null,
-    emailVerified: true,
+    avatarUrl: user.avatar_url ?? null,
+    emailVerified: user.email_verified,
     createdAt: user.created_at,
   };
 }
@@ -99,8 +91,10 @@ function toAuthError(error: unknown, fallback: string): AuthError {
 
   if (error instanceof ApiError) {
     if (error.isNetworkError) return new AuthError("network_error", error.message);
+    if (error.status === 429) return new AuthError("rate_limited", error.message);
     if (error.status === 401) return new AuthError("invalid_credentials", error.message);
     if (error.status === 409) return new AuthError("email_exists", error.message);
+    if (error.status === 400) return new AuthError("invalid_code", error.message);
     if (error.status === 422) return new AuthError("validation_error", error.message);
     if (error.status === 404) return new AuthError("not_found", error.message);
     return new AuthError("unknown", error.message);
@@ -109,40 +103,7 @@ function toAuthError(error: unknown, fallback: string): AuthError {
   return new AuthError("unknown", fallback);
 }
 
-// --- Session assembly ----------------------------------------------------
-
-/**
- * Build the domain `Session` from a freshly issued token pair, persisting both
- * the tokens and the best user profile we can assemble.
- *
- * `profile` is supplied when the backend has just told us who the user is (only
- * registration does). Otherwise we fall back to the cached profile for the same
- * user id, then to the token's `sub` claim plus the email the caller signed in
- * with — the backend offers no way to read the profile back.
- */
-function establishSession(
-  accessToken: string,
-  refreshToken: string,
-  profile: AuthUser | null,
-  knownEmail?: string,
-): Session {
-  setTokens({ accessToken, refreshToken });
-
-  const claims = decodeAccessToken(accessToken);
-  const userId = claims?.sub ?? profile?.id ?? "";
-  const cached = getStoredUser();
-  const cachedForThisUser = cached && cached.id === userId ? cached : null;
-
-  const user: AuthUser = profile ?? {
-    id: userId,
-    email: knownEmail ?? cachedForThisUser?.email ?? "",
-    name: cachedForThisUser?.name ?? null,
-    emailVerified: true,
-    createdAt: cachedForThisUser?.createdAt ?? new Date().toISOString(),
-  };
-
-  setStoredUser(user);
-
+function sessionFor(user: AuthUser, accessToken: string): Session {
   return {
     user,
     token: accessToken,
@@ -153,21 +114,31 @@ function establishSession(
 // --- Adapter -------------------------------------------------------------
 
 export class BackendAuthAdapter implements AuthAdapter {
-  /** The FastAPI backend implements neither of these; see the class docblock. */
-  readonly capabilities: AuthCapabilities = {
-    forgotPassword: false,
-    verifyEmail: false,
-  };
+  /** Exchange credentials for tokens and persist them. */
+  private async authenticate(email: string, password: string): Promise<string> {
+    const raw = await request<unknown>("/auth/login", {
+      method: "POST",
+      body: { email, password },
+      auth: false,
+    });
+    const tokens = parseOrThrow(tokenResponseSchema, raw);
+    setTokens({
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+    });
+    return tokens.access_token;
+  }
+
+  /** The authenticated user, straight from the database. */
+  private async fetchMe(): Promise<AuthUser> {
+    const raw = await request<unknown>("/auth/me");
+    return toAuthUser(parseOrThrow(userResponseSchema, raw));
+  }
 
   async login(input: LoginInput): Promise<Session> {
     try {
-      const raw = await request<unknown>("/auth/login", {
-        method: "POST",
-        body: { email: input.email, password: input.password },
-        auth: false,
-      });
-      const tokens = parseOrThrow(tokenResponseSchema, raw);
-      return establishSession(tokens.access_token, tokens.refresh_token, null, input.email);
+      const accessToken = await this.authenticate(input.email, input.password);
+      return sessionFor(await this.fetchMe(), accessToken);
     } catch (error) {
       throw toAuthError(error, "Unable to sign in.");
     }
@@ -178,7 +149,8 @@ export class BackendAuthAdapter implements AuthAdapter {
    *
    * `POST /auth/register` returns the created user but no tokens, so a second
    * call is required to obtain a session. Both run inside one adapter call, so
-   * the UI still sees a single "sign up" operation.
+   * the UI still sees a single "sign up" operation. Registration also triggers
+   * the verification email on the backend.
    */
   async signup(input: SignupInput): Promise<Session> {
     let created: AuthUser;
@@ -194,97 +166,103 @@ export class BackendAuthAdapter implements AuthAdapter {
     }
 
     try {
-      const raw = await request<unknown>("/auth/login", {
-        method: "POST",
-        body: { email: input.email, password: input.password },
-        auth: false,
-      });
-      const tokens = parseOrThrow(tokenResponseSchema, raw);
-      return establishSession(tokens.access_token, tokens.refresh_token, created);
-    } catch (error) {
-      // The account now exists but we hold no session. Surface it plainly rather
-      // than as a signup failure, so the user signs in instead of re-registering
-      // into a 409.
-      const authError = toAuthError(error, "Your account was created, but sign-in failed.");
+      const accessToken = await this.authenticate(input.email, input.password);
+      return sessionFor(created, accessToken);
+    } catch {
+      // The account now exists but we hold no session. Surface it plainly so
+      // the user signs in rather than re-registering into a 409.
       throw new AuthError(
-        authError.code === "invalid_credentials" ? "unknown" : authError.code,
+        "unknown",
         "Your account was created, but we couldn't sign you in. Please sign in.",
       );
     }
   }
 
   /**
-   * Client-side only. The backend issues stateless JWTs and exposes no logout or
-   * token-revocation endpoint, so the tokens are simply discarded; they remain
-   * technically valid until they expire.
+   * Revoke the session server-side, then clear it locally.
+   *
+   * Local tokens are cleared even if the call fails — an already-expired or
+   * already-revoked token still means the user is logged out here.
    */
   async logout(): Promise<void> {
-    clearSession();
+    try {
+      if (getAccessToken()) {
+        await request<void>("/auth/logout", { method: "POST", body: {} });
+      }
+    } catch {
+      /* best effort — clearing local tokens below is what matters */
+    } finally {
+      clearSession();
+    }
   }
 
-  async forgotPassword(_input: ForgotPasswordInput): Promise<{ sent: true }> {
-    throw new AuthFeatureUnavailableError(
-      "forgotPassword",
-      "Password reset isn't available yet. Contact your administrator to regain access.",
-    );
+  async forgotPassword(input: ForgotPasswordInput): Promise<{ sent: true }> {
+    try {
+      await request<unknown>("/auth/forgot-password", {
+        method: "POST",
+        body: { email: input.email },
+        auth: false,
+      });
+      return { sent: true };
+    } catch (error) {
+      throw toAuthError(error, "Unable to send the reset email.");
+    }
   }
 
-  async verifyEmail(_input: VerifyEmailInput): Promise<AuthUser> {
-    throw new AuthFeatureUnavailableError(
-      "verifyEmail",
-      "Email verification isn't available yet. Your account is already active.",
-    );
+  async verifyEmail(input: VerifyEmailInput): Promise<AuthUser> {
+    try {
+      const raw = await request<unknown>("/auth/verify-email", {
+        method: "POST",
+        body: { email: input.email, code: input.code },
+        auth: false,
+      });
+      return toAuthUser(parseOrThrow(userResponseSchema, raw));
+    } catch (error) {
+      throw toAuthError(error, "That code is invalid or expired.");
+    }
+  }
+
+  async resendVerification(
+    input: ResendVerificationInput,
+  ): Promise<{ sent: true }> {
+    try {
+      await request<unknown>("/auth/resend-verification", {
+        method: "POST",
+        body: { email: input.email },
+        auth: false,
+      });
+      return { sent: true };
+    } catch (error) {
+      throw toAuthError(error, "Unable to resend the code.");
+    }
   }
 
   /**
    * Restore the session on boot or reload.
    *
-   * A live access token is used as-is; an expired one is exchanged through the
-   * shared single-flight refresh in `http.ts`. When no refresh is possible the
-   * session is cleared and `null` is returned, which the guards read as
-   * unauthenticated.
+   * Asks the backend who the caller is; `http.ts` transparently refreshes an
+   * expired access token and clears the session if that fails, so a `null`
+   * here means "not signed in" and the guards can act on it directly.
    */
   async refreshSession(): Promise<Session | null> {
     const tokens = getTokens();
     if (!tokens) return null;
 
-    if (!isAccessTokenExpired(tokens.accessToken)) {
-      const stored = getStoredUser();
-      if (stored) {
-        return {
-          user: stored,
-          token: tokens.accessToken,
-          expiresAt: accessTokenExpiry(tokens.accessToken) ?? new Date().toISOString(),
-        };
-      }
-    }
-
-    const accessToken = await refreshAccessToken();
-    if (!accessToken) {
+    try {
+      const user = await this.fetchMe();
+      return sessionFor(user, getAccessToken() ?? tokens.accessToken);
+    } catch {
       clearSession();
       return null;
     }
-
-    const refreshed = getTokens();
-    if (!refreshed) return null;
-    return establishSession(accessToken, refreshed.refreshToken, getStoredUser());
   }
 
-  /**
-   * The cached profile for the current token.
-   *
-   * There is no `/auth/me` endpoint to read the profile back, so this reports
-   * what we hold locally and never issues a request. A token that has been
-   * revoked server-side surfaces on the next real API call as a 401, which the
-   * HTTP client turns into a refresh attempt and, failing that, a logout.
-   */
   async currentUser(): Promise<AuthUser | null> {
-    const token = getAccessToken();
-    if (!token) return null;
-    if (isAccessTokenExpired(token)) {
-      const session = await this.refreshSession();
-      return session?.user ?? null;
+    if (!getAccessToken()) return null;
+    try {
+      return await this.fetchMe();
+    } catch {
+      return null;
     }
-    return getStoredUser();
   }
 }

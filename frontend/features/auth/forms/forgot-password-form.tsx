@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, Info, MailCheck } from "lucide-react";
+import { AlertCircle, MailCheck } from "lucide-react";
 import { forgotPasswordSchema, type ForgotPasswordValues } from "@/features/auth/validation/schemas";
 import { useAuth, authErrorMessage } from "@/features/auth/hooks/use-auth";
 import { AuthCard } from "../components/auth-card";
@@ -14,7 +14,7 @@ import { Alert } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 
 export function ForgotPasswordForm() {
-  const { forgotPassword, capabilities } = useAuth();
+  const { forgotPassword } = useAuth();
   const {
     register,
     handleSubmit,
@@ -32,32 +32,6 @@ export function ForgotPasswordForm() {
       /* surfaced via isError */
     }
   });
-
-  // The active backend has no password-reset endpoint. Say so plainly rather
-  // than presenting a form whose submission can only fail.
-  if (!capabilities.forgotPassword) {
-    return (
-      <AuthCard
-        title="Password reset unavailable"
-        description="This deployment doesn't support self-service password resets yet."
-        footer={
-          <>
-            Back to{" "}
-            <Link href="/login" className="font-medium text-primary hover:underline">
-              sign in
-            </Link>
-          </>
-        }
-      >
-        <Alert variant="info" icon={Info}>
-          Contact your administrator to have your password reset.
-        </Alert>
-        <Button variant="outline" className="w-full" href="/login">
-          Back to sign in
-        </Button>
-      </AuthCard>
-    );
-  }
 
   if (forgotPassword.isSuccess) {
     return (

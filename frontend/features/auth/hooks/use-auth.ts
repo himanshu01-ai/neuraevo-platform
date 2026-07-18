@@ -64,6 +64,10 @@ export function useAuth() {
     onSuccess: (updated) => setUser(updated),
   });
 
+  const resendVerification = useMutation({
+    mutationFn: authService.resendVerification,
+  });
+
   const logout = async () => {
     await authService.logout();
     reset();
@@ -77,8 +81,7 @@ export function useAuth() {
     signup,
     forgotPassword,
     verifyEmail,
+    resendVerification,
     logout,
-    /** What the active backend supports — gate UI entry points on this. */
-    capabilities: authService.capabilities,
   };
 }

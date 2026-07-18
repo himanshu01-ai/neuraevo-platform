@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { AlertCircle, CheckCircle2 } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { verifyEmailSchema, type VerifyEmailValues } from "@/features/auth/validation/schemas";
 import { useAuth, authErrorMessage } from "@/features/auth/hooks/use-auth";
 import { AuthCard } from "../components/auth-card";
@@ -18,7 +18,7 @@ const DEMO_EMAIL = "user@neuraevo.com";
 
 export function VerifyEmailForm() {
   const router = useRouter();
-  const { verifyEmail, forgotPassword, user, capabilities } = useAuth();
+  const { verifyEmail, resendVerification, user } = useAuth();
   const email = user?.email ?? DEMO_EMAIL;
   const {
     register,
@@ -37,33 +37,6 @@ export function VerifyEmailForm() {
       /* surfaced via isError */
     }
   });
-
-  // The active backend has no email-verification concept — accounts are usable
-  // as soon as they are created — so there is no code to enter.
-  if (!capabilities.verifyEmail) {
-    return (
-      <AuthCard
-        title="No verification needed"
-        description="Your account is already active."
-        footer={
-          <>
-            Back to{" "}
-            <Link href="/login" className="font-medium text-primary hover:underline">
-              sign in
-            </Link>
-          </>
-        }
-      >
-        <Alert variant="success" icon={CheckCircle2}>
-          This deployment doesn&apos;t require email verification. You can continue straight to your
-          workspace.
-        </Alert>
-        <Button className="w-full" href="/workspace">
-          Go to workspace
-        </Button>
-      </AuthCard>
-    );
-  }
 
   return (
     <AuthCard
@@ -93,7 +66,7 @@ export function VerifyEmailForm() {
         <Field
           label="Verification code"
           error={errors.code?.message}
-          description="Demo: any 6 digits verify; 000000 shows an error."
+          description="The code expires 15 minutes after it's sent."
           required
         >
           {({ id, describedBy, invalid }) => (
@@ -116,26 +89,23 @@ export function VerifyEmailForm() {
           Verify email
         </Button>
 
-        {/* Resend rides on the same email delivery as password reset. */}
-        {capabilities.forgotPassword ? (
-          <p className="text-center text-sm text-muted-foreground" aria-live="polite">
-            {forgotPassword.isSuccess ? (
-              "A new code has been sent."
-            ) : (
-              <>
-                Didn&apos;t get it?{" "}
-                <button
-                  type="button"
-                  onClick={() => forgotPassword.mutate({ email })}
-                  disabled={forgotPassword.isPending}
-                  className="font-medium text-primary hover:underline disabled:opacity-50"
-                >
-                  Resend code
-                </button>
-              </>
-            )}
-          </p>
-        ) : null}
+        <p className="text-center text-sm text-muted-foreground" aria-live="polite">
+          {resendVerification.isSuccess ? (
+            "A new code has been sent."
+          ) : (
+            <>
+              Didn&apos;t get it?{" "}
+              <button
+                type="button"
+                onClick={() => resendVerification.mutate({ email })}
+                disabled={resendVerification.isPending}
+                className="font-medium text-primary hover:underline disabled:opacity-50"
+              >
+                Resend code
+              </button>
+            </>
+          )}
+        </p>
       </form>
     </AuthCard>
   );

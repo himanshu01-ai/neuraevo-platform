@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, token_epoch_matches
 from app.employee_builder.blueprint import BlueprintGenerationProvider
 from app.employee_builder.providers import ClaudeBlueprintProvider
 from app.models.user import User
@@ -22,6 +22,17 @@ from app.repositories.message_repository import MessageRepository
 from app.repositories.user_repository import UserRepository
 from app.services.ai_context_service import AIContextService
 from app.services.auth_service import AuthService
+from app.services.email import (
+    ConsoleEmailProvider,
+    EmailProvider,
+    EmailService,
+    SMTPEmailProvider,
+)
+from app.services.rate_limiter import (
+    InMemoryRateLimiter,
+    NullRateLimiter,
+    RateLimiter,
+)
 from app.services.context import AIContextEngineService
 from app.services.blueprint_apply_service import BlueprintApplyService
 from app.services.blueprint_generation_service import BlueprintGenerationService
@@ -209,9 +220,77 @@ _bearer_scheme = HTTPBearer(auto_error=True)
 SessionDep = Annotated[Session, Depends(get_db)]
 
 
-def get_auth_service(session: SessionDep) -> AuthService:
-    """Provide an :class:`AuthService` bound to the request-scoped session."""
-    return AuthService(session)
+def get_email_provider() -> EmailProvider:
+    """Provide the active email provider (Sprint 18.1A).
+
+    Selected by ``EMAIL_PROVIDER``. Unlike the unfulfilled provider seams
+    above, this one always resolves: ``console`` is a real provider that logs
+    rendered messages, so the verification and reset flows work end-to-end in
+    development without an SMTP server. Swapping in a hosted email API later is
+    a change confined to this function.
+    """
+    if settings.EMAIL_PROVIDER.strip().lower() == "smtp":
+        if not settings.SMTP_HOST:
+            raise ValueError(
+                "EMAIL_PROVIDER is 'smtp' but SMTP_HOST is not configured."
+            )
+        return SMTPEmailProvider(
+            host=settings.SMTP_HOST,
+            port=settings.SMTP_PORT,
+            from_address=settings.EMAIL_FROM_ADDRESS,
+            from_name=settings.EMAIL_FROM_NAME,
+            username=settings.SMTP_USERNAME,
+            password=settings.SMTP_PASSWORD,
+            use_tls=settings.SMTP_USE_TLS,
+            timeout=settings.SMTP_TIMEOUT_SECONDS,
+        )
+    return ConsoleEmailProvider()
+
+
+EmailProviderDep = Annotated[EmailProvider, Depends(get_email_provider)]
+
+
+def get_email_service(provider: EmailProviderDep) -> EmailService:
+    """Provide an :class:`EmailService` bound to the active provider.
+
+    The provider is injected here in the composition root; the service never
+    instantiates one, and authentication never sees a provider at all.
+    """
+    return EmailService(
+        provider,
+        product_name=settings.PROJECT_NAME,
+        frontend_base_url=settings.FRONTEND_BASE_URL,
+    )
+
+
+EmailServiceDep = Annotated[EmailService, Depends(get_email_service)]
+
+
+# Rate-limit counters must outlive the request, so the limiter is a module-level
+# singleton rather than per-request state (Sprint 18.1A).
+_auth_rate_limiter: RateLimiter = (
+    InMemoryRateLimiter() if settings.AUTH_RATE_LIMIT_ENABLED else NullRateLimiter()
+)
+
+
+def get_rate_limiter() -> RateLimiter:
+    """Provide the process-wide auth rate limiter."""
+    return _auth_rate_limiter
+
+
+RateLimiterDep = Annotated[RateLimiter, Depends(get_rate_limiter)]
+
+
+def get_auth_service(
+    session: SessionDep, email_service: EmailServiceDep
+) -> AuthService:
+    """Provide an :class:`AuthService` bound to the request-scoped session.
+
+    Sprint 18.1A injects the :class:`EmailService` so verification and
+    password-reset messages can be sent without the service knowing anything
+    about SMTP or templates.
+    """
+    return AuthService(session, email_service)
 
 
 def get_employee_service(session: SessionDep) -> EmployeeService:
@@ -3855,6 +3934,11 @@ def get_current_user(
 
     user = UserRepository(session).get_by_id(user_id)
     if user is None or not user.is_active:
+        raise credentials_exception
+
+    # Sprint 18.1A: reject tokens minted before a logout or password reset.
+    # The user row is already loaded here, so revocation costs no extra query.
+    if not token_epoch_matches(claims, user.token_epoch or 0):
         raise credentials_exception
 
     return user

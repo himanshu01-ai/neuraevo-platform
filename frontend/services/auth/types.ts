@@ -9,6 +9,7 @@ export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
+  avatarUrl: string | null;
   emailVerified: boolean;
   createdAt: string;
 }
@@ -39,14 +40,18 @@ export interface VerifyEmailInput {
   code: string;
 }
 
+export interface ResendVerificationInput {
+  email: string;
+}
+
 export type AuthErrorCode =
   | "invalid_credentials"
   | "email_exists"
   | "invalid_code"
   | "not_found"
   | "network_error"
+  | "rate_limited"
   | "validation_error"
-  | "feature_unavailable"
   | "unknown";
 
 export class AuthError extends Error {
@@ -59,38 +64,19 @@ export class AuthError extends Error {
 }
 
 /**
- * Raised when an operation exists on the adapter interface but the active
- * backend does not implement it. The adapter never fakes a success — callers
- * should gate the entry point on `capabilities` so this is a guard, not a
- * routine path.
+ * The single seam every auth backend must implement.
+ *
+ * Sprint 18.1A completed the backend, so every operation here is now genuinely
+ * supported — the capability flags that previously gated the unimplemented
+ * ones are gone.
  */
-export class AuthFeatureUnavailableError extends AuthError {
-  feature: AuthFeature;
-  constructor(feature: AuthFeature, message: string) {
-    super("feature_unavailable", message);
-    this.name = "AuthFeatureUnavailableError";
-    this.feature = feature;
-  }
-}
-
-export type AuthFeature = "forgotPassword" | "verifyEmail";
-
-/**
- * Which optional operations the active backend actually supports. The UI reads
- * this to hide or disable entry points rather than offering an action that
- * cannot succeed.
- */
-export type AuthCapabilities = Record<AuthFeature, boolean>;
-
-/** The single seam every auth backend must implement. */
 export interface AuthAdapter {
-  /** Operations this adapter can genuinely fulfil against its backend. */
-  readonly capabilities: AuthCapabilities;
   login(input: LoginInput): Promise<Session>;
   signup(input: SignupInput): Promise<Session>;
   logout(): Promise<void>;
   forgotPassword(input: ForgotPasswordInput): Promise<{ sent: true }>;
   verifyEmail(input: VerifyEmailInput): Promise<AuthUser>;
+  resendVerification(input: ResendVerificationInput): Promise<{ sent: true }>;
   refreshSession(): Promise<Session | null>;
   currentUser(): Promise<AuthUser | null>;
 }

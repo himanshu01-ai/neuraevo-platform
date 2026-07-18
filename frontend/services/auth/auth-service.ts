@@ -3,9 +3,9 @@ import { BackendAuthAdapter } from "./backend-adapter";
 import { MockAuthAdapter } from "./mock-adapter";
 import type {
   AuthAdapter,
-  AuthCapabilities,
   ForgotPasswordInput,
   LoginInput,
+  ResendVerificationInput,
   SignupInput,
   VerifyEmailInput,
 } from "./types";
@@ -23,16 +23,13 @@ const adapter: AuthAdapter =
   env.NEXT_PUBLIC_AUTH_ADAPTER === "mock" ? new MockAuthAdapter() : new BackendAuthAdapter();
 
 export const authService = {
-  /**
-   * Operations the active backend genuinely supports. The UI gates entry points
-   * on this instead of offering an action that cannot succeed.
-   */
-  capabilities: adapter.capabilities as Readonly<AuthCapabilities>,
   login: (input: LoginInput) => adapter.login(input),
   signup: (input: SignupInput) => adapter.signup(input),
   logout: () => adapter.logout(),
   forgotPassword: (input: ForgotPasswordInput) => adapter.forgotPassword(input),
   verifyEmail: (input: VerifyEmailInput) => adapter.verifyEmail(input),
+  resendVerification: (input: ResendVerificationInput) =>
+    adapter.resendVerification(input),
   refreshSession: () => adapter.refreshSession(),
   currentUser: () => adapter.currentUser(),
 };

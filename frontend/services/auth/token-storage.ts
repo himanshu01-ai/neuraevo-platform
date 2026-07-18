@@ -1,22 +1,18 @@
 /**
- * Persistence for the backend session: the JWT pair plus a snapshot of the
- * authenticated user.
+ * Persistence for the backend session: the JWT pair, and nothing else.
  *
- * Why a user snapshot? The backend exposes no `/auth/me` endpoint and
- * `POST /auth/login` returns tokens only, so the profile shown in the UI cannot
- * be re-fetched. We therefore cache what the backend has already told us
- * (at registration, or the previous session on this device) and rebuild the
- * user from the access-token claims when no snapshot exists.
+ * Sprint 18.1A removed the cached user snapshot — `GET /auth/me` is now the
+ * single authoritative source of the profile, so caching it here would just be
+ * a second copy that can go stale. The legacy key is still cleared on logout so
+ * sessions created before 18.1A leave nothing behind.
  *
  * Leaf module: no imports, safe for both the HTTP client and the auth adapter.
  * All access is `try`/`catch`-guarded — Safari private mode and disabled storage
  * throw on `localStorage` access.
  */
 
-import type { AuthUser } from "./types";
-
 const TOKENS_KEY = "neuraevo.auth.tokens";
-const USER_KEY = "neuraevo.auth.user";
+const LEGACY_USER_KEY = "neuraevo.auth.user";
 
 export interface StoredTokens {
   accessToken: string;
@@ -67,18 +63,10 @@ export function getRefreshToken(): string | null {
   return getTokens()?.refreshToken ?? null;
 }
 
-export function getStoredUser(): AuthUser | null {
-  return read<AuthUser>(USER_KEY);
-}
-
-export function setStoredUser(user: AuthUser | null): void {
-  write(USER_KEY, user);
-}
-
 /** Drop every trace of the session. Used by logout and by refresh failure. */
 export function clearSession(): void {
   write(TOKENS_KEY, null);
-  write(USER_KEY, null);
+  write(LEGACY_USER_KEY, null);
 }
 
 /**
