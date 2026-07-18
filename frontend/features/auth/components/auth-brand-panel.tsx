@@ -39,7 +39,10 @@ export function AuthBrandPanel() {
       </div>
 
       <p className="relative text-xs text-muted-foreground">
-        &copy; {year} {siteConfig.name}. An AI Employee platform.
+        {/* The year is the one time-derived value in render; suppress the
+            hydration warning since a server/client year difference (only at a
+            New-Year boundary) is benign and self-corrects after hydration. */}
+        &copy; <span suppressHydrationWarning>{year}</span> {siteConfig.name}. An AI Employee platform.
       </p>
     </div>
   );

@@ -86,7 +86,7 @@ export const WorkflowCard = memo(function WorkflowCard({ workflow, onDuplicate, 
 
       {isConfirming ? (
         <div role="alert" className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-2.5">
-          <p className="text-xs text-destructive">Delete “{workflow.name}”? This can't be undone.</p>
+          <p className="text-xs text-destructive">Delete “{workflow.name}”? This can&apos;t be undone.</p>
           <div className="mt-2 flex gap-2">
             <Button variant="destructive" size="sm" className="h-7 flex-1" onClick={() => onDelete(workflow.id)}>
               Delete

@@ -212,7 +212,8 @@ export function WorkflowSettingsScreen({ id }: { id: string }) {
 
         <Reveal delay={0.15}>
           <Alert variant="info">
-            Running a workflow is the platform's job. These settings describe a run; they don't start one.
+            Running a workflow is the platform&apos;s job. These settings describe a run; they don&apos;t
+            start one.
           </Alert>
         </Reveal>
       </div>

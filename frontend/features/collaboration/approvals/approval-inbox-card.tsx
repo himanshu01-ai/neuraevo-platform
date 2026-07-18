@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import type { CollaborationApproval } from "@/services/collaboration";
 import { PRIORITY_LABEL, PRIORITY_TONE } from "@/types/domain";
@@ -25,8 +25,16 @@ export interface ApprovalInboxCardProps {
  * record it concerns. Pending shows the decision controls and a comment field;
  * a decided card shows the outcome and the note. Status resolves through
  * `StatusBadge`'s approval vocabulary — the same one the task inbox uses.
+ *
+ * Memoized like every other card rendered in a list, so typing a comment in one
+ * card doesn't repaint the rest of the inbox.
  */
-export function ApprovalInboxCard({ approval, onDecide, isDeciding = false, className }: ApprovalInboxCardProps) {
+export const ApprovalInboxCard = memo(function ApprovalInboxCard({
+  approval,
+  onDecide,
+  isDeciding = false,
+  className,
+}: ApprovalInboxCardProps) {
   const [comment, setComment] = useState("");
   const pending = approval.status === "PENDING";
 
@@ -97,4 +105,4 @@ export function ApprovalInboxCard({ approval, onDecide, isDeciding = false, clas
       ) : null}
     </section>
   );
-}
+});

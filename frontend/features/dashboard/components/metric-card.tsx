@@ -1,3 +1,4 @@
+import { memo } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { TONE_VARIANT } from "@/components/ui/status-badge";
@@ -10,8 +11,11 @@ import { TrendIndicator } from "./trend-indicator";
  * placeholder. Every number is carried in from the service — the card computes
  * nothing. A metric the platform can't report yet shows an em dash rather than a
  * zero, because "unknown" and "none" are different answers.
+ *
+ * Memoized like every other card rendered in a list, so a widget refresh only
+ * repaints the metrics that actually changed.
  */
-export function MetricCard({ metric }: { metric: OverviewMetric }) {
+export const MetricCard = memo(function MetricCard({ metric }: { metric: OverviewMetric }) {
   const meta = OVERVIEW_CARD_META[metric.id];
   const Icon = meta.icon;
   const hasValue = metric.value !== null;
@@ -39,4 +43,4 @@ export function MetricCard({ metric }: { metric: OverviewMetric }) {
       <TrendIndicator trend={metric.trend} className="mt-3" />
     </Link>
   );
-}
+});

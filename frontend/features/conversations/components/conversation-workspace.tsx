@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { ArrowLeft, MessagesSquare } from "lucide-react";
 import { useConversationStore } from "@/store/conversations";
+import { useDrawerDismiss } from "@/hooks/use-drawer-dismiss";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -65,6 +66,11 @@ export function ConversationWorkspace({ initialConversationId }: { initialConver
   const setShared = useSetShared();
   const setStatus = useSetConversationStatus();
   const markRead = useMarkRead();
+
+  // The context panel floats as a drawer below xl: Escape closes it and body
+  // scroll locks while it's open, matching the notification inspector.
+  const closeContextPanel = useCallback(() => setContextPanelOpen(false), [setContextPanelOpen]);
+  useDrawerDismiss(contextPanelOpen && selectedId !== null, closeContextPanel);
 
   // A deep link (details screen, search hit) lands with its conversation open.
   useEffect(() => {

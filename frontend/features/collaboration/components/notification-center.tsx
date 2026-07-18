@@ -4,6 +4,7 @@ import { useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { MousePointerSquareDashed } from "lucide-react";
 import { useCollaborationStore } from "@/store/collaboration";
+import { useDrawerDismiss } from "@/hooks/use-drawer-dismiss";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
@@ -69,15 +70,9 @@ export function NotificationCenter() {
     [selectNotification, feed.data, toggleMutate]
   );
 
-  // Escape closes the drawer on small screens.
-  useEffect(() => {
-    if (selectedId === null) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") selectNotification(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, selectNotification]);
+  // Escape closes the drawer, and body scroll locks while it floats on mobile.
+  const closeInspector = useCallback(() => selectNotification(null), [selectNotification]);
+  useDrawerDismiss(selectedId !== null, closeInspector);
 
   const feedBody = () => {
     if (feed.isError) {
