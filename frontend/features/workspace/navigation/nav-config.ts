@@ -10,6 +10,9 @@ import {
   BarChart3,
   Blocks,
   Bell,
+  Activity,
+  AtSign,
+  Users,
   Settings,
   CircleHelp,
   type LucideIcon,
@@ -46,7 +49,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Automation",
     items: [
       { id: "workflows", label: "Workflows", href: "/workspace/workflows", icon: Workflow },
-      { id: "approvals", label: "Approvals", href: "/workspace/approvals", icon: ShieldCheck },
+      { id: "approvals", label: "Approvals", href: "/workspace/collaboration/approvals", icon: ShieldCheck },
       { id: "memory", label: "Memory", href: "/workspace/memory", icon: Brain },
     ],
   },
@@ -56,7 +59,16 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "analytics", label: "Analytics", href: "/workspace/analytics", icon: BarChart3 },
       { id: "integrations", label: "Integrations", href: "/workspace/integrations", icon: Blocks },
-      { id: "notifications", label: "Notifications", href: "/workspace/notifications", icon: Bell },
+      { id: "notifications", label: "Notifications", href: "/workspace/collaboration", icon: Bell },
+    ],
+  },
+  {
+    id: "collaboration",
+    label: "Collaboration",
+    items: [
+      { id: "activity", label: "Activity", href: "/workspace/collaboration/activity", icon: Activity },
+      { id: "mentions", label: "Mentions", href: "/workspace/collaboration/mentions", icon: AtSign },
+      { id: "team", label: "Team activity", href: "/workspace/collaboration/team", icon: Users },
     ],
   },
 ];

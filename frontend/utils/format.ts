@@ -64,6 +64,28 @@ export function formatTime(iso: string): string {
   return TIME_FORMAT.format(date);
 }
 
+const DAY_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/**
+ * `"2026-07-01T09:30:00Z"` → `"1 Jul, 09:30"`. A compact day+time for dense
+ * feeds. Pinned like the others — no clock read, so no hydration mismatch (a
+ * live "2 hours ago" can't be made deterministic across server and client, so
+ * this app shows the moment, not the distance from now). Invalid input returns
+ * an em dash.
+ */
+export function formatDayTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return DAY_TIME_FORMAT.format(date);
+}
+
 /** Sortable ordinal for an ISO string; `0` when it can't be read. */
 export function dateValue(iso: string): number {
   const value = new Date(iso).getTime();

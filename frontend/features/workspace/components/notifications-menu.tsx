@@ -22,7 +22,10 @@ export function NotificationsMenu({ className }: { className?: string }) {
           </div>
         </div>
       }
-      items={[{ key: "settings", label: "Notification settings", icon: Settings, href: "/workspace/notifications" }]}
+      items={[
+        { key: "open", label: "Open notifications", icon: Bell, href: "/workspace/collaboration" },
+        { key: "settings", label: "Notification settings", icon: Settings, href: "/workspace/settings" },
+      ]}
       renderTrigger={(p) => (
         <button
           {...p}
