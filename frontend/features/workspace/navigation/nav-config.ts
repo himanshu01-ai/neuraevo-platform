@@ -4,6 +4,7 @@ import {
   ListChecks,
   Bot,
   Brain,
+  MessagesSquare,
   ShieldCheck,
   Workflow,
   BarChart3,
@@ -35,6 +36,7 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { id: "home", label: "Home", href: "/workspace", icon: Home },
       { id: "canvas", label: "Workspace", href: "/workspace/canvas", icon: LayoutDashboard },
+      { id: "conversations", label: "Conversations", href: "/workspace/conversations", icon: MessagesSquare },
       { id: "tasks", label: "Tasks", href: "/workspace/tasks", icon: ListChecks },
       { id: "employees", label: "AI Employees", href: "/workspace/employees", icon: Bot },
     ],

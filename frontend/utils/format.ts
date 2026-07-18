@@ -50,6 +50,20 @@ export function formatDateTime(iso: string): string {
   return `${DATE_TIME_FORMAT.format(date)} UTC`;
 }
 
+const TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "UTC",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/** `"2026-07-01T09:30:00Z"` → `"09:30"`. Invalid input returns an em dash. */
+export function formatTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return TIME_FORMAT.format(date);
+}
+
 /** Sortable ordinal for an ISO string; `0` when it can't be read. */
 export function dateValue(iso: string): number {
   const value = new Date(iso).getTime();
