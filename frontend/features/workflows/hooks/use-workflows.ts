@@ -71,6 +71,32 @@ export function useDuplicateWorkflow() {
   });
 }
 
+/** Retires a workflow. Mirrors the employee domain's archive refresh. */
+export function useArchiveWorkflow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => workflowsService.archive(id),
+    onSuccess: (archived) => {
+      queryClient.setQueryData(workflowKeys.detail(archived.id), archived);
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.lists });
+    },
+  });
+}
+
+/** Brings an archived workflow back to the bench. */
+export function useRestoreWorkflow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => workflowsService.restore(id),
+    onSuccess: (restored) => {
+      queryClient.setQueryData(workflowKeys.detail(restored.id), restored);
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.lists });
+    },
+  });
+}
+
 export function useDeleteWorkflow() {
   const queryClient = useQueryClient();
 

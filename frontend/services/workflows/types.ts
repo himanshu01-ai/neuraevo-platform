@@ -143,6 +143,10 @@ export interface WorkflowsAdapter {
   detail(id: string): Promise<WorkflowDetail>;
   save(draft: WorkflowDraft): Promise<WorkflowDetail>;
   duplicate(id: string): Promise<WorkflowDetail>;
+  /** Retire a workflow without destroying it. */
+  archive(id: string): Promise<WorkflowDetail>;
+  /** Bring an archived workflow back to the bench. */
+  restore(id: string): Promise<WorkflowDetail>;
   remove(id: string): Promise<void>;
   templates(): Promise<WorkflowTemplateSummary[]>;
   template(id: string): Promise<WorkflowTemplate>;

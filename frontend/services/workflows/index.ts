@@ -1,5 +1,6 @@
 export { workflowsService, type WorkflowsService } from "./workflows-service";
 export { workflowKeys } from "./keys";
+export { toWorkflowStatus, toGraphDocument, toGraphAndSettings } from "./mapping";
 export { GRID_SIZE } from "./fixtures";
 export {
   NODE_HEIGHT,

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { useBuilderStore } from "@/store/workflow";
 import { useDuplicateWorkflow, useSaveWorkflow } from "../hooks/use-workflows";
 import { parseWorkflowFile, serializeWorkflow, workflowFileName } from "../models/workflow-file";
+import { workflowErrorMessage } from "../models/workflow-messages";
 import { cn } from "@/lib/utils";
 
 const SEARCH_LIMIT = 6;
@@ -124,7 +125,10 @@ export function WorkflowToolbar() {
           setNotice(`Saved "${saved.name}".`);
           if (!workflowId) router.replace(`/workspace/workflows/${saved.id}/builder`);
         },
-        onError: () => setNotice("Couldn't save this workflow."),
+        // A rejected name or graph carries a reason the server knows and we
+        // don't; anything else gets our own wording.
+        onError: (error) =>
+          setNotice(workflowErrorMessage(error, "Couldn't save this workflow.")),
       }
     );
   };
@@ -136,7 +140,8 @@ export function WorkflowToolbar() {
     }
     duplicate.mutate(workflowId, {
       onSuccess: (copy) => router.push(`/workspace/workflows/${copy.id}/builder`),
-      onError: () => setNotice("Couldn't duplicate this workflow."),
+      onError: (error) =>
+        setNotice(workflowErrorMessage(error, "Couldn't duplicate this workflow.")),
     });
   };
 

@@ -135,6 +135,44 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
     return copy(clone);
   }
 
+  /**
+   * Archiving retires a workflow without destroying it. `BLOCKED` is how the
+   * backend's `archived` presents through the mapping layer, so the mock uses
+   * the same value and the two adapters look identical to the UI.
+   */
+  async archive(id: string): Promise<WorkflowDetail> {
+    await delay();
+    const rows = readStore();
+    const index = rows.findIndex((w) => w.id === id);
+    const existing = index >= 0 ? rows[index] : undefined;
+    if (!existing) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    if (existing.status === "BLOCKED") {
+      throw new WorkflowError("invalid_import", "That workflow is already archived.");
+    }
+
+    const archived: WorkflowDetail = { ...copy(existing), status: "BLOCKED" };
+    rows[index] = archived;
+    writeStore(rows);
+    return copy(archived);
+  }
+
+  /** Restoring returns it to the bench — `PLANNED`, never straight to `READY`. */
+  async restore(id: string): Promise<WorkflowDetail> {
+    await delay();
+    const rows = readStore();
+    const index = rows.findIndex((w) => w.id === id);
+    const existing = index >= 0 ? rows[index] : undefined;
+    if (!existing) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    if (existing.status !== "BLOCKED") {
+      throw new WorkflowError("invalid_import", "Only an archived workflow can be restored.");
+    }
+
+    const restored: WorkflowDetail = { ...copy(existing), status: "PLANNED" };
+    rows[index] = restored;
+    writeStore(rows);
+    return copy(restored);
+  }
+
   async remove(id: string): Promise<void> {
     await delay();
     const rows = readStore().filter((w) => w.id !== id);
