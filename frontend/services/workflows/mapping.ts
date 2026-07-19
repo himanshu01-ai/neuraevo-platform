@@ -8,10 +8,11 @@
  * Four differences are reconciled here, each deliberate:
  *
  * 1. **Status.** The backend tracks an authoring lifecycle
- *    (`draft`/`published`/`archived`); the frontend's `WorkflowStatus` is the
- *    planning engine's execution readiness (`PLANNED`/`READY`/`WAITING`/
- *    `BLOCKED`). Neither enum may change this sprint, so the mapping below is
- *    explicit — and lossy. See `STATUS_TO_FRONTEND`.
+ *    (`draft`/`published`/`archived`). Sprint 18.5 gave the frontend a matching
+ *    `WorkflowLifecycle` vocabulary (`DRAFT`/`PUBLISHED`/`ARCHIVED`), so the
+ *    mapping is now 1:1 and lossless — it only reconciles casing. This replaced
+ *    the Sprint 18.4 fudge that squeezed the lifecycle into the unrelated
+ *    execution-readiness enum. See `LIFECYCLE_TO_FRONTEND`.
  *
  * 2. **Edge field names.** The frontend edge is `sourceNode`/`targetNode`; the
  *    backend validator requires `source`/`target` and rejects anything else as
@@ -28,7 +29,7 @@
  */
 
 import { z } from "zod";
-import { EXECUTION_MODE, type ExecutionMode, type WorkflowStatus } from "@/types/domain";
+import { EXECUTION_MODE, type ExecutionMode, type WorkflowLifecycle } from "@/types/domain";
 import {
   type Sequence,
   type WorkflowDetail,
@@ -67,40 +68,32 @@ export type WorkflowSummaryResponse = z.infer<typeof workflowSummarySchema>;
 export type WorkflowResponse = z.infer<typeof workflowResponseSchema>;
 
 // =====================================================================
-// Status
+// Lifecycle
 // =====================================================================
 
 /**
- * Backend lifecycle → frontend readiness.
+ * Backend authoring status → frontend lifecycle. A 1:1 rename, casing aside:
  *
- *   draft     -> PLANNED   structured but not activated
- *   published -> READY     may proceed now
- *   archived  -> BLOCKED   retired, so not available to run
+ *   draft     -> DRAFT
+ *   published -> PUBLISHED
+ *   archived  -> ARCHIVED
  *
- * `archived` is the lossy one: the frontend vocabulary has no retired state,
- * and `BLOCKED` is the only value meaning "not available". It reads as an
- * error tone in the UI, which archiving is not. Adding `ARCHIVED` to the
- * frontend enum is the real fix and belongs in its own sprint.
+ * An unrecognised value falls back to `DRAFT` — the safe, editable state — so a
+ * newer backend status can't strand a workflow the UI can't act on.
  */
-const STATUS_TO_FRONTEND: Record<string, WorkflowStatus> = {
-  draft: "PLANNED",
-  published: "READY",
-  archived: "BLOCKED",
+const LIFECYCLE_TO_FRONTEND: Record<string, WorkflowLifecycle> = {
+  draft: "DRAFT",
+  published: "PUBLISHED",
+  archived: "ARCHIVED",
 };
 
-export function toWorkflowStatus(status: string): WorkflowStatus {
-  return STATUS_TO_FRONTEND[status.trim().toLowerCase()] ?? "PLANNED";
+export function toWorkflowLifecycle(status: string): WorkflowLifecycle {
+  return LIFECYCLE_TO_FRONTEND[status.trim().toLowerCase()] ?? "DRAFT";
 }
 
-/**
- * Frontend readiness → backend lifecycle, for the two the backend accepts on
- * a write. `WAITING`/`BLOCKED` have no authoring equivalent and are never sent:
- * archiving goes through its own endpoint.
- */
-export function toBackendStatus(status: WorkflowStatus): "draft" | "published" | null {
-  if (status === "READY") return "published";
-  if (status === "PLANNED") return "draft";
-  return null;
+/** Frontend lifecycle → the backend's lowercase authoring status. */
+export function toBackendLifecycle(lifecycle: WorkflowLifecycle): string {
+  return lifecycle.toLowerCase();
 }
 
 // =====================================================================
@@ -252,7 +245,7 @@ export function toWorkflowSummary(response: WorkflowSummaryResponse): WorkflowSu
     id: response.id,
     name: response.name,
     description: response.description ?? "",
-    status: toWorkflowStatus(response.status),
+    lifecycle: toWorkflowLifecycle(response.status),
     nodeCount: response.node_count,
     sequence: toSequence(response.created_at),
   };

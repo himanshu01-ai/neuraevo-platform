@@ -53,7 +53,7 @@ const toSummary = (detail: WorkflowDetail): WorkflowSummary => ({
   id: detail.id,
   name: detail.name,
   description: detail.description,
-  status: detail.status,
+  lifecycle: detail.lifecycle,
   nodeCount: detail.graph.nodes.length,
   sequence: detail.sequence,
 });
@@ -102,9 +102,9 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
       id: existing ? existing.id : nextId(rows, "wfl"),
       name: draft.name,
       description: draft.description,
-      // Structure is authored; readiness stays the platform's call. A saved
-      // draft is PLANNED — never promoted to READY by this layer.
-      status: existing ? existing.status : "PLANNED",
+      // A new workflow starts as a DRAFT; an existing one keeps its lifecycle,
+      // since saving edits structure and never changes the authoring state.
+      lifecycle: existing ? existing.lifecycle : "DRAFT",
       nodeCount: draft.graph.nodes.length,
       sequence: existing ? existing.sequence : nextSequence(rows),
       graph: copy(draft.graph),
@@ -127,7 +127,9 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
       ...copy(source),
       id: nextId(rows, "wfl"),
       name: `${source.name} (copy)`,
-      status: "PLANNED",
+      // A copy has not been reviewed, so it is born a draft regardless of the
+      // source's lifecycle — matching the backend.
+      lifecycle: "DRAFT",
       sequence: nextSequence(rows),
     };
     rows.push(clone);
@@ -135,39 +137,63 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
     return copy(clone);
   }
 
-  /**
-   * Archiving retires a workflow without destroying it. `BLOCKED` is how the
-   * backend's `archived` presents through the mapping layer, so the mock uses
-   * the same value and the two adapters look identical to the UI.
-   */
+  /** Publish a draft. Mirrors the backend's `draft ⇄ published` transition. */
+  async publish(id: string): Promise<WorkflowDetail> {
+    return this.setLifecycle(id, "PUBLISHED");
+  }
+
+  async unpublish(id: string): Promise<WorkflowDetail> {
+    return this.setLifecycle(id, "DRAFT");
+  }
+
+  private async setLifecycle(
+    id: string,
+    lifecycle: WorkflowDetail["lifecycle"],
+  ): Promise<WorkflowDetail> {
+    await delay();
+    const rows = readStore();
+    const index = rows.findIndex((w) => w.id === id);
+    const existing = index >= 0 ? rows[index] : undefined;
+    if (!existing) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    if (existing.lifecycle === "ARCHIVED") {
+      throw new WorkflowError("invalid_import", "Restore this workflow before changing it.");
+    }
+
+    const updated: WorkflowDetail = { ...copy(existing), lifecycle };
+    rows[index] = updated;
+    writeStore(rows);
+    return copy(updated);
+  }
+
+  /** Archiving retires a workflow without destroying it. */
   async archive(id: string): Promise<WorkflowDetail> {
     await delay();
     const rows = readStore();
     const index = rows.findIndex((w) => w.id === id);
     const existing = index >= 0 ? rows[index] : undefined;
     if (!existing) throw new WorkflowError("not_found", "That workflow doesn't exist.");
-    if (existing.status === "BLOCKED") {
+    if (existing.lifecycle === "ARCHIVED") {
       throw new WorkflowError("invalid_import", "That workflow is already archived.");
     }
 
-    const archived: WorkflowDetail = { ...copy(existing), status: "BLOCKED" };
+    const archived: WorkflowDetail = { ...copy(existing), lifecycle: "ARCHIVED" };
     rows[index] = archived;
     writeStore(rows);
     return copy(archived);
   }
 
-  /** Restoring returns it to the bench — `PLANNED`, never straight to `READY`. */
+  /** Restoring returns it to the bench — `DRAFT`, never straight to published. */
   async restore(id: string): Promise<WorkflowDetail> {
     await delay();
     const rows = readStore();
     const index = rows.findIndex((w) => w.id === id);
     const existing = index >= 0 ? rows[index] : undefined;
     if (!existing) throw new WorkflowError("not_found", "That workflow doesn't exist.");
-    if (existing.status !== "BLOCKED") {
+    if (existing.lifecycle !== "ARCHIVED") {
       throw new WorkflowError("invalid_import", "Only an archived workflow can be restored.");
     }
 
-    const restored: WorkflowDetail = { ...copy(existing), status: "PLANNED" };
+    const restored: WorkflowDetail = { ...copy(existing), lifecycle: "DRAFT" };
     rows[index] = restored;
     writeStore(rows);
     return copy(restored);

@@ -30,6 +30,7 @@ import {
  *   GET    /workflows/{id}               detail (with graph)
  *   PATCH  /workflows/{id}               update
  *   DELETE /workflows/{id}               delete
+ *   PATCH  /workflows/{id}   {status}   publish / unpublish
  *   POST   /workflows/{id}/archive       archive
  *   POST   /workflows/{id}/restore       restore
  *   POST   /workflows/{id}/duplicate     duplicate
@@ -142,6 +143,36 @@ export class BackendWorkflowsAdapter implements WorkflowsAdapter {
       return toWorkflowDetail(parseOrThrow(workflowResponseSchema, raw));
     } catch (error) {
       throw toWorkflowError(error, "That couldn't be duplicated.");
+    }
+  }
+
+  /**
+   * Publish and unpublish are ordinary status updates, not bespoke endpoints —
+   * the backend accepts a lifecycle change through `PATCH`, validated against
+   * its own transition rules (draft ⇄ published). Only the status is sent, so a
+   * publish never rewrites the graph.
+   */
+  async publish(id: string): Promise<WorkflowDetail> {
+    return this.setLifecycle(id, "published", "That couldn't be published.");
+  }
+
+  async unpublish(id: string): Promise<WorkflowDetail> {
+    return this.setLifecycle(id, "draft", "That couldn't be moved back to draft.");
+  }
+
+  private async setLifecycle(
+    id: string,
+    status: "draft" | "published",
+    fallback: string,
+  ): Promise<WorkflowDetail> {
+    try {
+      const raw = await request<unknown>(`/workflows/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: { status },
+      });
+      return toWorkflowDetail(parseOrThrow(workflowResponseSchema, raw));
+    } catch (error) {
+      throw toWorkflowError(error, fallback);
     }
   }
 

@@ -10,12 +10,15 @@ import {
   NODE_LABEL,
   NODE_TONE,
   WORKFLOW_LABEL,
+  WORKFLOW_LIFECYCLE_LABEL,
+  WORKFLOW_LIFECYCLE_TONE,
   WORKFLOW_TONE,
   type ApprovalStatus,
   type HealthState,
   type LifecycleStatus,
   type NodeStatus,
   type StatusTone,
+  type WorkflowLifecycle,
   type WorkflowStatus,
 } from "@/types/domain";
 
@@ -44,6 +47,7 @@ export type StatusBadgeProps = { className?: string } & (
   | { kind: "node"; status: NodeStatus }
   | { kind: "health"; status: HealthState }
   | { kind: "workflow"; status: WorkflowStatus }
+  | { kind: "workflow-lifecycle"; status: WorkflowLifecycle }
 );
 
 function resolve(props: StatusBadgeProps): { label: string; tone: StatusTone; isLive: boolean } {
@@ -66,6 +70,12 @@ function resolve(props: StatusBadgeProps): { label: string; tone: StatusTone; is
       return { label: HEALTH_LABEL[props.status], tone: HEALTH_TONE[props.status], isLive: false };
     case "workflow":
       return { label: WORKFLOW_LABEL[props.status], tone: WORKFLOW_TONE[props.status], isLive: false };
+    case "workflow-lifecycle":
+      return {
+        label: WORKFLOW_LIFECYCLE_LABEL[props.status],
+        tone: WORKFLOW_LIFECYCLE_TONE[props.status],
+        isLive: false,
+      };
   }
 }
 

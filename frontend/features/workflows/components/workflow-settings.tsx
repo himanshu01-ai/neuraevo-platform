@@ -17,6 +17,7 @@ import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { Reveal } from "@/components/motion/reveal";
 import { useSaveWorkflow, useWorkflowDetail } from "../hooks/use-workflows";
+import { workflowErrorMessage } from "../models/workflow-messages";
 import { WorkflowCardGridLoading } from "./workflow-loading-state";
 import { WorkflowHeader } from "./workflow-header";
 
@@ -71,6 +72,7 @@ export function WorkflowSettingsScreen({ id }: { id: string }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [settings, setSettings] = useState<WorkflowSettingsModel | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Seed the form once the record arrives. Keyed on the id so switching
   // workflows reseeds, while a refetch of the same one leaves edits alone.
@@ -107,11 +109,17 @@ export function WorkflowSettingsScreen({ id }: { id: string }) {
   }
 
   const detail = query.data;
+  // An archived workflow is read-only. The backend rejects a PATCH on it (409),
+  // so the form is shown for reference but nothing here can be saved.
+  const isArchived = detail.lifecycle === "ARCHIVED";
 
   const handleSave = () => {
     save.mutate(
       { id: detail.id, name, description, graph: detail.graph, settings },
-      { onSuccess: () => router.push(`/workspace/workflows/${detail.id}`) }
+      {
+        onSuccess: () => router.push(`/workspace/workflows/${detail.id}`),
+        onError: (error) => setSaveError(workflowErrorMessage(error, "Couldn't save these settings.")),
+      }
     );
   };
 
@@ -121,21 +129,46 @@ export function WorkflowSettingsScreen({ id }: { id: string }) {
         <WorkflowHeader
           title="Workflow settings"
           description={detail.name}
-          status={detail.status}
+          lifecycle={detail.lifecycle}
           actions={
             <>
               <Button variant="outline" href={`/workspace/workflows/${detail.id}`}>
-                Cancel
+                {isArchived ? "Back" : "Cancel"}
               </Button>
-              <Button onClick={handleSave} disabled={save.isPending || name.trim().length === 0}>
-                {save.isPending ? "Saving…" : "Save settings"}
-              </Button>
+              {!isArchived ? (
+                <Button onClick={handleSave} disabled={save.isPending || name.trim().length === 0}>
+                  {save.isPending ? "Saving…" : "Save settings"}
+                </Button>
+              ) : null}
             </>
           }
         />
       </Reveal>
 
-      <div className="mt-6 grid max-w-3xl gap-6">
+      {saveError ? (
+        <Alert variant="error" className="mt-4">
+          {saveError}
+        </Alert>
+      ) : null}
+
+      {isArchived ? (
+        <Alert variant="warning" className="mt-4">
+          This workflow is archived, so its settings can&apos;t be changed. Restore
+          it from its{" "}
+          <a
+            href={`/workspace/workflows/${detail.id}`}
+            className="font-medium underline underline-offset-2"
+          >
+            overview
+          </a>{" "}
+          to edit.
+        </Alert>
+      ) : null}
+
+      {/* Disabled as a set when archived: the native `disabled` on the
+          fieldset propagates to every control, so read-only needs no per-input
+          wiring and is announced correctly. */}
+      <fieldset disabled={isArchived} className="mt-6 grid max-w-3xl gap-6 disabled:opacity-70">
         <Reveal delay={0.05}>
           <Panel title="Details">
             <div className="space-y-4">
@@ -216,7 +249,7 @@ export function WorkflowSettingsScreen({ id }: { id: string }) {
             start one.
           </Alert>
         </Reveal>
-      </div>
+      </fieldset>
     </WorkspaceContent>
   );
 }

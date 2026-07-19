@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { LayoutTemplate, Plus, Search } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { Reveal } from "@/components/motion/reveal";
-import { useDeleteWorkflow, useDuplicateWorkflow, useWorkflowList } from "../hooks/use-workflows";
+import { useWorkflowActions } from "../hooks/use-workflow-actions";
+import { useWorkflowList } from "../hooks/use-workflows";
 import { WorkflowCard } from "./workflow-card";
 import { WorkflowEmptyState } from "./workflow-empty-state";
 import { WorkflowCardGridLoading } from "./workflow-loading-state";
@@ -16,8 +18,7 @@ import { WorkflowHeader } from "./workflow-header";
 /** The workflow list screen. */
 export function WorkflowList() {
   const query = useWorkflowList();
-  const duplicate = useDuplicateWorkflow();
-  const remove = useDeleteWorkflow();
+  const actions = useWorkflowActions();
   const [search, setSearch] = useState("");
 
   const workflows = useMemo(() => {
@@ -68,8 +69,13 @@ export function WorkflowList() {
           <WorkflowCard
             key={workflow.id}
             workflow={workflow}
-            onDuplicate={(id) => duplicate.mutate(id)}
-            onDelete={(id) => remove.mutate(id)}
+            onDuplicate={actions.duplicate}
+            onPublish={actions.publish}
+            onUnpublish={actions.unpublish}
+            onArchive={actions.archive}
+            onRestore={actions.restore}
+            onDelete={actions.remove}
+            isBusy={actions.isBusy}
           />
         ))}
       </div>
@@ -96,6 +102,15 @@ export function WorkflowList() {
           }
         />
       </Reveal>
+
+      {actions.feedback ? (
+        <Alert
+          variant={actions.feedback.tone === "error" ? "error" : "success"}
+          className="mt-4"
+        >
+          {actions.feedback.message}
+        </Alert>
+      ) : null}
 
       <div className="relative mt-6 max-w-sm">
         <Search

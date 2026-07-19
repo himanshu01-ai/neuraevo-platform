@@ -36,12 +36,30 @@ export const NODE_STATUS = [
 export type NodeStatus = (typeof NODE_STATUS)[number];
 
 /**
- * Status of a workflow *definition* — how ready its structure is, not how a run
- * of it is going (backend planning.execution_workflow_models.WorkflowStatus).
- * A run's progress is `LifecycleStatus`; the two are different facets.
+ * Execution readiness of a workflow *run* — how ready its structure is to
+ * proceed, not how a run is going (backend
+ * planning.execution_workflow_models.WorkflowStatus). A run's progress is
+ * `LifecycleStatus`; the two are different facets.
+ *
+ * This is separate from `WorkflowLifecycle` below: readiness describes a run,
+ * lifecycle describes authoring. A workflow is authored (draft → published →
+ * archived) long before any run is evaluated for readiness.
  */
 export const WORKFLOW_STATUS = ["PLANNED", "READY", "WAITING", "BLOCKED"] as const;
 export type WorkflowStatus = (typeof WORKFLOW_STATUS)[number];
+
+/**
+ * Authoring lifecycle of a workflow *definition* (backend
+ * `app.utils.constants.WorkflowStatus`, Sprint 18.3). How far along its author
+ * is — not how ready a run is, and not how a run is going.
+ *
+ * Kept as UPPERCASE frontend vocabulary rather than the backend's lowercase
+ * values; the adapter maps between them, so no component sees a backend enum.
+ * Deliberately distinct from `WorkflowStatus`: an authored workflow has a
+ * lifecycle, and only gains a run status once the platform evaluates it.
+ */
+export const WORKFLOW_LIFECYCLE = ["DRAFT", "PUBLISHED", "ARCHIVED"] as const;
+export type WorkflowLifecycle = (typeof WORKFLOW_LIFECYCLE)[number];
 
 /** How a workflow's steps would be ordered (backend ExecutionMode). */
 export const EXECUTION_MODE = ["SEQUENTIAL", "PARALLEL", "HYBRID"] as const;
@@ -111,6 +129,17 @@ export const WORKFLOW_TONE: Record<WorkflowStatus, StatusTone> = {
   BLOCKED: "danger",
 };
 
+/**
+ * Lifecycle → tone. `ARCHIVED` is `warning`, not `danger`: archiving is a
+ * reversible retirement, not an error, so it must not read in the destructive
+ * colour the old `archived → BLOCKED` mapping gave it.
+ */
+export const WORKFLOW_LIFECYCLE_TONE: Record<WorkflowLifecycle, StatusTone> = {
+  DRAFT: "neutral",
+  PUBLISHED: "success",
+  ARCHIVED: "warning",
+};
+
 /** Human-readable labels (sentence case for UI; backend stays UPPERCASE). */
 export const LIFECYCLE_LABEL: Record<LifecycleStatus, string> = {
   PENDING: "Pending",
@@ -167,6 +196,12 @@ export const WORKFLOW_LABEL: Record<WorkflowStatus, string> = {
   READY: "Ready",
   WAITING: "Waiting",
   BLOCKED: "Blocked",
+};
+
+export const WORKFLOW_LIFECYCLE_LABEL: Record<WorkflowLifecycle, string> = {
+  DRAFT: "Draft",
+  PUBLISHED: "Published",
+  ARCHIVED: "Archived",
 };
 
 export const EXECUTION_MODE_LABEL: Record<ExecutionMode, string> = {

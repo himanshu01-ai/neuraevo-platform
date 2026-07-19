@@ -12,7 +12,7 @@
  * Nothing in this layer executes anything. It describes structure only.
  */
 
-import type { ExecutionMode, NodeStatus, WorkflowStatus } from "@/types/domain";
+import type { ExecutionMode, NodeStatus, WorkflowLifecycle } from "@/types/domain";
 
 /**
  * Deterministic ordinal standing in for recency, mirroring the backend's
@@ -94,7 +94,12 @@ export interface WorkflowSummary {
   id: string;
   name: string;
   description: string;
-  status: WorkflowStatus;
+  /**
+   * Authoring lifecycle — draft, published, or archived. This is the only
+   * status an authored workflow has; execution readiness (`WorkflowStatus`) is
+   * evaluated by the platform when a run happens, which this domain never does.
+   */
+  lifecycle: WorkflowLifecycle;
   nodeCount: number;
   sequence: Sequence;
 }
@@ -143,6 +148,10 @@ export interface WorkflowsAdapter {
   detail(id: string): Promise<WorkflowDetail>;
   save(draft: WorkflowDraft): Promise<WorkflowDetail>;
   duplicate(id: string): Promise<WorkflowDetail>;
+  /** Release a draft — make it published. */
+  publish(id: string): Promise<WorkflowDetail>;
+  /** Return a published workflow to draft. */
+  unpublish(id: string): Promise<WorkflowDetail>;
   /** Retire a workflow without destroying it. */
   archive(id: string): Promise<WorkflowDetail>;
   /** Bring an archived workflow back to the bench. */

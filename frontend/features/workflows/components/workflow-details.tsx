@@ -1,9 +1,21 @@
 "use client";
 
 import { useMemo } from "react";
-import { CircleCheck, Pencil, Settings, TriangleAlert } from "lucide-react";
+import { useRouter } from "next/navigation";
+import {
+  Archive,
+  ArchiveRestore,
+  CircleCheck,
+  Copy,
+  Pencil,
+  Send,
+  Settings,
+  TriangleAlert,
+  Undo2,
+} from "lucide-react";
 import { dependenciesOf } from "@/services/workflows";
 import { EXECUTION_MODE_LABEL } from "@/types/domain";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Panel } from "@/features/workspace/panels/panel";
@@ -11,6 +23,7 @@ import { WorkspaceContent } from "@/features/workspace/components/workspace-cont
 import { Reveal } from "@/components/motion/reveal";
 import { NODE_TYPES } from "../models/node-types";
 import { validateWorkflow } from "../validation/rules";
+import { useWorkflowActions } from "../hooks/use-workflow-actions";
 import { useWorkflowDetail } from "../hooks/use-workflows";
 import { WorkflowCardGridLoading } from "./workflow-loading-state";
 import { WorkflowEmptyState } from "./workflow-empty-state";
@@ -18,12 +31,20 @@ import { WorkflowHeader } from "./workflow-header";
 import { cn } from "@/lib/utils";
 
 /**
- * A workflow at rest: what it contains, how it's wired, and what validation says
- * — without opening the builder. Read-only.
+ * A workflow at rest: what it contains, how it's wired, what validation says,
+ * and every lifecycle move — without opening the builder. Read-only for the
+ * structure; the lifecycle actions live here because this is the one workflow
+ * screen that shows a single workflow whole.
  */
 export function WorkflowDetails({ id }: { id: string }) {
+  const router = useRouter();
   const query = useWorkflowDetail(id);
   const detail = query.data;
+  // Duplicating makes a new workflow, so go to it; every other action stays
+  // here and reports what changed.
+  const actions = useWorkflowActions({
+    onDuplicated: (clone) => router.push(`/workspace/workflows/${clone.id}`),
+  });
 
   const report = useMemo(() => (detail ? validateWorkflow(detail.graph) : null), [detail]);
 
@@ -51,27 +72,89 @@ export function WorkflowDetails({ id }: { id: string }) {
     );
   }
 
+  const isArchived = detail.lifecycle === "ARCHIVED";
+  const isPublished = detail.lifecycle === "PUBLISHED";
+  const ref = { id: detail.id, name: detail.name };
+
   return (
     <WorkspaceContent>
       <Reveal>
         <WorkflowHeader
           title={detail.name}
           description={detail.description}
-          status={detail.status}
+          lifecycle={detail.lifecycle}
           actions={
-            <>
-              <Button variant="outline" href={`/workspace/workflows/${detail.id}/settings`}>
-                <Settings className="size-4" aria-hidden="true" />
-                Settings
-              </Button>
-              <Button href={`/workspace/workflows/${detail.id}/builder`}>
-                <Pencil className="size-4" aria-hidden="true" />
-                Open in builder
-              </Button>
-            </>
+            isArchived ? (
+              // Archived: viewable, but not editable. The only forward move is
+              // to restore it, so that's the primary action.
+              <>
+                <Button variant="outline" onClick={() => actions.duplicate(ref)} disabled={actions.isBusy}>
+                  <Copy className="size-4" aria-hidden="true" />
+                  {actions.pending === "duplicate" ? "Duplicating…" : "Duplicate"}
+                </Button>
+                <Button onClick={() => actions.restore(ref)} disabled={actions.isBusy}>
+                  <ArchiveRestore className="size-4" aria-hidden="true" />
+                  {actions.pending === "restore" ? "Restoring…" : "Restore"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => actions.archive(ref)}
+                  disabled={actions.isBusy}
+                >
+                  <Archive className="size-4" aria-hidden="true" />
+                  {actions.pending === "archive" ? "Archiving…" : "Archive"}
+                </Button>
+                {isPublished ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => actions.unpublish(ref)}
+                    disabled={actions.isBusy}
+                  >
+                    <Undo2 className="size-4" aria-hidden="true" />
+                    {actions.pending === "unpublish" ? "Working…" : "Move to draft"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => actions.publish(ref)}
+                    disabled={actions.isBusy}
+                  >
+                    <Send className="size-4" aria-hidden="true" />
+                    {actions.pending === "publish" ? "Publishing…" : "Publish"}
+                  </Button>
+                )}
+                <Button variant="outline" href={`/workspace/workflows/${detail.id}/settings`}>
+                  <Settings className="size-4" aria-hidden="true" />
+                  Settings
+                </Button>
+                <Button href={`/workspace/workflows/${detail.id}/builder`}>
+                  <Pencil className="size-4" aria-hidden="true" />
+                  Open in builder
+                </Button>
+              </>
+            )
           }
         />
       </Reveal>
+
+      {actions.feedback ? (
+        <Alert
+          variant={actions.feedback.tone === "error" ? "error" : "success"}
+          className="mt-4"
+        >
+          {actions.feedback.message}
+        </Alert>
+      ) : null}
+
+      {isArchived ? (
+        <Alert variant="warning" className="mt-4">
+          This workflow is archived. Restore it to edit or run it — its structure
+          stays exactly as it was.
+        </Alert>
+      ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 lg:col-span-2">

@@ -1,6 +1,18 @@
 import { WorkflowError } from "@/services/workflows";
 
 /**
+ * What the workflow screens say when a lifecycle action succeeds. Short, past
+ * tense, and naming the workflow — the same shape as the employee domain's
+ * success copy, so the two feel like one product.
+ */
+export const workflowPublished = (name: string): string => `${name} was published.`;
+export const workflowUnpublished = (name: string): string => `${name} was moved back to draft.`;
+export const workflowArchived = (name: string): string => `${name} was archived.`;
+export const workflowRestored = (name: string): string => `${name} was restored.`;
+export const workflowDuplicated = (name: string): string => `${name} was duplicated.`;
+export const workflowDeleted = (name: string): string => `${name} was deleted.`;
+
+/**
  * What the workflow screens say when an action fails.
  *
  * One module so the directory, the builder and the toolbar never word the same

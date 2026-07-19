@@ -71,6 +71,32 @@ export function useDuplicateWorkflow() {
   });
 }
 
+/** Releases a draft. The response carries the new lifecycle; cache it. */
+export function usePublishWorkflow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => workflowsService.publish(id),
+    onSuccess: (published) => {
+      queryClient.setQueryData(workflowKeys.detail(published.id), published);
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.lists });
+    },
+  });
+}
+
+/** Returns a published workflow to draft. */
+export function useUnpublishWorkflow() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => workflowsService.unpublish(id),
+    onSuccess: (draft) => {
+      queryClient.setQueryData(workflowKeys.detail(draft.id), draft);
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.lists });
+    },
+  });
+}
+
 /** Retires a workflow. Mirrors the employee domain's archive refresh. */
 export function useArchiveWorkflow() {
   const queryClient = useQueryClient();
