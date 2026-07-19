@@ -212,6 +212,7 @@ from app.services.interview_session_question_service import (
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
 from app.services.workflow_service import WorkflowService
+from app.services.workflow_execution_service import WorkflowExecutionService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
 # scheme (401) before our handler runs; we also raise 401 for malformed/expired
@@ -307,6 +308,20 @@ def get_memory_service(session: SessionDep) -> MemoryService:
 def get_workflow_service(session: SessionDep) -> WorkflowService:
     """Provide a :class:`WorkflowService` bound to the request-scoped session."""
     return WorkflowService(session)
+
+
+def get_workflow_execution_service(
+    session: SessionDep,
+) -> WorkflowExecutionService:
+    """Provide the Sprint 18.6 :class:`WorkflowExecutionService`.
+
+    Composes the request-scoped session with the fully-wired Sprint 15.15
+    :class:`WorkflowCoordinator` (assembled here through its existing provider,
+    over the six real capabilities). Bridges authoring and execution without
+    either domain depending on the other; the coordinator is built through the
+    existing seam, so no runtime wiring changes.
+    """
+    return WorkflowExecutionService(session, get_workflow_coordinator())
 
 
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
@@ -3953,6 +3968,9 @@ def get_current_user(
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
 WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
+WorkflowExecutionServiceDep = Annotated[
+    WorkflowExecutionService, Depends(get_workflow_execution_service)
+]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
 BlueprintGenerationServiceDep = Annotated[

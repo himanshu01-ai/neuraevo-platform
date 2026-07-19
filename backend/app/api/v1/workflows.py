@@ -5,16 +5,24 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, Response, status
 
-from app.core.dependencies import CurrentUserDep, WorkflowServiceDep
+from app.core.dependencies import (
+    CurrentUserDep,
+    WorkflowExecutionServiceDep,
+    WorkflowServiceDep,
+)
 from app.models.workflow import Workflow
 from app.schemas.workflow import (
     WorkflowCreate,
     WorkflowDuplicateRequest,
+    WorkflowExecuteRequest,
+    WorkflowExecutionResponse,
+    WorkflowExecutionStepResponse,
     WorkflowResponse,
     WorkflowRestoreRequest,
     WorkflowSummaryResponse,
     WorkflowUpdate,
 )
+from app.services.runtime.workflow_models import WorkflowExecutionResult
 from app.services.workflow_graph import node_count
 from app.services.workflow_service import (
     InvalidStatusTransitionError,
@@ -77,6 +85,34 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
         created_at=workflow.created_at,
         updated_at=workflow.updated_at,
         graph=workflow.graph,
+    )
+
+
+def _to_execution_response(result: WorkflowExecutionResult) -> WorkflowExecutionResponse:
+    """Map the runtime's result into the API's own execution DTO.
+
+    The runtime model and its nested references stay behind the service
+    boundary; only these flat, documented fields cross the wire.
+    """
+    return WorkflowExecutionResponse(
+        workflow_id=result.workflow_id,
+        status=result.workflow_status,
+        completed_step_count=result.completed_step_count,
+        total_step_count=result.total_step_count,
+        failed_step_id=result.failed_step_id,
+        steps=[
+            WorkflowExecutionStepResponse(
+                step_id=step.step_id,
+                capability=step.capability_name,
+                status=step.execution_status,
+                outputs=dict(step.outputs),
+            )
+            for step in result.step_references
+        ],
+        final_outputs=dict(result.final_outputs),
+        # `result_metadata["error"]` is the coordinator's failure reason on a
+        # FAILED run; absent on success.
+        error=result.result_metadata.get("error"),
     )
 
 
@@ -278,3 +314,48 @@ def duplicate_workflow(
     ) as exc:
         raise _to_http_exception(exc)
     return _to_response(clone)
+
+
+@router.post(
+    "/{workflow_id}/execute",
+    response_model=WorkflowExecutionResponse,
+    summary="Run a published workflow through the execution engine",
+    responses={
+        **_OWNERSHIP_RESPONSES,
+        status.HTTP_409_CONFLICT: {
+            "description": "The workflow is a draft or archived, so cannot be run."
+        },
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+            "description": "The workflow's graph cannot be translated into runnable steps."
+        },
+    },
+)
+def execute_workflow(
+    workflow_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    service: WorkflowExecutionServiceDep,
+    data: WorkflowExecuteRequest | None = None,
+) -> WorkflowExecutionResponse:
+    """Translate a published workflow's graph and run it on the Sprint 15.15 engine.
+
+    Rejects (4xx) when the workflow is missing, another user's, not published,
+    or can't be translated. A workflow that runs but whose step fails returns
+    200 with ``status="FAILED"`` — the call succeeded, the run did not.
+
+    Authoring and execution stay separate: this endpoint is the only bridge, and
+    it never mutates the workflow or touches the runtime's semantics.
+    """
+    try:
+        result = service.execute_workflow(
+            current_user,
+            workflow_id,
+            initial_inputs=data.inputs if data else None,
+        )
+    except (
+        WorkflowNotFoundError,
+        WorkflowAccessDeniedError,
+        InvalidStatusTransitionError,
+        WorkflowValidationError,
+    ) as exc:
+        raise _to_http_exception(exc)
+    return _to_execution_response(result)

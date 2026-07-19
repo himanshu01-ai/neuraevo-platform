@@ -83,3 +83,51 @@ class WorkflowResponse(WorkflowSummaryResponse):
     """A workflow in full, including the authored graph."""
 
     graph: Dict[str, Any]
+
+
+# =====================================================================
+# Execution (Sprint 18.6)
+# =====================================================================
+#
+# These are the API's own shapes, deliberately separate from the runtime's
+# ``WorkflowExecutionResult`` and its nested models. The runtime types stay
+# behind the service boundary; the router maps a result into these so a change
+# to the runtime's internals never reshapes the wire contract.
+
+
+class WorkflowExecuteRequest(BaseModel):
+    """Optional seed inputs for a run, exposed to steps as ``input.<key>``.
+
+    The builder sends nothing today, so this defaults to empty and a bodyless
+    ``POST`` runs the workflow as authored.
+    """
+
+    inputs: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowExecutionStepResponse(BaseModel):
+    """One step's outcome within a run."""
+
+    step_id: str
+    capability: str
+    status: str
+    outputs: Dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowExecutionResponse(BaseModel):
+    """The structured result of running a workflow.
+
+    ``status`` is the run's terminal state (``COMPLETED`` / ``FAILED``). A run
+    that fails a step is still a *successful call*: the endpoint returns 200
+    with ``status="FAILED"`` and ``failed_step_id`` set. Rejections — not owner,
+    not published, untranslatable — are the 4xx paths and never reach here.
+    """
+
+    workflow_id: uuid.UUID
+    status: str
+    completed_step_count: int
+    total_step_count: int
+    failed_step_id: Optional[str] = None
+    steps: list[WorkflowExecutionStepResponse] = Field(default_factory=list)
+    final_outputs: Dict[str, Any] = Field(default_factory=dict)
+    error: Optional[str] = None
