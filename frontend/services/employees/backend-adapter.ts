@@ -41,6 +41,7 @@ import {
  *   PATCH  /employees/{id}                         update
  *   DELETE /employees/{id}                         delete (soft, server-side)
  *   POST   /employees/{id}/archive                 archive
+ *   POST   /employees/{id}/restore                 restore
  *   GET    /employees/{id}/activity                history
  *   GET    /employees/{id}/capabilities            grants
  *   GET    /employees/{id}/assignments             assigned work
@@ -200,6 +201,26 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
       return toEmployeeDetail(parseOrThrow(employeeResponseSchema, raw), null);
     } catch (error) {
       throw toEmployeeError(error, "That couldn't be archived.");
+    }
+  }
+
+  /**
+   * Restore an archived employee.
+   *
+   * The backend restores to the bench, never straight into service, and accepts
+   * `draft` or `ready`. We ask for `ready`: the employee was described before it
+   * was archived, and `draft` would present it as though nothing had ever been
+   * configured. Restoring is not a demotion.
+   */
+  async restore(id: string): Promise<EmployeeDetail> {
+    try {
+      const raw = await request<unknown>(
+        `/employees/${encodeURIComponent(id)}/restore`,
+        { method: "POST", body: { status: "ready" } },
+      );
+      return toEmployeeDetail(parseOrThrow(employeeResponseSchema, raw), null);
+    } catch (error) {
+      throw toEmployeeError(error, "That couldn't be restored.");
     }
   }
 

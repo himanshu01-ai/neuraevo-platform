@@ -103,6 +103,7 @@ const toSummary = (detail: EmployeeDetail): EmployeeSummary => ({
   customRole: detail.customRole,
   description: detail.description,
   status: detail.status,
+  isArchived: detail.isArchived,
   health: detail.health,
   accent: detail.accent,
   glyph: detail.glyph,
@@ -166,6 +167,9 @@ export class MockEmployeesAdapter implements EmployeesAdapter {
       // A description is authored; presence is the platform's to report. A new
       // employee is UNKNOWN rather than AVAILABLE — nothing has observed it yet.
       status: existing?.status ?? "UNKNOWN",
+      // Saving edits a description; it never changes a lifecycle. An employee
+      // that was archived stays archived until it is explicitly restored.
+      isArchived: existing?.isArchived ?? false,
       health: existing?.health ?? "UNKNOWN",
       accent: draft.accent,
       glyph: draft.glyph,
@@ -232,6 +236,7 @@ export class MockEmployeesAdapter implements EmployeesAdapter {
     const archived: EmployeeDetail = {
       ...copy(existing),
       status: "OFFLINE",
+      isArchived: true,
       lastActivity: "Archived by you",
       assignments: { workflows: [], currentTask: null, queue: [] },
       assignedWorkflows: 0,
@@ -240,6 +245,33 @@ export class MockEmployeesAdapter implements EmployeesAdapter {
     writeStore(rows);
     logEvent(id, "PAUSED", `${archived.name} was archived`);
     return copy(archived);
+  }
+
+  /**
+   * Restoring returns an archived employee to the bench, mirroring the
+   * backend: `AVAILABLE`, not back into service. Assignments are not restored
+   * with it — archiving released them, and the platform reassigns work.
+   */
+  async restore(id: string): Promise<EmployeeDetail> {
+    await delay();
+    const rows = readStore();
+    const index = rows.findIndex((e) => e.id === id);
+    const existing = index >= 0 ? rows[index] : undefined;
+    if (!existing) throw new EmployeeError("not_found", "That employee doesn't exist.");
+    if (!existing.isArchived) {
+      throw new EmployeeError("invalid_draft", "Only an archived employee can be restored.");
+    }
+
+    const restored: EmployeeDetail = {
+      ...copy(existing),
+      status: "AVAILABLE",
+      isArchived: false,
+      lastActivity: "Restored by you",
+    };
+    rows[index] = restored;
+    writeStore(rows);
+    logEvent(id, "RESUMED", `${restored.name} was restored`);
+    return copy(restored);
   }
 
   async remove(id: string): Promise<void> {

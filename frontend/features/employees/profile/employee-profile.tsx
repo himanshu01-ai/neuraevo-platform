@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Archive, Copy, Pencil } from "lucide-react";
+import { ArrowLeft, Archive, ArchiveRestore, Copy, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -62,7 +62,6 @@ export function EmployeeProfile({ id }: { id: string }) {
   }
 
   const employee = query.data;
-  const isArchived = employee.status === "OFFLINE";
 
   return (
     <WorkspaceContent>
@@ -84,16 +83,27 @@ export function EmployeeProfile({ id }: { id: string }) {
                 <Copy className="size-4" aria-hidden="true" />
                 {actions.pending === "duplicate" ? "Duplicating…" : "Duplicate"}
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => actions.archive(employee)}
-                disabled={actions.isBusy || isArchived}
-                // A disabled control should say why it can't be used.
-                title={isArchived ? "This employee is already archived." : undefined}
-              >
-                <Archive className="size-4" aria-hidden="true" />
-                {actions.pending === "archive" ? "Archiving…" : "Archive"}
-              </Button>
+              {/* One slot, one legal move: an archived employee is restored,
+                  anything else is archived. */}
+              {employee.isArchived ? (
+                <Button
+                  variant="outline"
+                  onClick={() => actions.restore(employee)}
+                  disabled={actions.isBusy}
+                >
+                  <ArchiveRestore className="size-4" aria-hidden="true" />
+                  {actions.pending === "restore" ? "Restoring…" : "Restore"}
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => actions.archive(employee)}
+                  disabled={actions.isBusy}
+                >
+                  <Archive className="size-4" aria-hidden="true" />
+                  {actions.pending === "archive" ? "Archiving…" : "Archive"}
+                </Button>
+              )}
               <Button href={`/workspace/employees/${employee.id}/edit`}>
                 <Pencil className="size-4" aria-hidden="true" />
                 Edit

@@ -17,6 +17,7 @@ export interface EmployeeListProps {
    */
   onDuplicate: (employee: EmployeeSummary) => void;
   onArchive: (employee: EmployeeSummary) => void;
+  onRestore: (employee: EmployeeSummary) => void;
   onDelete: (employee: EmployeeSummary) => void;
   className?: string;
 }
@@ -40,6 +41,7 @@ export function EmployeeList({
   viewMode,
   onDuplicate,
   onArchive,
+  onRestore,
   onDelete,
   className,
 }: EmployeeListProps) {
@@ -63,6 +65,7 @@ export function EmployeeList({
               onSelect={selectEmployee}
               onDuplicate={onDuplicate}
               onArchive={onArchive}
+              onRestore={onRestore}
               onDelete={onDelete}
             />
           ) : (

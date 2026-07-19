@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Copy, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Trash2 } from "lucide-react";
 import {
   EMPLOYEE_PERMISSIONS,
   EMPLOYEE_ROLES,
@@ -25,7 +25,7 @@ import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { Reveal } from "@/components/motion/reveal";
 import { useEmployeeActions } from "../hooks/use-employee-actions";
-import { useSaveEmployee } from "../hooks/use-employees";
+import { useEmployeeDetail, useSaveEmployee } from "../hooks/use-employees";
 import { EmployeeHeader } from "../components/employee-header";
 import { AUTONOMY_LIST, TONE_LIST } from "../models/employee-configuration";
 import { employeeErrorMessage } from "../models/employee-messages";
@@ -125,6 +125,12 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
     id: draft.employeeId ?? "",
     name: draft.name.trim() || "This employee",
   };
+
+  // Whether this employee is archived is server state, not draft state — the
+  // builder edits a description, it doesn't own a lifecycle. The edit route has
+  // already loaded this employee, so this reads the cache rather than refetching.
+  const saved = useEmployeeDetail(draft.employeeId);
+  const isArchived = saved.data?.isArchived ?? false;
 
   // The preview resolves through the same `PERMISSION_REQUIRES` table the
   // adapter reconciles against, so what you're shown here is what you'll get.
@@ -490,17 +496,31 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                       {actions.pending === "duplicate" ? "Duplicating…" : "Duplicate"}
                     </Button>
 
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="w-full justify-start"
-                      disabled={actions.isBusy}
-                      onClick={() => actions.archive(manageTarget)}
-                    >
-                      <Archive className="size-4" aria-hidden="true" />
-                      {actions.pending === "archive" ? "Archiving…" : "Archive"}
-                    </Button>
+                    {isArchived ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start"
+                        disabled={actions.isBusy}
+                        onClick={() => actions.restore(manageTarget)}
+                      >
+                        <ArchiveRestore className="size-4" aria-hidden="true" />
+                        {actions.pending === "restore" ? "Restoring…" : "Restore"}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full justify-start"
+                        disabled={actions.isBusy}
+                        onClick={() => actions.archive(manageTarget)}
+                      >
+                        <Archive className="size-4" aria-hidden="true" />
+                        {actions.pending === "archive" ? "Archiving…" : "Archive"}
+                      </Button>
+                    )}
 
                     {isConfirmingDelete ? (
                       <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-2.5">

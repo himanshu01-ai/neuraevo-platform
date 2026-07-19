@@ -7,8 +7,14 @@ import {
   employeeDeleted,
   employeeDuplicated,
   employeeErrorMessage,
+  employeeRestored,
 } from "../models/employee-messages";
-import { useArchiveEmployee, useDeleteEmployee, useDuplicateEmployee } from "./use-employees";
+import {
+  useArchiveEmployee,
+  useDeleteEmployee,
+  useDuplicateEmployee,
+  useRestoreEmployee,
+} from "./use-employees";
 
 /** Enough of an employee to act on it and name it in the result. */
 export interface EmployeeRef {
@@ -29,11 +35,12 @@ export interface UseEmployeeActionsOptions {
 }
 
 /** Which action is in flight, so a button can label itself while it waits. */
-export type EmployeeActionKind = "duplicate" | "archive" | "delete";
+export type EmployeeActionKind = "duplicate" | "archive" | "restore" | "delete";
 
 export interface EmployeeActions {
   duplicate: (employee: EmployeeRef) => void;
   archive: (employee: EmployeeRef) => void;
+  restore: (employee: EmployeeRef) => void;
   remove: (employee: EmployeeRef) => void;
   /**
    * The outcome of the last action, or `null` if none has finished. Cleared
@@ -46,7 +53,7 @@ export interface EmployeeActions {
 }
 
 /**
- * Duplicate, archive and delete, with something to show for each.
+ * Duplicate, archive, restore and delete, with something to show for each.
  *
  * The three surfaces that offer these actions — the directory, the profile and
  * the builder — used to fire the mutations and ignore both halves of the result:
@@ -64,6 +71,7 @@ export function useEmployeeActions(options: UseEmployeeActionsOptions = {}): Emp
 
   const duplicateMutation = useDuplicateEmployee();
   const archiveMutation = useArchiveEmployee();
+  const restoreMutation = useRestoreEmployee();
   const removeMutation = useDeleteEmployee();
 
   const [feedback, setFeedback] = useState<EmployeeActionFeedback | null>(null);
@@ -72,9 +80,11 @@ export function useEmployeeActions(options: UseEmployeeActionsOptions = {}): Emp
     ? "duplicate"
     : archiveMutation.isPending
       ? "archive"
-      : removeMutation.isPending
-        ? "delete"
-        : null;
+      : restoreMutation.isPending
+        ? "restore"
+        : removeMutation.isPending
+          ? "delete"
+          : null;
   const isBusy = pending !== null;
 
   // The re-entrancy guard reads a ref rather than closing over `isBusy`, so the
@@ -96,6 +106,7 @@ export function useEmployeeActions(options: UseEmployeeActionsOptions = {}): Emp
   // on every parent render.
   const { mutate: mutateDuplicate } = duplicateMutation;
   const { mutate: mutateArchive } = archiveMutation;
+  const { mutate: mutateRestore } = restoreMutation;
   const { mutate: mutateRemove } = removeMutation;
 
   const duplicate = useCallback(
@@ -125,6 +136,18 @@ export function useEmployeeActions(options: UseEmployeeActionsOptions = {}): Emp
     [mutateArchive, succeed, fail]
   );
 
+  const restore = useCallback(
+    (employee: EmployeeRef) => {
+      if (busyRef.current) return;
+      setFeedback(null);
+      mutateRestore(employee.id, {
+        onSuccess: () => succeed(employeeRestored(employee.name)),
+        onError: (error) => fail(error, `${employee.name} couldn't be restored.`),
+      });
+    },
+    [mutateRestore, succeed, fail]
+  );
+
   const remove = useCallback(
     (employee: EmployeeRef) => {
       if (busyRef.current) return;
@@ -141,7 +164,7 @@ export function useEmployeeActions(options: UseEmployeeActionsOptions = {}): Emp
   );
 
   return useMemo(
-    () => ({ duplicate, archive, remove, feedback, pending, isBusy }),
-    [duplicate, archive, remove, feedback, pending, isBusy]
+    () => ({ duplicate, archive, restore, remove, feedback, pending, isBusy }),
+    [duplicate, archive, restore, remove, feedback, pending, isBusy]
   );
 }

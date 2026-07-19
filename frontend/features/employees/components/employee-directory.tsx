@@ -117,6 +117,7 @@ export function EmployeeDirectory() {
         viewMode={viewMode}
         onDuplicate={actions.duplicate}
         onArchive={actions.archive}
+        onRestore={actions.restore}
         onDelete={actions.remove}
       />
     );

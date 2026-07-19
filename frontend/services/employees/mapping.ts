@@ -148,6 +148,18 @@ export function toStatus(status: string): EmployeeStatus {
   return STATUS_BY_BACKEND_VALUE[status.trim().toLowerCase()] ?? "UNKNOWN";
 }
 
+/**
+ * Whether the backend considers this employee archived.
+ *
+ * Read from the lifecycle value rather than the mapped status, because
+ * `archived` and `error` both present as `OFFLINE` — and restoring is only
+ * legal from the first. This is the same condition the backend guards its
+ * restore endpoint with, so the UI and the server agree on who can be restored.
+ */
+export function toIsArchived(status: string): boolean {
+  return status.trim().toLowerCase() === "archived";
+}
+
 const HEALTH_BY_BACKEND_VALUE: Record<string, HealthState> = {
   healthy: "HEALTHY",
   degraded: "DEGRADED",
@@ -288,6 +300,7 @@ export function toEmployeeSummary(employee: EmployeeResponse): EmployeeSummary {
     customRole,
     description: employee.description ?? "",
     status: toStatus(employee.status),
+    isArchived: toIsArchived(employee.status),
     health: toHealth(employee.health),
     accent: toAccent(employee.accent),
     glyph: toGlyph(employee.glyph),

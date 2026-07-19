@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import { Archive, Copy, Ellipsis, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Copy, Ellipsis, Pencil, Trash2 } from "lucide-react";
 import type { EmployeeSummary } from "@/services/employees";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
@@ -19,6 +19,7 @@ export interface EmployeeCardProps {
   /** The employee, not its id — the directory names it in the confirmation. */
   onDuplicate: (employee: EmployeeSummary) => void;
   onArchive: (employee: EmployeeSummary) => void;
+  onRestore: (employee: EmployeeSummary) => void;
   onDelete: (employee: EmployeeSummary) => void;
 }
 
@@ -41,6 +42,7 @@ export const EmployeeCard = memo(function EmployeeCard({
   onSelect,
   onDuplicate,
   onArchive,
+  onRestore,
   onDelete,
 }: EmployeeCardProps) {
   const [isConfirming, setIsConfirming] = useState(false);
@@ -98,12 +100,21 @@ export const EmployeeCard = memo(function EmployeeCard({
                 href: `/workspace/employees/${employee.id}/edit`,
               },
               { key: "duplicate", label: "Duplicate", icon: Copy, onSelect: () => onDuplicate(employee) },
-              {
-                key: "archive",
-                label: "Archive",
-                icon: Archive,
-                onSelect: () => onArchive(employee),
-              },
+              // Archive and restore are the same slot: only one of them is ever
+              // a legal move, and the backend rejects the other outright.
+              employee.isArchived
+                ? {
+                    key: "restore",
+                    label: "Restore",
+                    icon: ArchiveRestore,
+                    onSelect: () => onRestore(employee),
+                  }
+                : {
+                    key: "archive",
+                    label: "Archive",
+                    icon: Archive,
+                    onSelect: () => onArchive(employee),
+                  },
               {
                 key: "delete",
                 label: "Delete",

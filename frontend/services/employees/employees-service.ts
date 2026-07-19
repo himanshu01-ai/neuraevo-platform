@@ -23,6 +23,7 @@ export const employeesService = {
   save: (draft: EmployeeDraft) => adapter.save(draft),
   duplicate: (id: string) => adapter.duplicate(id),
   archive: (id: string) => adapter.archive(id),
+  restore: (id: string) => adapter.restore(id),
   remove: (id: string) => adapter.remove(id),
   activity: (id: string) => adapter.activity(id),
   capabilities: (id: string) => adapter.capabilities(id),

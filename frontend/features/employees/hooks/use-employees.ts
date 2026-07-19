@@ -111,6 +111,20 @@ export function useArchiveEmployee() {
   });
 }
 
+/** Brings an archived employee back. Mirrors `useArchiveEmployee`'s refresh. */
+export function useRestoreEmployee() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => employeesService.restore(id),
+    onSuccess: (restored) => {
+      queryClient.setQueryData(employeeKeys.detail(restored.id), restored);
+      void queryClient.invalidateQueries({ queryKey: employeeKeys.lists });
+      void queryClient.invalidateQueries({ queryKey: employeeKeys.activity(restored.id) });
+    },
+  });
+}
+
 export function useDeleteEmployee() {
   const queryClient = useQueryClient();
 

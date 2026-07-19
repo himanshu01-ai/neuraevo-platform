@@ -336,6 +336,14 @@ export interface EmployeeSummary {
   customRole: string;
   description: string;
   status: EmployeeStatus;
+  /**
+   * Whether this employee is archived, and so restorable.
+   *
+   * Not derivable from `status`: the backend's `archived` and `error`
+   * lifecycles both present as `OFFLINE`, and only the first can be restored.
+   * Carried separately so the UI never offers a restore the backend rejects.
+   */
+  isArchived: boolean;
   health: HealthState;
   accent: EmployeeAccent;
   glyph: EmployeeGlyph;
@@ -419,6 +427,8 @@ export interface EmployeesAdapter {
   save(draft: EmployeeDraft): Promise<EmployeeDetail>;
   duplicate(id: string): Promise<EmployeeDetail>;
   archive(id: string): Promise<EmployeeDetail>;
+  /** Bring an archived employee back to the bench. */
+  restore(id: string): Promise<EmployeeDetail>;
   remove(id: string): Promise<void>;
   activity(id: string): Promise<EmployeeActivityEvent[]>;
   capabilities(id: string): Promise<EmployeeCapabilityState[]>;

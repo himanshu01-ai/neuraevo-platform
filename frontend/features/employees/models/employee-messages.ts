@@ -15,6 +15,8 @@ export const employeeDuplicated = (name: string): string => `${name} was duplica
 
 export const employeeArchived = (name: string): string => `${name} was archived.`;
 
+export const employeeRestored = (name: string): string => `${name} was restored.`;
+
 export const employeeDeleted = (name: string): string => `${name} was deleted.`;
 
 /**
