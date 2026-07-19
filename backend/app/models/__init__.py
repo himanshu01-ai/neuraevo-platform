@@ -19,9 +19,11 @@ from app.models.interview_session_question import InterviewSessionQuestion
 from app.models.memory import Memory
 from app.models.message import Message
 from app.models.user import User
+from app.models.workflow import Workflow
 
 __all__ = [
     "User",
+    "Workflow",
     "Employee",
     "EmployeeActivityEvent",
     "EmployeeAssignment",

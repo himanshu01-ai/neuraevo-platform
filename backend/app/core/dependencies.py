@@ -211,6 +211,7 @@ from app.services.interview_session_question_service import (
 )
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
+from app.services.workflow_service import WorkflowService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
 # scheme (401) before our handler runs; we also raise 401 for malformed/expired
@@ -301,6 +302,11 @@ def get_employee_service(session: SessionDep) -> EmployeeService:
 def get_memory_service(session: SessionDep) -> MemoryService:
     """Provide a :class:`MemoryService` bound to the request-scoped session."""
     return MemoryService(session)
+
+
+def get_workflow_service(session: SessionDep) -> WorkflowService:
+    """Provide a :class:`WorkflowService` bound to the request-scoped session."""
+    return WorkflowService(session)
 
 
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
@@ -3946,6 +3952,7 @@ def get_current_user(
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
+WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
 BlueprintGenerationServiceDep = Annotated[

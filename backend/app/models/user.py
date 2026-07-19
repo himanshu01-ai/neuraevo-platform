@@ -11,6 +11,7 @@ from app.core.database import Base
 
 if TYPE_CHECKING:
     from app.models.employee import Employee
+    from app.models.workflow import Workflow
 
 
 class User(Base):
@@ -72,6 +73,12 @@ class User(Base):
 
     # One user owns many employees.
     employees: Mapped[List["Employee"]] = relationship(
+        back_populates="owner",
+        cascade="all, delete-orphan",
+    )
+
+    # One user owns many workflows (Sprint 18.3).
+    workflows: Mapped[List["Workflow"]] = relationship(
         back_populates="owner",
         cascade="all, delete-orphan",
     )

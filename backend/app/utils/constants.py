@@ -217,3 +217,21 @@ class EmployeeHealth(str, Enum):
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
     UNKNOWN = "unknown"
+
+
+class WorkflowStatus(str, Enum):
+    """Lifecycle status of an *authored* workflow definition.
+
+    Distinct from ``app.services.planning.execution_workflow_models``'s
+    ``WorkflowStatus`` (``PLANNED``/``READY``/``WAITING``/``BLOCKED``), which
+    describes how ready a *run* is to proceed. This one describes how far along
+    its author is, and is the value persisted on ``workflows.status``.
+
+    - ``draft``: being authored; not released for use.
+    - ``published``: released and available to be used.
+    - ``archived``: retired but retained, and restorable.
+    """
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    ARCHIVED = "archived"

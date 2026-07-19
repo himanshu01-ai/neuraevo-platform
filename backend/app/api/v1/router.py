@@ -26,6 +26,7 @@ from app.api.v1 import (
     memory,
     memory_context,
     messages,
+    workflows,
 )
 
 api_router = APIRouter()
@@ -33,6 +34,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(employees.router)
+api_router.include_router(workflows.router)
 api_router.include_router(memory.router)
 api_router.include_router(memory_context.router)
 api_router.include_router(conversations.router)
