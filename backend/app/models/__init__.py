@@ -8,6 +8,10 @@ from app.models.blueprint import Blueprint
 from app.models.blueprint_version import BlueprintVersion
 from app.models.conversation import Conversation
 from app.models.employee import Employee
+from app.models.employee_activity import EmployeeActivityEvent
+from app.models.employee_assignment import EmployeeAssignment
+from app.models.employee_capability import EmployeeCapabilityGrant
+from app.models.employee_permission import EmployeePermissionGrant
 from app.models.interview_answer import InterviewAnswer
 from app.models.interview_question import InterviewQuestion
 from app.models.interview_session import InterviewSession
@@ -19,6 +23,10 @@ from app.models.user import User
 __all__ = [
     "User",
     "Employee",
+    "EmployeeActivityEvent",
+    "EmployeeAssignment",
+    "EmployeeCapabilityGrant",
+    "EmployeePermissionGrant",
     "Memory",
     "Blueprint",
     "BlueprintVersion",

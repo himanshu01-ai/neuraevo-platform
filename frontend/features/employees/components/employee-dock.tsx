@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { Blocks, History, Workflow } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useDirectoryStore, type EmployeeDockTab } from "@/store/employees";
 import { ActivityTimeline } from "../activity/activity-timeline";
@@ -33,13 +34,23 @@ export function EmployeeDock({ employeeId }: { employeeId: string | null }) {
   const detail = useEmployeeDetail(employeeId);
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
-    const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-    if (direction === 0) return;
-    event.preventDefault();
-
     const index = TABS.findIndex((t) => t.id === dockTab);
-    const next = TABS[(index + direction + TABS.length) % TABS.length];
+
+    // Arrows wrap around the group; Home and End jump to its ends, as the
+    // tablist pattern expects.
+    const next =
+      event.key === "ArrowRight"
+        ? TABS[(index + 1) % TABS.length]
+        : event.key === "ArrowLeft"
+          ? TABS[(index - 1 + TABS.length) % TABS.length]
+          : event.key === "Home"
+            ? TABS[0]
+            : event.key === "End"
+              ? TABS[TABS.length - 1]
+              : undefined;
+
     if (!next) return;
+    event.preventDefault();
     setDockTab(next.id);
     tablistRef.current?.querySelector<HTMLElement>(`#employee-tab-${next.id}`)?.focus();
   };
@@ -50,7 +61,7 @@ export function EmployeeDock({ employeeId }: { employeeId: string | null }) {
         <EmptyState
           compact
           icon={History}
-          title="Nothing selected"
+          title="No employee selected"
           description="Pick an employee to see what it's been doing."
         />
       );
@@ -61,13 +72,16 @@ export function EmployeeDock({ employeeId }: { employeeId: string | null }) {
         return <ActivityTimeline employeeId={employeeId} limit={6} />;
       case "assignments":
         if (detail.isPending) return <LoadingState rows={4} />;
+        // A failure to load is not the same as having nothing assigned, so it
+        // gets the error state — and a way to try again — rather than the calm
+        // one the other two tabs show when they're genuinely empty.
         if (detail.isError || !detail.data) {
           return (
-            <EmptyState
+            <ErrorState
               compact
-              icon={Workflow}
               title="Couldn't load assignments"
               description="This employee's assignments couldn't be loaded."
+              onRetry={() => void detail.refetch()}
             />
           );
         }

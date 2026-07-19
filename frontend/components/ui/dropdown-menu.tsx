@@ -13,8 +13,6 @@ export interface DropdownItem {
   onSelect?: () => void;
   destructive?: boolean;
   disabled?: boolean;
-  /** Why the item is unavailable. Surfaced as a native tooltip. */
-  hint?: string;
 }
 
 export interface DropdownTriggerProps {
@@ -141,7 +139,6 @@ export function DropdownMenu({ renderTrigger, items, menuLabel, align = "end", h
                 key={item.key}
                 role="menuitem"
                 href={item.href}
-                title={item.hint}
                 className={classes}
                 onClick={() => setOpen(false)}
               >
@@ -154,7 +151,6 @@ export function DropdownMenu({ renderTrigger, items, menuLabel, align = "end", h
                 type="button"
                 disabled={item.disabled}
                 aria-disabled={item.disabled}
-                title={item.hint}
                 className={classes}
                 onClick={() => {
                   setOpen(false);

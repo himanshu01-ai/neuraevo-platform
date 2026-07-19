@@ -62,3 +62,158 @@ class MessageRole(str, Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
+
+
+# --- Employee domain (Sprint 18.2A) --------------------------------------
+#
+# These replace the free-form strings the employee domain used previously.
+# Values are lower-case so they read the same on the wire as every other
+# enumeration above; the frontend maps them to its own display vocabulary.
+
+
+class EmployeeStatus(str, Enum):
+    """Lifecycle status of an AI employee.
+
+    - ``draft``: being described; not ready to be used. The historical default,
+      so every pre-Sprint-18.2A employee is a draft.
+    - ``ready``: fully described and available to be activated.
+    - ``active``: in service.
+    - ``paused``: temporarily taken out of service by its owner.
+    - ``archived``: retired but retained, and restorable.
+    - ``error``: the platform reported a problem with this employee.
+    """
+
+    DRAFT = "draft"
+    READY = "ready"
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ARCHIVED = "archived"
+    ERROR = "error"
+
+
+class EmployeeCapability(str, Enum):
+    """A subsystem an employee may be granted.
+
+    The first six are executable capabilities; the last three are platform
+    grants (memory, approval, notification) that gate a subsystem rather than
+    an action. Granting one records intent — nothing here executes anything.
+    """
+
+    BROWSER = "browser"
+    PYTHON = "python"
+    FILES = "files"
+    EMAIL = "email"
+    CALENDAR = "calendar"
+    GITHUB = "github"
+    MEMORY = "memory"
+    APPROVAL = "approval"
+    NOTIFICATION = "notification"
+
+
+class EmployeePermission(str, Enum):
+    """A specific action a capability opens up."""
+
+    READ_MEMORY = "read_memory"
+    WRITE_MEMORY = "write_memory"
+    BROWSE_WEB = "browse_web"
+    RUN_CODE = "run_code"
+    MODIFY_FILES = "modify_files"
+    SEND_EMAIL = "send_email"
+    SCHEDULE_EVENTS = "schedule_events"
+    REQUEST_APPROVAL = "request_approval"
+
+
+class PermissionLevel(str, Enum):
+    """How freely a permission may be exercised."""
+
+    ALLOWED = "allowed"
+    ASK_FIRST = "ask_first"
+    BLOCKED = "blocked"
+
+
+class AutonomyLevel(str, Enum):
+    """How much an employee decides on its own."""
+
+    ASK = "ask"
+    BALANCED = "balanced"
+    AUTONOMOUS = "autonomous"
+
+
+class EmployeeTone(str, Enum):
+    """How an employee communicates."""
+
+    PROFESSIONAL = "professional"
+    FRIENDLY = "friendly"
+    CONCISE = "concise"
+
+
+class EmployeePriority(str, Enum):
+    """How an employee's work ranks against other employees'."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class ExecutionMode(str, Enum):
+    """Default ordering the platform would use for this employee's work."""
+
+    SEQUENTIAL = "sequential"
+    PARALLEL = "parallel"
+    HYBRID = "hybrid"
+
+
+class EmployeeAccent(str, Enum):
+    """Avatar accent. Presentation only — names a tone the theme already ships."""
+
+    VIOLET = "violet"
+    BLUE = "blue"
+    EMERALD = "emerald"
+    AMBER = "amber"
+    ROSE = "rose"
+    SLATE = "slate"
+
+
+class EmployeeGlyph(str, Enum):
+    """Avatar glyph. Presentation only."""
+
+    INITIALS = "initials"
+    BOT = "bot"
+    BRAIN = "brain"
+    CODE = "code"
+    CHART = "chart"
+    PEN = "pen"
+    HEADSET = "headset"
+    BRIEFCASE = "briefcase"
+    SPARKLES = "sparkles"
+
+
+class EmployeeActivityKind(str, Enum):
+    """A recorded change in an employee's history.
+
+    Written by the service when the change actually happens, so the history is
+    a record of events rather than a reconstruction.
+    """
+
+    CREATED = "created"
+    UPDATED = "updated"
+    CONFIGURATION_CHANGED = "configuration_changed"
+    STATUS_CHANGED = "status_changed"
+    ARCHIVED = "archived"
+    RESTORED = "restored"
+    ASSIGNED = "assigned"
+    UNASSIGNED = "unassigned"
+
+
+class EmployeeHealth(str, Enum):
+    """Whether an employee is in a usable state.
+
+    Derived from stored facts only (see ``app.services.employee_health``);
+    nothing here is sampled, measured, or estimated.
+    """
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    UNKNOWN = "unknown"

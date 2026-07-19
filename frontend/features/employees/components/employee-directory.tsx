@@ -3,11 +3,14 @@
 import { useEffect } from "react";
 import dynamic from "next/dynamic";
 import { LayoutTemplate, Plus } from "lucide-react";
-import { useDirectoryStore } from "@/store/employees";
+import { EMPLOYEE_STATUS_LABEL } from "@/services/employees";
+import { hasActiveFilters, useDirectoryStore } from "@/store/employees";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Reveal } from "@/components/motion/reveal";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
+import { useEmployeeActions } from "../hooks/use-employee-actions";
 import { useEmployeeList } from "../hooks/use-employees";
 import { useFilteredEmployees } from "../hooks/use-filtered-employees";
 import { EmployeeEmptyState } from "./employee-empty-state";
@@ -27,6 +30,11 @@ import { EmployeeCardGridLoading, EmployeeListLoading, EmployeeProfileLoading } 
  * Below `lg` the panes stack in reading order (roster, details, dock) rather
  * than switching on a media query: a layout that only depends on CSS can't
  * disagree with the server about what to render on first paint.
+ *
+ * Duplicating, archiving and deleting live here rather than in the roster
+ * because their result has to outlive the card it was triggered from — deleting
+ * the last employee replaces the whole list with an empty state, and the
+ * confirmation still needs somewhere to appear.
  */
 
 const EmployeeDetailPanel = dynamic(
@@ -46,10 +54,12 @@ export function EmployeeDirectory() {
   const selectEmployee = useDirectoryStore((s) => s.selectEmployee);
 
   const employees = useFilteredEmployees(query.data, filters);
+  const actions = useEmployeeActions();
 
-  // A selection outlives the roster it came from: an employee deleted in another
-  // tab, or filtered out of view, would otherwise leave the panel showing
-  // someone who isn't in the list. Drop the selection when it stops being real.
+  // A selection outlives the roster it came from: an employee deleted here or in
+  // another tab, or filtered out of view, would otherwise leave the panel
+  // showing someone who isn't in the list. Drop the selection when it stops
+  // being real — one rule, rather than each action remembering to clear up.
   useEffect(() => {
     if (!query.data || selectedEmployeeId === null) return;
     if (!query.data.some((employee) => employee.id === selectedEmployeeId)) {
@@ -79,17 +89,37 @@ export function EmployeeDirectory() {
     if (query.data.length === 0) return <EmployeeEmptyState />;
 
     if (employees.length === 0) {
+      // Narrowing to one status and finding nothing is a different fact from a
+      // search that missed, so say which — "no archived employees" is an answer,
+      // "no matches" is a shrug.
+      const onlyStatus =
+        filters.status !== "ALL" &&
+        !hasActiveFilters({ ...filters, status: "ALL" }) &&
+        EMPLOYEE_STATUS_LABEL[filters.status].toLowerCase();
+
       return (
         <EmployeeEmptyState
           compact
-          title="No employees match"
-          description="Try a different word, or clear the filters."
+          title={onlyStatus ? `No ${onlyStatus} employees` : "No employees match"}
+          description={
+            onlyStatus
+              ? "Nothing is in that state right now. Try another status."
+              : "Try a different word, or clear the filters."
+          }
           showActions={false}
         />
       );
     }
 
-    return <EmployeeList employees={employees} viewMode={viewMode} />;
+    return (
+      <EmployeeList
+        employees={employees}
+        viewMode={viewMode}
+        onDuplicate={actions.duplicate}
+        onArchive={actions.archive}
+        onDelete={actions.remove}
+      />
+    );
   };
 
   return (
@@ -112,6 +142,15 @@ export function EmployeeDirectory() {
           }
         />
       </Reveal>
+
+      {actions.feedback ? (
+        <Alert
+          variant={actions.feedback.tone === "error" ? "error" : "success"}
+          className="mt-4"
+        >
+          {actions.feedback.message}
+        </Alert>
+      ) : null}
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         <div className="min-w-0 lg:w-[22rem] lg:shrink-0 xl:w-[24rem]">

@@ -1,5 +1,4 @@
 import { ACTIVITY, CAPABILITY_AVAILABILITY_CATALOG, EMPLOYEES, TEMPLATES } from "./fixtures";
-import type { EmployeesBackendSupport } from "./support";
 import {
   EMPLOYEE_CAPABILITIES,
   EMPLOYEE_PERMISSIONS,
@@ -135,19 +134,6 @@ const nextSequence = (rows: EmployeeDetail[]): number =>
   rows.reduce((max, r) => Math.max(max, r.sequence), 0) + 1;
 
 export class MockEmployeesAdapter implements EmployeesAdapter {
-  /** The mock simulates the whole surface, so nothing is gated. */
-  readonly support: EmployeesBackendSupport = {
-    update: true,
-    archive: true,
-    remove: true,
-    activity: true,
-    capabilities: true,
-    assignments: true,
-    permissions: true,
-    configuration: true,
-    appearance: true,
-  };
-
   async list(): Promise<EmployeeSummary[]> {
     await delay();
     return readStore()

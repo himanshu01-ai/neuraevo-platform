@@ -1,7 +1,6 @@
 import { env } from "@/lib/env";
 import { BackendEmployeesAdapter } from "./backend-adapter";
 import { MockEmployeesAdapter } from "./mock-adapter";
-import type { EmployeesBackendSupport } from "./support";
 import type { EmployeeDraft, EmployeesAdapter } from "./types";
 
 /**
@@ -19,11 +18,6 @@ const adapter: EmployeesAdapter =
     : new BackendEmployeesAdapter();
 
 export const employeesService = {
-  /**
-   * What the active backend can do. The UI reads this to disable entry points
-   * rather than offering an action that is guaranteed to fail.
-   */
-  support: adapter.support as Readonly<EmployeesBackendSupport>,
   list: () => adapter.list(),
   detail: (id: string) => adapter.detail(id),
   save: (draft: EmployeeDraft) => adapter.save(draft),

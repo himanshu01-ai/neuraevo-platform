@@ -4,14 +4,27 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.utils.constants import (
+    AutonomyLevel,
+    EmployeeAccent,
+    EmployeeGlyph,
+    EmployeePriority,
+    EmployeeStatus,
+    EmployeeTone,
+    ExecutionMode,
+)
 
 if TYPE_CHECKING:
     from app.models.blueprint import Blueprint
     from app.models.conversation import Conversation
+    from app.models.employee_activity import EmployeeActivityEvent
+    from app.models.employee_assignment import EmployeeAssignment
+    from app.models.employee_capability import EmployeeCapabilityGrant
+    from app.models.employee_permission import EmployeePermissionGrant
     from app.models.interview_session import InterviewSession
     from app.models.memory import Memory
     from app.models.user import User
@@ -38,8 +51,49 @@ class Employee(Base):
         String(50), default="en", nullable=False
     )
     personality: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Stored as a plain string; allowed values are defined by
+    # ``app.utils.constants.EmployeeStatus`` and validated at the schema and
+    # service layers, matching how ``Memory.memory_type`` is handled.
     status: Mapped[str] = mapped_column(
-        String(50), default="draft", nullable=False
+        String(50), default=EmployeeStatus.DRAFT.value, nullable=False
+    )
+
+    # --- Configuration (Sprint 18.2A) ------------------------------------
+    # First-class columns rather than one opaque JSON blob, so each setting can
+    # be queried, validated, and migrated on its own.
+    autonomy: Mapped[str] = mapped_column(
+        String(50), default=AutonomyLevel.BALANCED.value, nullable=False
+    )
+    tone: Mapped[str] = mapped_column(
+        String(50), default=EmployeeTone.PROFESSIONAL.value, nullable=False
+    )
+    execution_mode: Mapped[str] = mapped_column(
+        String(50), default=ExecutionMode.SEQUENTIAL.value, nullable=False
+    )
+    priority: Mapped[str] = mapped_column(
+        String(50), default=EmployeePriority.MEDIUM.value, nullable=False
+    )
+    require_approval: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
+    )
+
+    # --- Appearance (Sprint 18.2A) ---------------------------------------
+    accent: Mapped[str] = mapped_column(
+        String(50), default=EmployeeAccent.SLATE.value, nullable=False
+    )
+    glyph: Mapped[str] = mapped_column(
+        String(50), default=EmployeeGlyph.BOT.value, nullable=False
+    )
+
+    # --- Lifecycle timestamps (Sprint 18.2A) -----------------------------
+    # ``archived_at`` records a reversible retirement; ``deleted_at`` is the
+    # soft delete, which hides the row from every read path while preserving
+    # the memories, blueprint, sessions and conversations hanging off it.
+    archived_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), index=True, nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -80,6 +134,32 @@ class Employee(Base):
         back_populates="employee",
         cascade="all, delete-orphan",
         order_by="Conversation.created_at",
+    )
+
+    # --- Sprint 18.2A collections ----------------------------------------
+
+    capabilities: Mapped[List["EmployeeCapabilityGrant"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        order_by="EmployeeCapabilityGrant.capability",
+    )
+
+    permissions: Mapped[List["EmployeePermissionGrant"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        order_by="EmployeePermissionGrant.permission",
+    )
+
+    activity_events: Mapped[List["EmployeeActivityEvent"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        order_by="EmployeeActivityEvent.sequence",
+    )
+
+    assignments: Mapped[List["EmployeeAssignment"]] = relationship(
+        back_populates="employee",
+        cascade="all, delete-orphan",
+        order_by="EmployeeAssignment.created_at",
     )
 
     def __repr__(self) -> str:  # pragma: no cover - debugging helper

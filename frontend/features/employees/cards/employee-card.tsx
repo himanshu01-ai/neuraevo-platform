@@ -1,12 +1,8 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Archive, Copy, Ellipsis, Pencil, Trash2 } from "lucide-react";
-import {
-  UNSUPPORTED_ACTION_HINT,
-  employeesService,
-  type EmployeeSummary,
-} from "@/services/employees";
+import type { EmployeeSummary } from "@/services/employees";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -20,9 +16,10 @@ export interface EmployeeCardProps {
   employee: EmployeeSummary;
   isSelected?: boolean;
   onSelect?: (id: string) => void;
-  onDuplicate: (id: string) => void;
-  onArchive: (id: string) => void;
-  onDelete: (id: string) => void;
+  /** The employee, not its id — the directory names it in the confirmation. */
+  onDuplicate: (employee: EmployeeSummary) => void;
+  onArchive: (employee: EmployeeSummary) => void;
+  onDelete: (employee: EmployeeSummary) => void;
 }
 
 /**
@@ -47,9 +44,15 @@ export const EmployeeCard = memo(function EmployeeCard({
   onDelete,
 }: EmployeeCardProps) {
   const [isConfirming, setIsConfirming] = useState(false);
-  // Module-level constant on the service, so reading it never triggers a render.
-  const support = employeesService.support;
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const role = roleLabel(employee.role, employee.customRole);
+
+  // Choosing Delete closes the menu, which leaves focus nowhere. Move it to the
+  // confirmation — on Cancel, the safe half, so a stray Enter dismisses rather
+  // than deletes.
+  useEffect(() => {
+    if (isConfirming) cancelRef.current?.focus();
+  }, [isConfirming]);
 
   return (
     <div
@@ -87,25 +90,19 @@ export const EmployeeCard = memo(function EmployeeCard({
           <DropdownMenu
             menuLabel={`Actions for ${employee.name}`}
             align="end"
-            // Actions the backend can't perform yet stay listed but disabled,
-            // with a tooltip saying why — never offered as something that works.
             items={[
               {
                 key: "edit",
                 label: "Edit employee",
                 icon: Pencil,
                 href: `/workspace/employees/${employee.id}/edit`,
-                disabled: !support.update,
-                hint: support.update ? undefined : UNSUPPORTED_ACTION_HINT,
               },
-              { key: "duplicate", label: "Duplicate", icon: Copy, onSelect: () => onDuplicate(employee.id) },
+              { key: "duplicate", label: "Duplicate", icon: Copy, onSelect: () => onDuplicate(employee) },
               {
                 key: "archive",
                 label: "Archive",
                 icon: Archive,
-                onSelect: () => onArchive(employee.id),
-                disabled: !support.archive,
-                hint: support.archive ? undefined : UNSUPPORTED_ACTION_HINT,
+                onSelect: () => onArchive(employee),
               },
               {
                 key: "delete",
@@ -113,8 +110,6 @@ export const EmployeeCard = memo(function EmployeeCard({
                 icon: Trash2,
                 destructive: true,
                 onSelect: () => setIsConfirming(true),
-                disabled: !support.remove,
-                hint: support.remove ? undefined : UNSUPPORTED_ACTION_HINT,
               },
             ]}
             renderTrigger={(props) => (
@@ -143,10 +138,24 @@ export const EmployeeCard = memo(function EmployeeCard({
         >
           <p className="text-xs text-destructive">Delete “{employee.name}”? This can&apos;t be undone.</p>
           <div className="mt-2 flex gap-2">
-            <Button variant="destructive" size="sm" className="h-7 flex-1" onClick={() => onDelete(employee.id)}>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-7 flex-1"
+              onClick={() => {
+                setIsConfirming(false);
+                onDelete(employee);
+              }}
+            >
               Delete
             </Button>
-            <Button variant="outline" size="sm" className="h-7 flex-1" onClick={() => setIsConfirming(false)}>
+            <Button
+              ref={cancelRef}
+              variant="outline"
+              size="sm"
+              className="h-7 flex-1"
+              onClick={() => setIsConfirming(false)}
+            >
               Cancel
             </Button>
           </div>

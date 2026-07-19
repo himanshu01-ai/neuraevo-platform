@@ -5,7 +5,6 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { TONE_DOT } from "@/components/ui/status-badge";
-import { employeesService } from "@/services/employees";
 import { useEmployeeActivity } from "../hooks/use-employees";
 import { ACTIVITY_META } from "../models/activity-kinds";
 import { cn } from "@/lib/utils";
@@ -45,22 +44,12 @@ export function ActivityTimeline({ employeeId, limit, className }: ActivityTimel
   const events = limit ? query.data.slice(0, limit) : query.data;
 
   if (events.length === 0) {
-    // "Nothing happened" and "nobody is recording yet" are different facts, and
-    // showing the first when the second is true would misrepresent the backend.
-    return employeesService.support.activity ? (
+    return (
       <EmptyState
         compact
         icon={History}
-        title="Nothing yet"
-        description="This employee hasn't done anything worth recording."
-        className={className}
-      />
-    ) : (
-      <EmptyState
-        compact
-        icon={History}
-        title="Not yet available"
-        description="Activity history isn't recorded by the backend yet."
+        title="No activity yet"
+        description="What this employee does will be recorded here."
         className={className}
       />
     );

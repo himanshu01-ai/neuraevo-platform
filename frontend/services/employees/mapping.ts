@@ -1,17 +1,25 @@
 import { z } from "zod";
 import { DEFAULT_CONFIGURATION } from "./defaults";
 import {
-  EMPLOYEE_ACCENTS,
   EMPLOYEE_ROLES,
+  PERMISSION_DEFAULT_LEVEL,
+  PERMISSION_REQUIRES,
+  type ActivityKind,
   type EmployeeAccent,
+  type EmployeeActivityEvent,
+  type EmployeeAssignment,
+  type EmployeeCapability,
   type EmployeeDetail,
   type EmployeeDraft,
   type EmployeeGlyph,
   type EmployeeMemorySummary,
+  type EmployeePermission,
   type EmployeeRole,
   type EmployeeStatus,
   type EmployeeSummary,
+  type PermissionLevel,
 } from "./types";
+import type { ExecutionMode, HealthState, Priority } from "@/types/domain";
 
 /**
  * Translation between the backend's employee contracts and this layer's
@@ -19,17 +27,20 @@ import {
  * HTTP, the feature speaks `EmployeeSummary`/`EmployeeDetail`, and everything
  * in between happens here.
  *
- * The backend row is deliberately small — `name, role, description, language,
- * personality, status, created_at` — while the frontend model describes far
- * more. Fields with no backend counterpart are NOT invented here: they resolve
- * to explicit "nothing known" values (empty capability list, `UNKNOWN` health,
- * zero assignments) so the UI renders its real empty states. The only things
- * derived are presentation-only (accent, glyph), which the frontend has always
- * owned.
+ * Sprint 18.2A completed the backend, so almost everything is now a real
+ * mapping of stored data — configuration, capabilities, permissions,
+ * appearance, health and assignments all come from the database. The two
+ * vocabularies differ in casing and in a few names, which is what the tables
+ * below reconcile.
  */
 
 // --- Backend wire schemas ------------------------------------------------
 // Mirrors of backend/app/schemas/employee.py and memory_stats.py.
+
+const permissionResponseSchema = z.object({
+  permission: z.string(),
+  level: z.string(),
+});
 
 export const employeeResponseSchema = z.object({
   id: z.string(),
@@ -41,9 +52,44 @@ export const employeeResponseSchema = z.object({
   personality: z.string().nullable().optional(),
   status: z.string(),
   created_at: z.string(),
+  updated_at: z.string().nullable().optional(),
+  autonomy: z.string(),
+  tone: z.string(),
+  execution_mode: z.string(),
+  priority: z.string(),
+  require_approval: z.boolean(),
+  accent: z.string(),
+  glyph: z.string(),
+  archived_at: z.string().nullable().optional(),
+  health: z.string(),
+  // Optional rather than defaulted: an older backend that predates these
+  // fields still parses, and the mappers below supply the empty value.
+  capabilities: z.array(z.string()).optional(),
+  permissions: z.array(permissionResponseSchema).optional(),
+  assignment_count: z.number().optional(),
 });
 
 export type EmployeeResponse = z.infer<typeof employeeResponseSchema>;
+
+export const activityResponseSchema = z.object({
+  id: z.string(),
+  kind: z.string(),
+  summary: z.string(),
+  sequence: z.number(),
+  created_at: z.string(),
+});
+
+export const assignmentResponseSchema = z.object({
+  id: z.string(),
+  workflow_id: z.string(),
+  workflow_name: z.string(),
+  priority: z.string(),
+  execution_mode: z.string(),
+  dependency_summary: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+
+export type AssignmentResponse = z.infer<typeof assignmentResponseSchema>;
 
 export const memoryStatsResponseSchema = z.object({
   total_memories: z.number(),
@@ -79,62 +125,135 @@ export function fromRole(role: EmployeeRole, customRole: string): string {
 // --- Status --------------------------------------------------------------
 
 /**
- * `Employee.status` is a free-form `String(50)` that today only ever holds the
- * model default, `"draft"`. Anything this layer doesn't recognise maps to
- * `UNKNOWN` rather than guessing — the employee's real standing is the
- * platform's to report, and the platform doesn't report it yet.
+ * The backend describes an employee's *lifecycle*; this layer describes how it
+ * *presents*. They are close but not identical, so the mapping is explicit:
+ *
+ *   draft    -> UNKNOWN    nothing has observed it yet
+ *   ready    -> AVAILABLE  described and on the bench
+ *   active   -> WORKING    in service
+ *   paused   -> PAUSED
+ *   archived -> OFFLINE    retired but restorable
+ *   error    -> OFFLINE    not usable; `health` carries the severity
  */
 const STATUS_BY_BACKEND_VALUE: Record<string, EmployeeStatus> = {
   draft: "UNKNOWN",
-  available: "AVAILABLE",
-  busy: "BUSY",
-  working: "WORKING",
+  ready: "AVAILABLE",
+  active: "WORKING",
   paused: "PAUSED",
-  offline: "OFFLINE",
   archived: "OFFLINE",
+  error: "OFFLINE",
 };
 
 export function toStatus(status: string): EmployeeStatus {
   return STATUS_BY_BACKEND_VALUE[status.trim().toLowerCase()] ?? "UNKNOWN";
 }
 
-// --- Appearance ----------------------------------------------------------
-
-/**
- * Accent and glyph are presentation, not data — the backend has never stored
- * them and the theme owns both. Deriving them from the id keeps an employee
- * looking the same on every device and across reloads, which a random or
- * fixed-default choice would not.
- */
-export function toAccent(id: string): EmployeeAccent {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return EMPLOYEE_ACCENTS[Math.abs(hash) % EMPLOYEE_ACCENTS.length] ?? "slate";
-}
-
-const GLYPH_BY_ROLE: Record<EmployeeRole, EmployeeGlyph> = {
-  RESEARCH_ASSISTANT: "brain",
-  SOFTWARE_ENGINEER: "code",
-  DATA_ANALYST: "chart",
-  PROJECT_MANAGER: "briefcase",
-  CONTENT_WRITER: "pen",
-  CUSTOMER_SUPPORT: "headset",
-  SALES_ASSISTANT: "sparkles",
-  CUSTOM: "bot",
+const HEALTH_BY_BACKEND_VALUE: Record<string, HealthState> = {
+  healthy: "HEALTHY",
+  degraded: "DEGRADED",
+  unhealthy: "UNHEALTHY",
+  unknown: "UNKNOWN",
 };
 
-export const toGlyph = (role: EmployeeRole): EmployeeGlyph => GLYPH_BY_ROLE[role];
+export function toHealth(health: string): HealthState {
+  return HEALTH_BY_BACKEND_VALUE[health.trim().toLowerCase()] ?? "UNKNOWN";
+}
+
+// --- Configuration -------------------------------------------------------
+//
+// The two sides use the same words in different casing. These tables are the
+// one place that is reconciled, in both directions.
+
+const upper = <T extends string>(value: string, fallback: T): T =>
+  (value ? (value.toUpperCase() as T) : fallback);
+
+export function toConfiguration(employee: EmployeeResponse) {
+  return {
+    autonomy: (employee.autonomy ||
+      DEFAULT_CONFIGURATION.autonomy) as EmployeeDetail["configuration"]["autonomy"],
+    tone: (employee.tone ||
+      DEFAULT_CONFIGURATION.tone) as EmployeeDetail["configuration"]["tone"],
+    executionMode: upper<ExecutionMode>(
+      employee.execution_mode,
+      DEFAULT_CONFIGURATION.executionMode,
+    ),
+    priority: upper<Priority>(employee.priority, DEFAULT_CONFIGURATION.priority),
+    requireApproval: employee.require_approval,
+    language: employee.language,
+  };
+}
+
+export function toPermissions(
+  permissions: { permission: string; level: string }[],
+): EmployeePermission[] {
+  return permissions.map((entry) => ({
+    id: entry.permission as EmployeePermission["id"],
+    level: entry.level.toUpperCase() as PermissionLevel,
+  }));
+}
+
+// --- Appearance ----------------------------------------------------------
+// Stored by the backend since Sprint 18.2A, so these are plain reads.
+
+export const toAccent = (accent: string): EmployeeAccent =>
+  (accent || "slate") as EmployeeAccent;
+
+export const toGlyph = (glyph: string): EmployeeGlyph =>
+  (glyph || "bot") as EmployeeGlyph;
 
 // --- Sequence ------------------------------------------------------------
 
 /**
- * `sequence` is the frontend's ordinal for recency. `created_at` is real
- * backend data, so the ordering it produces is the backend's, not invented —
- * an unparseable timestamp falls back to 0 rather than to "now".
+ * `sequence` is the frontend's ordinal for recency, taken from real backend
+ * timestamps — an unparseable value falls back to 0 rather than to "now".
  */
 export function toSequence(createdAt: string): number {
   const parsed = Date.parse(createdAt);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+// --- Activity ------------------------------------------------------------
+
+/**
+ * The backend records more kinds than this layer draws icons for, so several
+ * collapse onto the nearest frontend kind. The event's own summary text
+ * carries the detail either way.
+ */
+const ACTIVITY_KIND_BY_BACKEND_VALUE: Record<string, ActivityKind> = {
+  created: "CREATED",
+  updated: "UPDATED",
+  configuration_changed: "CONFIGURATION_CHANGED",
+  status_changed: "UPDATED",
+  archived: "PAUSED",
+  restored: "RESUMED",
+  assigned: "ASSIGNED",
+  unassigned: "UPDATED",
+};
+
+export function toActivityEvent(event: {
+  id: string;
+  kind: string;
+  summary: string;
+  sequence: number;
+}): EmployeeActivityEvent {
+  return {
+    id: event.id,
+    kind: ACTIVITY_KIND_BY_BACKEND_VALUE[event.kind] ?? "UPDATED",
+    summary: event.summary,
+    sequence: event.sequence,
+  };
+}
+
+// --- Assignments ---------------------------------------------------------
+
+export function toAssignment(assignment: AssignmentResponse): EmployeeAssignment {
+  return {
+    workflowId: assignment.workflow_id,
+    workflowName: assignment.workflow_name,
+    priority: upper<Priority>(assignment.priority, "MEDIUM"),
+    executionMode: upper<ExecutionMode>(assignment.execution_mode, "SEQUENTIAL"),
+    dependencySummary: assignment.dependency_summary ?? "",
+  };
 }
 
 // --- Memory --------------------------------------------------------------
@@ -169,13 +288,14 @@ export function toEmployeeSummary(employee: EmployeeResponse): EmployeeSummary {
     customRole,
     description: employee.description ?? "",
     status: toStatus(employee.status),
-    // Health, capabilities, assignment counts and activity have no backend
-    // source yet. They report "nothing known" so the UI shows its empty states.
-    health: "UNKNOWN",
-    accent: toAccent(employee.id),
-    glyph: toGlyph(role),
-    capabilities: [],
-    assignedWorkflows: 0,
+    health: toHealth(employee.health),
+    accent: toAccent(employee.accent),
+    glyph: toGlyph(employee.glyph),
+    capabilities: (employee.capabilities ?? []) as EmployeeCapability[],
+    assignedWorkflows: employee.assignment_count ?? 0,
+    // The employee endpoints don't carry a latest-activity line, and asking
+    // for one per row would be a request per card. The profile's timeline is
+    // where history is read.
     lastActivity: "",
     sequence: toSequence(employee.created_at),
   };
@@ -184,29 +304,74 @@ export function toEmployeeSummary(employee: EmployeeResponse): EmployeeSummary {
 export function toEmployeeDetail(
   employee: EmployeeResponse,
   stats: MemoryStatsResponse | null,
+  assignments: AssignmentResponse[] = [],
 ): EmployeeDetail {
   return {
     ...toEmployeeSummary(employee),
-    // `personality` is the closest stored equivalent of the builder's
-    // behaviour note, and is what the create payload writes it to.
+    // `personality` is the stored home of the builder's behaviour note.
     behaviorSummary: employee.personality ?? "",
-    configuration: { ...DEFAULT_CONFIGURATION, language: employee.language },
-    // Permission levels and capability grants are not stored anywhere, so the
-    // profile shows its empty state rather than a fabricated set of grants.
-    permissions: [],
-    assignments: { workflows: [], currentTask: null, queue: [] },
+    configuration: toConfiguration(employee),
+    permissions: toPermissions(employee.permissions ?? []),
+    assignments: {
+      workflows: assignments.map(toAssignment),
+      // A current task and a queue describe *execution*, which this domain
+      // deliberately does not model. They stay empty until it does.
+      currentTask: null,
+      queue: [],
+    },
     memory: toMemorySummary(stats),
   };
 }
 
-/** The create payload, carrying only the fields the backend actually stores. */
-export function toCreatePayload(draft: EmployeeDraft) {
+// --- Draft -> backend ----------------------------------------------------
+
+/** Everything both writes share. The backend takes the same shape for each. */
+function toWritePayload(draft: EmployeeDraft) {
   return {
     name: draft.name.trim(),
     role: fromRole(draft.role, draft.customRole),
     description: draft.description.trim() || null,
     language: draft.configuration.language || "en",
     personality: draft.behaviorSummary.trim() || null,
+    autonomy: draft.configuration.autonomy,
+    tone: draft.configuration.tone,
+    execution_mode: draft.configuration.executionMode.toLowerCase(),
+    priority: draft.configuration.priority.toLowerCase(),
+    require_approval: draft.configuration.requireApproval,
+    accent: draft.accent,
+    glyph: draft.glyph,
+    capabilities: draft.capabilities,
   };
 }
+
+/**
+ * Create also seeds the permissions implied by the granted capabilities, using
+ * the same `PERMISSION_DEFAULT_LEVEL` table the rest of the app reads — the
+ * conservative default, never widened on the user's behalf.
+ */
+export function toCreatePayload(draft: EmployeeDraft) {
+  const held = new Set(draft.capabilities);
+
+  return {
+    ...toWritePayload(draft),
+    permissions: Object.entries(PERMISSION_REQUIRES)
+      .filter(([, capability]) => held.has(capability))
+      .map(([permission]) => ({
+        permission,
+        level: PERMISSION_DEFAULT_LEVEL[
+          permission as keyof typeof PERMISSION_DEFAULT_LEVEL
+        ].toLowerCase(),
+      })),
+  };
+}
+
+/**
+ * Update deliberately sends no permissions.
+ *
+ * The builder has no permission controls, so sending a set would overwrite
+ * levels chosen elsewhere with defaults. The backend reconciles permissions
+ * against the new capabilities on its own, so revoking a capability still
+ * blocks whatever depended on it.
+ */
+export const toUpdatePayload = toWritePayload;
 

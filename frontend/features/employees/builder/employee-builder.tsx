@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useId, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Archive, Copy, Trash2 } from "lucide-react";
 import {
   EMPLOYEE_PERMISSIONS,
   EMPLOYEE_ROLES,
   PERMISSION_REQUIRES,
-  UNSUPPORTED_ACTION_HINT,
-  employeesService,
   type EmployeeConfiguration,
 } from "@/services/employees";
 import { EXECUTION_MODE, EXECUTION_MODE_LABEL, PRIORITY_LABEL } from "@/types/domain";
@@ -26,15 +24,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { Reveal } from "@/components/motion/reveal";
-import { cn } from "@/lib/utils";
-import { useArchiveEmployee, useDeleteEmployee, useDuplicateEmployee, useSaveEmployee } from "../hooks/use-employees";
+import { useEmployeeActions } from "../hooks/use-employee-actions";
+import { useSaveEmployee } from "../hooks/use-employees";
 import { EmployeeHeader } from "../components/employee-header";
 import { AUTONOMY_LIST, TONE_LIST } from "../models/employee-configuration";
+import { employeeErrorMessage } from "../models/employee-messages";
 import { PERMISSION_META } from "../models/employee-permissions";
 import { ROLE_META } from "../models/employee-roles";
 import { AppearancePicker } from "./appearance-picker";
 import { CapabilityPicker } from "./capability-picker";
-import { BackendSupportNotice } from "../components/backend-support-notice";
 
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 
@@ -91,18 +89,42 @@ export interface EmployeeBuilderProps {
 export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
   const router = useRouter();
   const save = useSaveEmployee();
-  const duplicate = useDuplicateEmployee();
-  const archive = useArchiveEmployee();
-  const remove = useDeleteEmployee();
 
   const draft = useEmployeeBuilderStore();
-  const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const support = employeesService.support;
+  const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
 
-  // Editing needs an update endpoint the backend doesn't expose yet, so an edit
-  // can be opened and read but not saved. Creating is unaffected.
-  const canSave = mode === "create" || support.update;
+  // Both confirmations replace the control that opened them, so focus has to be
+  // moved deliberately. It lands on the safe choice in each — a confirmation you
+  // can dismiss by reflex is better than one you can accept by reflex.
+  useEffect(() => {
+    if (isConfirmingLeave) keepEditingRef.current?.focus();
+  }, [isConfirmingLeave]);
+
+  useEffect(() => {
+    if (isConfirmingDelete) cancelDeleteRef.current?.focus();
+  }, [isConfirmingDelete]);
+
+  const actions = useEmployeeActions({
+    onDuplicated: (clone) => router.push(`/workspace/employees/${clone.id}/edit`),
+    onDeleted: () => {
+      draft.resetDraft();
+      router.push("/workspace/employees");
+    },
+  });
+
+  // What the Manage panel acts on. Only reached in edit mode, where the panel is
+  // rendered and `employeeId` is set; the name comes from the draft so the
+  // confirmation calls the employee what the screen does.
+  const manageTarget = {
+    id: draft.employeeId ?? "",
+    name: draft.name.trim() || "This employee",
+  };
 
   // The preview resolves through the same `PERMISSION_REQUIRES` table the
   // adapter reconciles against, so what you're shown here is what you'll get.
@@ -110,14 +132,22 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
     draft.capabilities.includes(PERMISSION_REQUIRES[id])
   );
 
+  // Typing a name answers the only complaint the form can make about it, so the
+  // error clears as soon as it's addressed rather than waiting for another
+  // submit.
   useEffect(() => {
-    setError(null);
+    setNameError(null);
   }, [draft.name]);
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
+    setSaveError(null);
+
     if (!draft.name.trim()) {
-      setError("Give your employee a name so you can tell it apart from the others.");
+      setNameError("Give your employee a name so you can tell it apart from the others.");
+      // Validation belongs beside the field, but the field may be scrolled out
+      // of view on a long form — put the caret where the problem is.
+      nameRef.current?.focus();
       return;
     }
 
@@ -126,8 +156,29 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
         draft.markSaved(saved.id);
         router.push(`/workspace/employees/${saved.id}`);
       },
-      onError: () => setError("That couldn't be saved. Try again in a moment."),
+      onError: (error) =>
+        setSaveError(employeeErrorMessage(error, "That couldn't be saved. Try again in a moment.")),
     });
+  };
+
+  /**
+   * Leaving with unsaved edits asks first.
+   *
+   * The draft survives in the store either way, but "Cancel" reads as discard,
+   * and a form that quietly throws away typing on a mis-click is the one thing a
+   * builder must not do.
+   */
+  const handleCancel = () => {
+    if (draft.isDirty) {
+      setIsConfirmingLeave(true);
+      return;
+    }
+    router.push("/workspace/employees");
+  };
+
+  const leaveBuilder = () => {
+    draft.resetDraft();
+    router.push("/workspace/employees");
   };
 
   const setConfiguration = (patch: Partial<EmployeeConfiguration>) => draft.setConfiguration(patch);
@@ -145,18 +196,10 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
             }
             actions={
               <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => router.push("/workspace/employees")}
-                >
+                <Button type="button" variant="outline" onClick={handleCancel}>
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={save.isPending || !canSave}
-                  title={canSave ? undefined : UNSUPPORTED_ACTION_HINT}
-                >
+                <Button type="submit" disabled={save.isPending}>
                   {save.isPending ? "Saving…" : mode === "create" ? "Create employee" : "Save changes"}
                 </Button>
               </>
@@ -164,17 +207,41 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
           />
         </Reveal>
 
-        {error ? (
+        {saveError ? (
           <Alert variant="error" className="mt-4">
-            {error}
+            {saveError}
           </Alert>
         ) : null}
 
-        {!canSave ? (
-          <Alert variant="info" className="mt-4">
-            Changes to an existing employee can&apos;t be saved yet — the backend has no update
-            endpoint. You can still review this employee, duplicate it, or create a new one.
+        {actions.feedback ? (
+          <Alert
+            variant={actions.feedback.tone === "error" ? "error" : "success"}
+            className="mt-4"
+          >
+            {actions.feedback.message}
           </Alert>
+        ) : null}
+
+        {isConfirmingLeave ? (
+          <div role="alert" className="mt-4 rounded-md border bg-muted/40 p-3">
+            <p className="text-sm text-foreground">
+              Discard your unsaved changes to this employee?
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <Button type="button" variant="destructive" size="sm" onClick={leaveBuilder}>
+                Discard changes
+              </Button>
+              <Button
+                ref={keepEditingRef}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsConfirmingLeave(false)}
+              >
+                Keep editing
+              </Button>
+            </div>
+          </div>
         ) : null}
 
         <div className="mt-6 grid gap-6 lg:grid-cols-3">
@@ -182,15 +249,19 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
             <Reveal>
               <Panel title="Identity" description="Who this employee is and what it's for.">
                 <div className="space-y-4">
-                  <Field label="Name" required>
+                  <Field label="Name" required error={nameError ?? undefined}>
                     {({ id, describedBy, invalid }) => (
                       <Input
+                        ref={nameRef}
                         id={id}
                         value={draft.name}
                         onChange={(event) => draft.setName(event.target.value)}
                         placeholder="e.g. Atlas"
                         aria-describedby={describedBy}
                         aria-invalid={invalid}
+                        // The label's asterisk is decorative, so the requirement
+                        // has to reach a screen reader some other way.
+                        aria-required="true"
                         autoComplete="off"
                       />
                     )}
@@ -264,31 +335,13 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                 title="Capabilities"
                 description="What it may reach for. Permissions follow from these."
               >
-                {support.capabilities ? (
-                  <CapabilityPicker selected={draft.capabilities} onToggle={draft.toggleCapability} />
-                ) : (
-                  <>
-                    <BackendSupportNotice what="Capability grants are" className="mb-3" />
-                    <fieldset disabled className="opacity-60">
-                      <CapabilityPicker
-                        selected={draft.capabilities}
-                        onToggle={draft.toggleCapability}
-                      />
-                    </fieldset>
-                  </>
-                )}
+                <CapabilityPicker selected={draft.capabilities} onToggle={draft.toggleCapability} />
               </Panel>
             </Reveal>
 
             <Reveal delay={0.05}>
               <Panel title="Behaviour" description="How it should act when the platform runs it.">
-                {support.configuration ? null : (
-                  <BackendSupportNotice what="Behaviour settings are" className="mb-4" />
-                )}
-                <fieldset
-                  disabled={!support.configuration}
-                  className={cn("space-y-6", !support.configuration && "opacity-60")}
-                >
+                <div className="space-y-6">
                   <fieldset>
                     <legend className="mb-2 text-sm font-medium text-foreground">Autonomy</legend>
                     <div className="grid gap-3 sm:grid-cols-3">
@@ -379,7 +432,7 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                     checked={draft.configuration.requireApproval}
                     onChange={(event) => setConfiguration({ requireApproval: event.target.checked })}
                   />
-                </fieldset>
+                </div>
               </Panel>
             </Reveal>
           </div>
@@ -387,21 +440,13 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
           <div className="min-w-0 space-y-6">
             <Reveal delay={0.05}>
               <Panel title="Appearance" description="How to spot it in a list.">
-                {support.appearance ? null : (
-                  <BackendSupportNotice what="A chosen accent and glyph are" className="mb-3" />
-                )}
-                <fieldset
-                  disabled={!support.appearance}
-                  className={cn(!support.appearance && "opacity-60")}
-                >
-                  <AppearancePicker
-                    name={draft.name}
-                    accent={draft.accent}
-                    glyph={draft.glyph}
-                    onAccentChange={draft.setAccent}
-                    onGlyphChange={draft.setGlyph}
-                  />
-                </fieldset>
+                <AppearancePicker
+                  name={draft.name}
+                  accent={draft.accent}
+                  glyph={draft.glyph}
+                  onAccentChange={draft.setAccent}
+                  onGlyphChange={draft.setGlyph}
+                />
               </Panel>
             </Reveal>
 
@@ -438,15 +483,11 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                       variant="outline"
                       size="sm"
                       className="w-full justify-start"
-                      disabled={duplicate.isPending}
-                      onClick={() =>
-                        duplicate.mutate(draft.employeeId as string, {
-                          onSuccess: (clone) => router.push(`/workspace/employees/${clone.id}/edit`),
-                        })
-                      }
+                      disabled={actions.isBusy}
+                      onClick={() => actions.duplicate(manageTarget)}
                     >
                       <Copy className="size-4" aria-hidden="true" />
-                      Duplicate
+                      {actions.pending === "duplicate" ? "Duplicating…" : "Duplicate"}
                     </Button>
 
                     <Button
@@ -454,12 +495,11 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                       variant="outline"
                       size="sm"
                       className="w-full justify-start"
-                      disabled={archive.isPending || !support.archive}
-                      title={support.archive ? undefined : UNSUPPORTED_ACTION_HINT}
-                      onClick={() => archive.mutate(draft.employeeId as string)}
+                      disabled={actions.isBusy}
+                      onClick={() => actions.archive(manageTarget)}
                     >
                       <Archive className="size-4" aria-hidden="true" />
-                      Archive
+                      {actions.pending === "archive" ? "Archiving…" : "Archive"}
                     </Button>
 
                     {isConfirmingDelete ? (
@@ -473,22 +513,18 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                             variant="destructive"
                             size="sm"
                             className="h-7 flex-1"
-                            onClick={() =>
-                              remove.mutate(draft.employeeId as string, {
-                                onSuccess: () => {
-                                  draft.resetDraft();
-                                  router.push("/workspace/employees");
-                                },
-                              })
-                            }
+                            disabled={actions.isBusy}
+                            onClick={() => actions.remove(manageTarget)}
                           >
-                            Delete
+                            {actions.pending === "delete" ? "Deleting…" : "Delete"}
                           </Button>
                           <Button
+                            ref={cancelDeleteRef}
                             type="button"
                             variant="outline"
                             size="sm"
                             className="h-7 flex-1"
+                            disabled={actions.isBusy}
                             onClick={() => setIsConfirmingDelete(false)}
                           >
                             Cancel
@@ -501,8 +537,6 @@ export function EmployeeBuilder({ mode }: EmployeeBuilderProps) {
                         variant="ghost"
                         size="sm"
                         className="w-full justify-start text-destructive hover:bg-destructive/10"
-                        disabled={!support.remove}
-                        title={support.remove ? undefined : UNSUPPORTED_ACTION_HINT}
                         onClick={() => setIsConfirmingDelete(true)}
                       >
                         <Trash2 className="size-4" aria-hidden="true" />

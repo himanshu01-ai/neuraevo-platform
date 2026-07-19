@@ -1,16 +1,22 @@
+import { z } from "zod";
 import { ApiError, request } from "../http";
-import { TEMPLATES } from "./fixtures";
+import { CAPABILITY_AVAILABILITY_CATALOG, TEMPLATES } from "./fixtures";
 import {
+  activityResponseSchema,
+  assignmentResponseSchema,
   employeeResponseSchema,
   memoryStatsResponseSchema,
+  toActivityEvent,
   toCreatePayload,
   toEmployeeDetail,
   toEmployeeSummary,
+  toUpdatePayload,
+  type AssignmentResponse,
   type EmployeeResponse,
   type MemoryStatsResponse,
 } from "./mapping";
-import { UNSUPPORTED_MESSAGE, type EmployeesBackendSupport } from "./support";
 import {
+  EMPLOYEE_CAPABILITIES,
   EmployeeError,
   type EmployeeActivityEvent,
   type EmployeeCapabilityState,
@@ -21,30 +27,34 @@ import {
   type EmployeeTemplateSummary,
   type EmployeesAdapter,
 } from "./types";
-import { z } from "zod";
 
 /**
  * Real employee adapter, backed by the FastAPI service. Implements the same
  * `EmployeesAdapter` seam as the mock, so no caller changes.
  *
- * The backend surface is small (backend/app/api/v1/employees.py):
+ * Sprint 18.2A completed the backend, so every operation on the seam is now a
+ * real request:
  *
- *   POST /employees                        -> 201 EmployeeResponse
- *   GET  /employees                        -> 200 EmployeeResponse[]
- *   GET  /employees/{id}                   -> 200 EmployeeResponse
- *   GET  /employees/{id}/memories/stats    -> 200 MemoryStatsResponse (Sprint 2E)
+ *   GET    /employees                              list
+ *   POST   /employees                              create
+ *   GET    /employees/{id}                         detail
+ *   PATCH  /employees/{id}                         update
+ *   DELETE /employees/{id}                         delete (soft, server-side)
+ *   POST   /employees/{id}/archive                 archive
+ *   GET    /employees/{id}/activity                history
+ *   GET    /employees/{id}/capabilities            grants
+ *   GET    /employees/{id}/assignments             assigned work
+ *   GET    /employees/{id}/memories/stats          memory counts (Sprint 2E)
  *
- * There is no update, delete, archive or status endpoint, and nothing stores
- * capabilities, permissions, behaviour settings, appearance, assignments or
- * activity. Those operations reject with an `unsupported` error instead of
- * pretending to work, and `support` below tells the UI to disable their entry
- * points so the rejection is a guard rather than something a user can hit.
- *
- * Ownership and auth are the backend's: every route is scoped to the caller's
- * token, which `services/http.ts` attaches (and refreshes) on its own.
+ * Nothing is derived that the backend can answer, and nothing is fabricated
+ * where it cannot. Ownership and auth are the backend's; `services/http.ts`
+ * attaches and refreshes the token on its own.
  */
 
 const employeeListSchema = z.array(employeeResponseSchema);
+const activityListSchema = z.array(activityResponseSchema);
+const assignmentListSchema = z.array(assignmentResponseSchema);
+const capabilityListSchema = z.array(z.string());
 
 function parseOrThrow<T>(schema: z.ZodType<T>, data: unknown): T {
   const result = schema.safeParse(data);
@@ -65,6 +75,9 @@ function toEmployeeError(error: unknown, fallback: string): EmployeeError {
     if (error.status === 404 || error.status === 403) {
       return new EmployeeError("not_found", "That employee doesn't exist.");
     }
+    // 409 is a lifecycle rule the caller broke, e.g. archiving twice or
+    // restoring something that was never archived.
+    if (error.status === 409) return new EmployeeError("invalid_draft", error.message);
     if (error.status === 422) return new EmployeeError("invalid_draft", error.message);
     if (error.status >= 500) return new EmployeeError("unavailable", error.message);
     return new EmployeeError("unknown", error.message);
@@ -73,22 +86,7 @@ function toEmployeeError(error: unknown, fallback: string): EmployeeError {
   return new EmployeeError("unknown", fallback);
 }
 
-const unsupported = (what: string) =>
-  new EmployeeError("unsupported", `${what} ${UNSUPPORTED_MESSAGE}`);
-
 export class BackendEmployeesAdapter implements EmployeesAdapter {
-  readonly support: EmployeesBackendSupport = {
-    update: false,
-    archive: false,
-    remove: false,
-    activity: false,
-    capabilities: false,
-    assignments: false,
-    permissions: false,
-    configuration: false,
-    appearance: false,
-  };
-
   // --- Reads -------------------------------------------------------------
 
   async list(): Promise<EmployeeSummary[]> {
@@ -112,16 +110,16 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
       throw toEmployeeError(error, "Unable to load that employee.");
     }
 
-    return toEmployeeDetail(employee, await this.memoryStats(id));
+    // The profile shows memory counts and assignments alongside the employee.
+    // They are fetched together rather than in sequence, and neither is fatal:
+    // the employee loaded, so a secondary panel failing shouldn't fail the page.
+    const [stats, assignments] = await Promise.all([
+      this.memoryStats(id),
+      this.assignments(id),
+    ]);
+    return toEmployeeDetail(employee, stats, assignments);
   }
 
-  /**
-   * Memory counts for the profile's memory panel.
-   *
-   * Failure is not fatal: the employee loaded, so the profile renders with an
-   * empty memory summary rather than failing whole because a secondary panel
-   * couldn't be filled.
-   */
   private async memoryStats(id: string): Promise<MemoryStatsResponse | null> {
     try {
       const raw = await request<unknown>(
@@ -133,23 +131,35 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
     }
   }
 
+  private async assignments(id: string): Promise<AssignmentResponse[]> {
+    try {
+      const raw = await request<unknown>(
+        `/employees/${encodeURIComponent(id)}/assignments`,
+      );
+      return parseOrThrow(assignmentListSchema, raw);
+    } catch {
+      return [];
+    }
+  }
+
   // --- Writes ------------------------------------------------------------
 
-  /**
-   * Create an employee. Editing an existing one is rejected: there is no
-   * update endpoint, and a silent no-op would look like a successful save.
-   */
+  /** Create when the draft has no id, update when it does. */
   async save(draft: EmployeeDraft): Promise<EmployeeDetail> {
-    if (draft.id) throw unsupported("Editing an employee is");
     if (!draft.name.trim()) {
       throw new EmployeeError("invalid_draft", "An employee needs a name.");
     }
 
     try {
-      const raw = await request<unknown>("/employees", {
-        method: "POST",
-        body: toCreatePayload(draft),
-      });
+      const raw = draft.id
+        ? await request<unknown>(`/employees/${encodeURIComponent(draft.id)}`, {
+            method: "PATCH",
+            body: toUpdatePayload(draft),
+          })
+        : await request<unknown>("/employees", {
+            method: "POST",
+            body: toCreatePayload(draft),
+          });
       return toEmployeeDetail(parseOrThrow(employeeResponseSchema, raw), null);
     } catch (error) {
       throw toEmployeeError(error, "That couldn't be saved.");
@@ -159,9 +169,9 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
   /**
    * Duplicate by reading the source and creating a new employee from it.
    *
-   * This composes two endpoints that already exist rather than relying on a
-   * server-side copy operation, so only the fields the backend stores are
-   * carried over — which is exactly what a create can persist anyway.
+   * Composed from two existing endpoints rather than a server-side copy, so a
+   * clone inherits the description and configuration but starts with its own
+   * history and no assignments — it has done nothing yet.
    */
   async duplicate(id: string): Promise<EmployeeDetail> {
     const source = await this.detail(id);
@@ -169,13 +179,11 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
     try {
       const raw = await request<unknown>("/employees", {
         method: "POST",
-        body: {
+        body: toCreatePayload({
+          ...source,
+          id: null,
           name: `${source.name} (copy)`,
-          role: source.role === "CUSTOM" ? source.customRole || "CUSTOM" : source.role,
-          description: source.description || null,
-          language: source.configuration.language || "en",
-          personality: source.behaviorSummary || null,
-        },
+        }),
       });
       return toEmployeeDetail(parseOrThrow(employeeResponseSchema, raw), null);
     } catch (error) {
@@ -183,35 +191,78 @@ export class BackendEmployeesAdapter implements EmployeesAdapter {
     }
   }
 
-  async archive(_id: string): Promise<EmployeeDetail> {
-    throw unsupported("Archiving an employee is");
+  async archive(id: string): Promise<EmployeeDetail> {
+    try {
+      const raw = await request<unknown>(
+        `/employees/${encodeURIComponent(id)}/archive`,
+        { method: "POST", body: {} },
+      );
+      return toEmployeeDetail(parseOrThrow(employeeResponseSchema, raw), null);
+    } catch (error) {
+      throw toEmployeeError(error, "That couldn't be archived.");
+    }
   }
 
-  async remove(_id: string): Promise<void> {
-    throw unsupported("Deleting an employee is");
+  /**
+   * Delete an employee.
+   *
+   * The backend performs a soft delete: it disappears from every read path
+   * while its memories, blueprint, sessions and conversations are retained.
+   */
+  async remove(id: string): Promise<void> {
+    try {
+      await request<void>(`/employees/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      throw toEmployeeError(error, "That couldn't be deleted.");
+    }
   }
 
-  // --- Not yet backed ----------------------------------------------------
-  //
-  // These resolve empty rather than throwing: they feed read-only panels whose
-  // existing empty states already say "nothing here", which is the honest
-  // rendering while the backend stores none of it. Their `support` flags are
-  // false, so the panels label themselves as not yet available.
+  // --- History and capabilities ------------------------------------------
 
-  async activity(_id: string): Promise<EmployeeActivityEvent[]> {
-    return [];
+  async activity(id: string): Promise<EmployeeActivityEvent[]> {
+    try {
+      const raw = await request<unknown>(
+        `/employees/${encodeURIComponent(id)}/activity`,
+      );
+      return parseOrThrow(activityListSchema, raw).map(toActivityEvent);
+    } catch (error) {
+      throw toEmployeeError(error, "Unable to load that employee's history.");
+    }
   }
 
-  async capabilities(_id: string): Promise<EmployeeCapabilityState[]> {
-    return [];
+  /**
+   * Every capability the platform offers, marked with whether this employee
+   * holds it.
+   *
+   * The grants come from the backend; the availability catalogue (which
+   * capabilities are generally available versus preview) is application
+   * content that the platform, not an employee, defines.
+   */
+  async capabilities(id: string): Promise<EmployeeCapabilityState[]> {
+    let held: Set<string>;
+    try {
+      const raw = await request<unknown>(
+        `/employees/${encodeURIComponent(id)}/capabilities`,
+      );
+      held = new Set(parseOrThrow(capabilityListSchema, raw));
+    } catch (error) {
+      throw toEmployeeError(error, "Unable to load capabilities.");
+    }
+
+    return EMPLOYEE_CAPABILITIES.map((capability) => ({
+      capability,
+      status: held.has(capability) ? "GRANTED" : "NOT_GRANTED",
+      availability: CAPABILITY_AVAILABILITY_CATALOG[capability],
+    }));
   }
 
   // --- Templates ---------------------------------------------------------
   //
   // Templates are application content, not persisted user data — a curated set
   // of starting points that ships with the app. There is no backend concept of
-  // a template to integrate with, so they are served from the version-
-  // controlled catalogue rather than being mocked or removed.
+  // a template, so they are served from the version-controlled catalogue.
 
   async templates(): Promise<EmployeeTemplateSummary[]> {
     return TEMPLATES.map(({ id, name, description, category, role, accent, glyph, capabilities }) => ({

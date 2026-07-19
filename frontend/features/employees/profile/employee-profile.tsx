@@ -1,9 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { ArrowLeft, Archive, Copy, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { UNSUPPORTED_ACTION_HINT, employeesService } from "@/services/employees";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { Panel } from "@/features/workspace/panels/panel";
@@ -14,11 +13,8 @@ import { AssignmentPanel } from "../assignments/assignment-panel";
 import { CapabilityGrid } from "../capabilities/capability-grid";
 import { EmployeeHeader } from "../components/employee-header";
 import { EmployeeProfileLoading } from "../components/employee-loading-state";
-import {
-  useArchiveEmployee,
-  useDuplicateEmployee,
-  useEmployeeDetail,
-} from "../hooks/use-employees";
+import { useEmployeeActions } from "../hooks/use-employee-actions";
+import { useEmployeeDetail } from "../hooks/use-employees";
 import { roleLabel } from "../models/employee-roles";
 import { ProfileConfiguration } from "./profile-configuration";
 import { ProfileMemory } from "./profile-memory";
@@ -35,10 +31,11 @@ import { ProfilePermissions } from "./profile-permissions";
 export function EmployeeProfile({ id }: { id: string }) {
   const router = useRouter();
   const query = useEmployeeDetail(id);
-  const duplicate = useDuplicateEmployee();
-  const archive = useArchiveEmployee();
-  const support = employeesService.support;
-  const [notice, setNotice] = useState<string | null>(null);
+  // A clone is a different employee, so duplicating navigates to it; archiving
+  // keeps you here and reports what changed.
+  const actions = useEmployeeActions({
+    onDuplicated: (clone) => router.push(`/workspace/employees/${clone.id}`),
+  });
 
   if (query.isPending) {
     return (
@@ -65,18 +62,7 @@ export function EmployeeProfile({ id }: { id: string }) {
   }
 
   const employee = query.data;
-
-  const handleDuplicate = () => {
-    duplicate.mutate(employee.id, {
-      onSuccess: (clone) => router.push(`/workspace/employees/${clone.id}`),
-    });
-  };
-
-  const handleArchive = () => {
-    archive.mutate(employee.id, {
-      onSuccess: () => setNotice(`${employee.name} was archived and taken off its workflows.`),
-    });
-  };
+  const isArchived = employee.status === "OFFLINE";
 
   return (
     <WorkspaceContent>
@@ -90,41 +76,40 @@ export function EmployeeProfile({ id }: { id: string }) {
               <Button variant="ghost" size="icon" href="/workspace/employees" aria-label="Back to employees">
                 <ArrowLeft className="size-4" aria-hidden="true" />
               </Button>
-              <Button variant="outline" onClick={handleDuplicate} disabled={duplicate.isPending}>
+              <Button
+                variant="outline"
+                onClick={() => actions.duplicate(employee)}
+                disabled={actions.isBusy}
+              >
                 <Copy className="size-4" aria-hidden="true" />
-                {duplicate.isPending ? "Duplicating…" : "Duplicate"}
+                {actions.pending === "duplicate" ? "Duplicating…" : "Duplicate"}
               </Button>
               <Button
                 variant="outline"
-                onClick={handleArchive}
-                disabled={archive.isPending || employee.status === "OFFLINE" || !support.archive}
-                title={support.archive ? undefined : UNSUPPORTED_ACTION_HINT}
+                onClick={() => actions.archive(employee)}
+                disabled={actions.isBusy || isArchived}
+                // A disabled control should say why it can't be used.
+                title={isArchived ? "This employee is already archived." : undefined}
               >
                 <Archive className="size-4" aria-hidden="true" />
-                Archive
+                {actions.pending === "archive" ? "Archiving…" : "Archive"}
               </Button>
-              {/* A link can't be disabled, so an unsupported edit renders as a
-                  disabled button rather than a dead-end navigation. */}
-              {support.update ? (
-                <Button href={`/workspace/employees/${employee.id}/edit`}>
-                  <Pencil className="size-4" aria-hidden="true" />
-                  Edit
-                </Button>
-              ) : (
-                <Button disabled title={UNSUPPORTED_ACTION_HINT}>
-                  <Pencil className="size-4" aria-hidden="true" />
-                  Edit
-                </Button>
-              )}
+              <Button href={`/workspace/employees/${employee.id}/edit`}>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </Button>
             </>
           }
         />
       </Reveal>
 
-      {notice ? (
-        <p role="status" className="mt-4 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          {notice}
-        </p>
+      {actions.feedback ? (
+        <Alert
+          variant={actions.feedback.tone === "error" ? "error" : "success"}
+          className="mt-4"
+        >
+          {actions.feedback.message}
+        </Alert>
       ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">

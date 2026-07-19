@@ -1,8 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { Blocks } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Shimmer } from "@/components/ui/shimmer";
 import { useEmployeeCapabilities } from "../hooks/use-employees";
@@ -54,20 +52,6 @@ export function CapabilityGrid({ employeeId, className }: CapabilityGridProps) {
         title="Couldn't load capabilities"
         description="This employee's capabilities couldn't be loaded."
         onRetry={() => void query.refetch()}
-        className={className}
-      />
-    );
-  }
-
-  // The backend stores no capability grants yet, so there is no catalogue to
-  // show — say that rather than rendering an empty grid.
-  if (ordered.length === 0) {
-    return (
-      <EmptyState
-        compact
-        icon={Blocks}
-        title="Not yet available"
-        description="Capabilities aren't stored by the backend yet."
         className={className}
       />
     );
