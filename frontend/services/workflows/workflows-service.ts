@@ -28,6 +28,9 @@ export const workflowsService = {
   restore: (id: string) => adapter.restore(id),
   remove: (id: string) => adapter.remove(id),
   execute: (id: string) => adapter.execute(id),
+  executions: (id: string) => adapter.executions(id),
+  execution: (executionId: string) => adapter.execution(executionId),
+  retry: (executionId: string) => adapter.retry(executionId),
   templates: () => adapter.templates(),
   template: (id: string) => adapter.template(id),
 };

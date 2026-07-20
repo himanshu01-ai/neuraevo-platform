@@ -6,9 +6,13 @@ import {
   toUpdatePayload,
   toWorkflowDetail,
   toWorkflowRun,
+  toWorkflowRunDetail,
+  toWorkflowRunPage,
   toWorkflowSummary,
   workflowExecutionSchema,
   workflowResponseSchema,
+  workflowRunDetailSchema,
+  workflowRunPageSchema,
   workflowSummarySchema,
 } from "./mapping";
 import {
@@ -16,6 +20,8 @@ import {
   type WorkflowDetail,
   type WorkflowDraft,
   type WorkflowRun,
+  type WorkflowRunDetail,
+  type WorkflowRunPage,
   type WorkflowSummary,
   type WorkflowTemplate,
   type WorkflowTemplateSummary,
@@ -38,6 +44,9 @@ import {
  *   POST   /workflows/{id}/restore       restore
  *   POST   /workflows/{id}/duplicate     duplicate
  *   POST   /workflows/{id}/execute       run (Sprint 18.6)
+ *   GET    /workflows/{id}/executions    run history (Sprint 18.10)
+ *   GET    /workflow-executions/{id}     one recorded run
+ *   POST   /workflow-executions/{id}/retry   run it again
  *
  * Ownership and auth are the backend's; `services/http.ts` attaches and
  * refreshes the token on its own. Nothing is derived that the backend can
@@ -260,6 +269,59 @@ export class BackendWorkflowsAdapter implements WorkflowsAdapter {
       return toWorkflowRun(parseOrThrow(workflowExecutionSchema, raw));
     } catch (error) {
       throw toExecutionError(error, "That workflow couldn't be run.");
+    }
+  }
+
+  // --- History (Sprint 18.10) --------------------------------------------
+  //
+  // A run is a record now, not only an answer. These read it back:
+  //
+  //   GET  /workflows/{id}/executions              history for one workflow
+  //   GET  /workflow-executions/{id}               one run in full
+  //   POST /workflow-executions/{id}/retry         run it again
+
+  /** A workflow's past runs, newest first. Summaries only. */
+  async executions(id: string): Promise<WorkflowRunPage> {
+    try {
+      const raw = await request<unknown>(
+        `/workflows/${encodeURIComponent(id)}/executions`,
+      );
+      return toWorkflowRunPage(parseOrThrow(workflowRunPageSchema, raw));
+    } catch (error) {
+      throw toWorkflowError(error, "That workflow's run history couldn't be loaded.");
+    }
+  }
+
+  /** One past run, with its steps and its log. */
+  async execution(executionId: string): Promise<WorkflowRunDetail> {
+    try {
+      const raw = await request<unknown>(
+        `/workflow-executions/${encodeURIComponent(executionId)}`,
+      );
+      return toWorkflowRunDetail(parseOrThrow(workflowRunDetailSchema, raw));
+    } catch (error) {
+      throw toWorkflowError(error, "That run couldn't be loaded.");
+    }
+  }
+
+  /**
+   * Run the workflow again, repeating a past run.
+   *
+   * Resolves with the *new* run, and can resolve with a failed one — a retry
+   * that runs and fails is still a successful request, exactly as `execute` is.
+   * It rejects for the same reasons too, and for one more: the workflow is run
+   * as it is *now*, so a retry can be refused where the original succeeded if
+   * the workflow has since been unpublished or edited.
+   */
+  async retry(executionId: string): Promise<WorkflowRun> {
+    try {
+      const raw = await request<unknown>(
+        `/workflow-executions/${encodeURIComponent(executionId)}/retry`,
+        { method: "POST", body: {} },
+      );
+      return toWorkflowRun(parseOrThrow(workflowExecutionSchema, raw));
+    } catch (error) {
+      throw toExecutionError(error, "That run couldn't be repeated.");
     }
   }
 

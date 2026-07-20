@@ -179,6 +179,10 @@ export interface WorkflowRunStep {
   capability: string;
   status: NodeStatus;
   outputs: WorkflowRunOutput[];
+  /** Where it came in the run. The graph's order is not the run's order. */
+  position: number;
+  /** How long it took. `null` when the platform recorded no timing. */
+  durationMs: number | null;
 }
 
 /**
@@ -190,6 +194,12 @@ export interface WorkflowRunStep {
  */
 export interface WorkflowRun {
   workflowId: string;
+  /**
+   * The run's own identity (Sprint 18.10). Before this, two runs of one
+   * workflow were indistinguishable once the response was gone; this is the
+   * handle that fetches it back.
+   */
+  executionId: string;
   status: LifecycleStatus;
   completedStepCount: number;
   totalStepCount: number;
@@ -198,6 +208,56 @@ export interface WorkflowRun {
   steps: WorkflowRunStep[];
   /** Why the run stopped. `null` when it completed. */
   error: string | null;
+}
+
+// =====================================================================
+// Execution history (Sprint 18.10)
+// =====================================================================
+//
+// A run outlives the request that started it. These are the shapes it is read
+// back in — a summary per row of history, and a detail carrying what the
+// summary leaves out.
+
+/** How a run was started. */
+export type WorkflowRunTrigger = "manual" | "retry";
+
+/** One past run, as a history list shows it. */
+export interface WorkflowRunSummary {
+  id: string;
+  workflowId: string;
+  status: LifecycleStatus;
+  /** ISO instants, as the platform recorded them. */
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  totalStepCount: number;
+  completedStepCount: number;
+  failedStepId: string | null;
+  error: string | null;
+  trigger: WorkflowRunTrigger;
+  /** The run this one repeats, when it is a retry. */
+  retryOfId: string | null;
+}
+
+/** One structured thing the platform said about a run. */
+export interface WorkflowRunLog {
+  sequence: number;
+  level: "info" | "warning" | "error";
+  message: string;
+  /** The step it concerns, when it concerns one. */
+  stepId: string | null;
+}
+
+/** One past run in full: what each step did, and what was said about it. */
+export interface WorkflowRunDetail extends WorkflowRunSummary {
+  steps: WorkflowRunStep[];
+  logs: WorkflowRunLog[];
+}
+
+/** A page of a workflow's history. */
+export interface WorkflowRunPage {
+  items: WorkflowRunSummary[];
+  total: number;
 }
 
 export type WorkflowErrorCode = "not_found" | "unavailable" | "invalid_import" | "unknown";
@@ -235,6 +295,17 @@ export interface WorkflowsAdapter {
    * started and failed.
    */
   execute(id: string): Promise<WorkflowRun>;
+  /** A workflow's past runs, newest first. */
+  executions(id: string): Promise<WorkflowRunPage>;
+  /** One past run in full. */
+  execution(executionId: string): Promise<WorkflowRunDetail>;
+  /**
+   * Run the workflow again, repeating a past run.
+   *
+   * Creates a *new* run; the one being repeated is never altered. Rejects for
+   * the same reasons `execute` does, since it is the same run being asked for.
+   */
+  retry(executionId: string): Promise<WorkflowRun>;
   templates(): Promise<WorkflowTemplateSummary[]>;
   template(id: string): Promise<WorkflowTemplate>;
 }

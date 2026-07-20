@@ -11,6 +11,11 @@ export const workflowKeys = {
   all: ["workflows"] as const,
   lists: ["workflows", "list"] as const,
   detail: (id: string) => ["workflows", "detail", id] as const,
+  /** A workflow's run history (Sprint 18.10). */
+  executions: (id: string) => ["workflows", "executions", id] as const,
+  /** One recorded run. Keyed by the run, not the workflow: a run is
+   *  addressed by its own id and never changes once written. */
+  execution: (executionId: string) => ["workflow-executions", executionId] as const,
   templates: ["workflows", "templates"] as const,
   template: (id: string) => ["workflows", "template", id] as const,
 } as const;

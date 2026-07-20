@@ -9,6 +9,7 @@ import {
   workflowErrorMessage,
   workflowPublished,
   workflowRestored,
+  workflowRunErrorMessage,
   workflowUnpublished,
 } from "../models/workflow-messages";
 import {
@@ -17,6 +18,7 @@ import {
   useDuplicateWorkflow,
   useExecuteWorkflow,
   usePublishWorkflow,
+  useRetryWorkflowExecution,
   useRestoreWorkflow,
   useUnpublishWorkflow,
 } from "./use-workflows";
@@ -40,13 +42,20 @@ export type WorkflowActionKind =
   | "archive"
   | "restore"
   | "delete"
-  | "run";
+  | "run"
+  | "retry";
 
 export interface UseWorkflowActionsOptions {
   /** Where to go once a clone exists. Omit to stay put and report it instead. */
   onDuplicated?: (clone: WorkflowDetail) => void;
   /** Where to go once a workflow is gone. Omit to stay put and report it. */
   onDeleted?: (id: string) => void;
+  /**
+   * Called with the run a `run` or `retry` just produced (Sprint 18.10).
+   * The screen uses it to show that run; the hook keeps no opinion on which
+   * one is on display.
+   */
+  onRan?: (run: WorkflowRun) => void;
 }
 
 export interface WorkflowActions {
@@ -58,6 +67,8 @@ export interface WorkflowActions {
   remove: (workflow: WorkflowRef) => void;
   /** Run a published workflow. Draft and archived workflows are refused. */
   run: (workflow: WorkflowRef) => void;
+  /** Run the workflow again, repeating a recorded run. */
+  retry: (executionId: string) => void;
   /**
    * The last finished run, or `null` before one has happened. Cleared when the
    * next run starts, and left alone by every other action — it belongs to the
@@ -86,7 +97,7 @@ export interface WorkflowActions {
  * while a workflow is executing — including a second run.
  */
 export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): WorkflowActions {
-  const { onDuplicated, onDeleted } = options;
+  const { onDuplicated, onDeleted, onRan } = options;
 
   const duplicateMutation = useDuplicateWorkflow();
   const publishMutation = usePublishWorkflow();
@@ -95,6 +106,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
   const restoreMutation = useRestoreWorkflow();
   const removeMutation = useDeleteWorkflow();
   const runMutation = useExecuteWorkflow();
+  const retryMutation = useRetryWorkflowExecution();
 
   const [feedback, setFeedback] = useState<WorkflowActionFeedback | null>(null);
 
@@ -112,7 +124,9 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
               ? "delete"
               : runMutation.isPending
                 ? "run"
-                : null;
+                : retryMutation.isPending
+                  ? "retry"
+                  : null;
   const isBusy = pending !== null;
 
   // The re-entrancy guard reads a ref rather than closing over `isBusy`, so the
@@ -134,6 +148,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
   const { mutate: mutateRestore } = restoreMutation;
   const { mutate: mutateRemove } = removeMutation;
   const { mutate: mutateRun } = runMutation;
+  const { mutate: mutateRetry } = retryMutation;
 
   const duplicate = useCallback(
     (workflow: WorkflowRef) => {
@@ -226,16 +241,40 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
       if (busyRef.current) return;
       setFeedback(null);
       mutateRun(workflow.id, {
+        onSuccess: (run) => onRan?.(run),
         onError: (error) => fail(error, `${workflow.name} couldn't be run.`),
       });
     },
-    [mutateRun, fail]
+    [mutateRun, onRan, fail]
+  );
+
+  /**
+   * Repeat a recorded run.
+   *
+   * The workflow runs as it is *now*, not as it was, so this can be refused
+   * where the original succeeded — unpublished since, or edited into something
+   * that no longer runs. Those refusals are reported like any other.
+   */
+  const retry = useCallback(
+    (executionId: string) => {
+      if (busyRef.current) return;
+      setFeedback(null);
+      mutateRetry(executionId, {
+        onSuccess: (run) => onRan?.(run),
+        onError: (error) =>
+          setFeedback({
+            tone: "error",
+            message: workflowRunErrorMessage(error, "That run couldn't be repeated."),
+          }),
+      });
+    },
+    [mutateRetry, onRan]
   );
 
   // The run's own state is the mutation's, so there is never a second copy to
   // keep in step: starting a run clears the previous result on its own.
   const lastRun = runMutation.data ?? null;
-  const isRunning = runMutation.isPending;
+  const isRunning = runMutation.isPending || retryMutation.isPending;
 
   return useMemo(
     () => ({
@@ -246,6 +285,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
       restore,
       remove,
       run,
+      retry,
       lastRun,
       isRunning,
       feedback,
@@ -260,6 +300,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
       restore,
       remove,
       run,
+      retry,
       lastRun,
       isRunning,
       feedback,

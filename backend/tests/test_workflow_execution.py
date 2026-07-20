@@ -35,7 +35,11 @@ from app.services.runtime.workflow_models import (
     WorkflowExecutionResult,
     WorkflowStep,
 )
-from app.services.workflow_execution_service import WorkflowExecutionService
+from app.models.workflow_execution import WorkflowExecution
+from app.services.workflow_execution_service import (
+    TrackedExecution,
+    WorkflowExecutionService,
+)
 from app.services.workflow_service import (
     InvalidStatusTransitionError,
     WorkflowAccessDeniedError,
@@ -299,6 +303,32 @@ class ExecutionServiceTests(unittest.TestCase):
 # --- API -----------------------------------------------------------------
 
 
+def tracked(result):
+    """A runtime result plus the record of it, as the endpoint now receives.
+
+    Sprint 18.10 gave a run an identity and timings of its own, so the endpoint
+    reads both. These API tests mock the service, so they supply both here.
+    """
+    now = datetime.now(timezone.utc)
+    return TrackedExecution(
+        result=result,
+        execution=WorkflowExecution(
+            id=uuid.uuid4(),
+            workflow_id=uuid.UUID(result.workflow_id),
+            user_id=uuid.uuid4(),
+            status=result.workflow_status,
+            started_at=now,
+            finished_at=now,
+            duration_ms=0,
+            total_step_count=result.total_step_count,
+            completed_step_count=result.completed_step_count,
+            failed_step_id=result.failed_step_id,
+            error=result.result_metadata.get("error"),
+            trigger="manual",
+        ),
+    )
+
+
 def completed_result(workflow_id):
     return WorkflowExecutionResult(
         workflow_id=str(workflow_id),
@@ -331,7 +361,7 @@ class ExecutionAPITests(unittest.TestCase):
 
     def test_execute_returns_200_and_maps_result(self):
         wid = uuid.uuid4()
-        self.service.execute_workflow.return_value = completed_result(wid)
+        self.service.execute_and_record.return_value = tracked(completed_result(wid))
         response = self.client.post(self._url(wid))
         self.assertEqual(response.status_code, 200)
         body = response.json()
@@ -342,26 +372,26 @@ class ExecutionAPITests(unittest.TestCase):
 
     def test_bodyless_post_runs(self):
         wid = uuid.uuid4()
-        self.service.execute_workflow.return_value = completed_result(wid)
+        self.service.execute_and_record.return_value = tracked(completed_result(wid))
         response = self.client.post(self._url(wid))  # no JSON body
         self.assertEqual(response.status_code, 200)
         # initial_inputs falls through as None when no body is sent.
-        self.assertIsNone(self.service.execute_workflow.call_args.kwargs["initial_inputs"])
+        self.assertIsNone(self.service.execute_and_record.call_args.kwargs["initial_inputs"])
 
     def test_seed_inputs_forwarded(self):
         wid = uuid.uuid4()
-        self.service.execute_workflow.return_value = completed_result(wid)
+        self.service.execute_and_record.return_value = tracked(completed_result(wid))
         self.client.post(self._url(wid), json={"inputs": {"seed": "v"}})
         self.assertEqual(
-            self.service.execute_workflow.call_args.kwargs["initial_inputs"], {"seed": "v"}
+            self.service.execute_and_record.call_args.kwargs["initial_inputs"], {"seed": "v"}
         )
 
     def test_failed_run_is_200_with_failed_status(self):
         wid = uuid.uuid4()
-        self.service.execute_workflow.return_value = WorkflowExecutionResult(
+        self.service.execute_and_record.return_value = tracked(WorkflowExecutionResult(
             workflow_id=str(wid), workflow_status="FAILED", failed_step_id="s1",
             completed_step_count=0, total_step_count=1, result_metadata={"error": "step failed: s1"},
-        )
+        ))
         response = self.client.post(self._url(wid))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "FAILED")
@@ -369,21 +399,21 @@ class ExecutionAPITests(unittest.TestCase):
         self.assertEqual(response.json()["error"], "step failed: s1")
 
     def test_not_found_maps_to_404(self):
-        self.service.execute_workflow.side_effect = WorkflowNotFoundError("x")
+        self.service.execute_and_record.side_effect = WorkflowNotFoundError("x")
         self.assertEqual(self.client.post(self._url()).status_code, 404)
 
     def test_access_denied_maps_to_403(self):
-        self.service.execute_workflow.side_effect = WorkflowAccessDeniedError("x")
+        self.service.execute_and_record.side_effect = WorkflowAccessDeniedError("x")
         self.assertEqual(self.client.post(self._url()).status_code, 403)
 
     def test_draft_or_archived_maps_to_409(self):
-        self.service.execute_workflow.side_effect = InvalidStatusTransitionError(
+        self.service.execute_and_record.side_effect = InvalidStatusTransitionError(
             "Only a published workflow can be run. Publish it first."
         )
         self.assertEqual(self.client.post(self._url()).status_code, 409)
 
     def test_translation_failure_maps_to_422(self):
-        self.service.execute_workflow.side_effect = WorkflowValidationError(
+        self.service.execute_and_record.side_effect = WorkflowValidationError(
             "This workflow can't be run yet"
         )
         self.assertEqual(self.client.post(self._url()).status_code, 422)

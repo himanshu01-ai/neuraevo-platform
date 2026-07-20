@@ -121,9 +121,15 @@ class WorkflowExecutionResponse(BaseModel):
     that fails a step is still a *successful call*: the endpoint returns 200
     with ``status="FAILED"`` and ``failed_step_id`` set. Rejections — not owner,
     not published, untranslatable — are the 4xx paths and never reach here.
+
+    Sprint 18.10 added ``execution_id``, ``started_at``, ``finished_at`` and
+    ``duration_ms``. Additive only: every field that was here before is still
+    here, unchanged, so an existing caller reads this exactly as it did.
     """
 
     workflow_id: uuid.UUID
+    #: The run's own identity, and the handle for looking it up again.
+    execution_id: uuid.UUID
     status: str
     completed_step_count: int
     total_step_count: int
@@ -131,3 +137,92 @@ class WorkflowExecutionResponse(BaseModel):
     steps: list[WorkflowExecutionStepResponse] = Field(default_factory=list)
     final_outputs: Dict[str, Any] = Field(default_factory=dict)
     error: Optional[str] = None
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: int
+
+
+# =====================================================================
+# Execution history (Sprint 18.10)
+# =====================================================================
+#
+# A run is no longer only an answer to a request — it is a record that outlives
+# it. These are the shapes that record is read back in: a summary per row of
+# history, and a detail carrying the steps and log the summary omits.
+
+
+class WorkflowExecutionSummaryResponse(BaseModel):
+    """One past run, as a history list shows it.
+
+    Steps, outputs and logs are left out on purpose: a list renders none of
+    them, and a workflow with a hundred runs would otherwise carry every step of
+    every one of them to draw a table.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    workflow_id: uuid.UUID
+    status: str
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: int
+    total_step_count: int
+    completed_step_count: int
+    failed_step_id: Optional[str] = None
+    error: Optional[str] = None
+    #: ``manual`` or ``retry``.
+    trigger: str
+    #: The run this one repeats, when it is a retry.
+    retry_of_execution_id: Optional[uuid.UUID] = None
+
+
+class WorkflowExecutionListResponse(BaseModel):
+    """A page of a workflow's history, with the total behind it."""
+
+    items: list[WorkflowExecutionSummaryResponse] = Field(default_factory=list)
+    total: int
+
+
+class WorkflowExecutionStepRecordResponse(BaseModel):
+    """What one step did, as history kept it.
+
+    Richer than the step in a live result: it carries the timings the runtime
+    does not produce, and the metadata and artifact descriptors the live
+    response has always discarded.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    step_id: str
+    capability: str
+    status: str
+    position: int
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    outputs: Dict[str, Any] = Field(default_factory=dict)
+    step_metadata: Dict[str, Any] = Field(default_factory=dict)
+    artifacts: list[Dict[str, Any]] = Field(default_factory=list)
+
+
+class WorkflowExecutionLogResponse(BaseModel):
+    """One structured line of a run's account.
+
+    ``message`` is written for a person. No traceback, exception type or
+    internal identifier reaches this field.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    sequence: int
+    level: str
+    message: str
+    step_id: Optional[str] = None
+
+
+class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
+    """One past run in full: what each step did, and what was said about it."""
+
+    steps: list[WorkflowExecutionStepRecordResponse] = Field(default_factory=list)
+    logs: list[WorkflowExecutionLogResponse] = Field(default_factory=list)

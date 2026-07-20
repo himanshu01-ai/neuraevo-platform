@@ -4,6 +4,10 @@ import {
   type WorkflowDetail,
   type WorkflowDraft,
   type WorkflowRun,
+  type WorkflowRunDetail,
+  type WorkflowRunPage,
+  type WorkflowRunStep,
+  type WorkflowRunSummary,
   type WorkflowSummary,
   type WorkflowTemplate,
   type WorkflowTemplateSummary,
@@ -23,6 +27,7 @@ import {
  */
 
 const STORE_KEY = "neuraevo.mock.workflows";
+const RUNS_KEY = "neuraevo.mock.workflow-runs";
 const LATENCY_MS = 350;
 
 const delay = (ms = LATENCY_MS) => new Promise((r) => setTimeout(r, ms));
@@ -50,6 +55,33 @@ function writeStore(rows: WorkflowDetail[]) {
     /* quota or private mode — the draft simply doesn't persist */
   }
 }
+
+/** Recorded runs, kept beside the workflows in the same simulated store. */
+function readRuns(): WorkflowRunDetail[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RUNS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as WorkflowRunDetail[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeRuns(runs: WorkflowRunDetail[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RUNS_KEY, JSON.stringify(runs));
+  } catch {
+    /* quota or private mode — history simply doesn't persist */
+  }
+}
+
+/** A recorded run without its steps and logs, as a history list shows it. */
+const toRunSummary = (run: WorkflowRunDetail): WorkflowRunSummary => {
+  const { steps: _steps, logs: _logs, ...summary } = run;
+  return copy(summary);
+};
 
 const toSummary = (detail: WorkflowDetail): WorkflowSummary => ({
   id: detail.id,
@@ -242,18 +274,111 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
       );
     }
 
-    return {
-      workflowId: found.id,
+    return this.simulate(found);
+  }
+
+  // --- History (Sprint 18.10) --------------------------------------------
+  //
+  // Simulated runs are kept beside the workflows, in the same localStorage the
+  // rest of this mock uses, so history survives a reload exactly as a real
+  // backend's would. Records are appended and never revised: a retry adds a run
+  // and leaves the one it repeats alone, which is the rule the real domain
+  // holds itself to and the one worth rehearsing here.
+
+  async executions(id: string): Promise<WorkflowRunPage> {
+    await delay();
+    const items = readRuns()
+      .filter((run) => run.workflowId === id)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .map(toRunSummary);
+    return { items, total: items.length };
+  }
+
+  async execution(executionId: string): Promise<WorkflowRunDetail> {
+    await delay();
+    const found = readRuns().find((run) => run.id === executionId);
+    if (!found) throw new WorkflowError("not_found", "That run doesn't exist.");
+    return copy(found);
+  }
+
+  async retry(executionId: string): Promise<WorkflowRun> {
+    await delay();
+    const original = readRuns().find((run) => run.id === executionId);
+    if (!original) throw new WorkflowError("not_found", "That run doesn't exist.");
+
+    const workflow = readStore().find((w) => w.id === original.workflowId);
+    if (!workflow) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    if (workflow.lifecycle !== "PUBLISHED") {
+      throw new WorkflowError(
+        "invalid_import",
+        "Only a published workflow can be run. Publish it first.",
+      );
+    }
+
+    return this.simulate(workflow, { retryOfId: original.id });
+  }
+
+  /**
+   * One simulated run, recorded.
+   *
+   * Every step completes: this mock does not translate a graph or invoke a
+   * capability, so it cannot produce a failure the platform would recognise.
+   * What it can rehearse faithfully is the *shape* of history — identity,
+   * ordering, timings, logs and the link a retry keeps to its original.
+   */
+  private simulate(
+    workflow: WorkflowDetail,
+    options: { retryOfId?: string } = {},
+  ): WorkflowRun {
+    const runs = readRuns();
+    const id = nextId(runs as unknown as WorkflowDetail[], "run");
+    const startedAt = new Date().toISOString();
+
+    const steps: WorkflowRunStep[] = workflow.graph.nodes.map((node, index) => ({
+      id: node.id,
+      capability: node.kind,
       status: "COMPLETED",
-      completedStepCount: found.graph.nodes.length,
-      totalStepCount: found.graph.nodes.length,
+      position: index,
+      durationMs: 0,
+      outputs: [{ key: "simulated", value: "This run was simulated by the mock adapter." }],
+    }));
+
+    const detail: WorkflowRunDetail = {
+      id,
+      workflowId: workflow.id,
+      status: "COMPLETED",
+      startedAt,
+      finishedAt: startedAt,
+      durationMs: 0,
+      totalStepCount: steps.length,
+      completedStepCount: steps.length,
       failedStepId: null,
-      steps: found.graph.nodes.map((node) => ({
-        id: node.id,
-        capability: node.kind,
-        status: "COMPLETED",
-        outputs: [{ key: "simulated", value: "This run was simulated by the mock adapter." }],
-      })),
+      error: null,
+      trigger: options.retryOfId ? "retry" : "manual",
+      retryOfId: options.retryOfId ?? null,
+      steps,
+      logs: [
+        { sequence: 0, level: "info", message: `Started ${steps.length} step(s).`, stepId: null },
+        {
+          sequence: 1,
+          level: "info",
+          message: `Finished — ${steps.length} of ${steps.length} step(s) completed.`,
+          stepId: null,
+        },
+      ],
+    };
+
+    runs.push(detail);
+    writeRuns(runs);
+
+    return {
+      workflowId: workflow.id,
+      executionId: id,
+      status: detail.status,
+      completedStepCount: detail.completedStepCount,
+      totalStepCount: detail.totalStepCount,
+      failedStepId: null,
+      steps,
       error: null,
     };
   }

@@ -1,35 +1,54 @@
 "use client";
 
-import { CircleCheck, CircleX } from "lucide-react";
-import type { WorkflowGraph, WorkflowRun, WorkflowRunStep } from "@/services/workflows";
+import { CircleCheck, CircleX, RotateCcw } from "lucide-react";
+import type { WorkflowGraph, WorkflowRunDetail, WorkflowRunStep } from "@/services/workflows";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import { Spinner } from "@/components/ui/spinner";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Panel } from "@/features/workspace/panels/panel";
 import { NODE_TYPES } from "../models/node-types";
+import { formatDuration, formatExactTime, formatRelativeTime } from "../models/run-format";
 import { workflowRunError, workflowRunSummary } from "../models/workflow-messages";
+import { cn } from "@/lib/utils";
 
 export interface WorkflowRunPanelProps {
   /** The authored graph, so a step can be named the way the page names it. */
   graph: WorkflowGraph;
-  /** The last finished run, or `null` if none has finished yet. */
-  run: WorkflowRun | null;
+  /** The run on display, or `null` when none is selected or one is loading. */
+  run: WorkflowRunDetail | null;
   isRunning: boolean;
+  isLoading?: boolean;
+  /** Offered on a run that failed. Omit where repeating isn't possible. */
+  onRetry?: (executionId: string) => void;
+  isRetrying?: boolean;
+  disabled?: boolean;
 }
 
 /**
- * What happened the last time this workflow ran.
+ * One run in full: how it went, what each step did, and what the platform said.
  *
- * The platform decides everything shown here; this reads its answer. Steps come
- * back identified by the node that produced them, so each row is joined to the
- * authored graph and labelled the same way the Steps panel above labels it —
- * a run and the workflow it ran should not name the same step two ways.
+ * Since Sprint 18.10 this renders a *recorded* run rather than the answer to a
+ * request. That is the same component doing less work, not more: a run that has
+ * just finished is simply the newest record, so live and historical runs take
+ * one path through here and there is no second rendering of the same thing to
+ * keep in step.
  *
- * The run's outcome is announced by the `Alert` it lives in (`role="status"`,
- * `role="alert"` when it failed), which is how every other outcome in this
- * product announces itself.
+ * The platform decides everything shown; this reads its answer. Steps come back
+ * identified by the node that produced them, so each row is joined to the
+ * authored graph and labelled the way the Steps panel labels it — a run and the
+ * workflow it ran should not name the same step two ways.
  */
-export function WorkflowRunPanel({ graph, run, isRunning }: WorkflowRunPanelProps) {
+export function WorkflowRunPanel({
+  graph,
+  run,
+  isRunning,
+  isLoading = false,
+  onRetry,
+  isRetrying = false,
+  disabled = false,
+}: WorkflowRunPanelProps) {
   const failedStepName = run?.failedStepId ? stepLabel(graph, run.failedStepId) : null;
   // A step can stop a run before it produces a record of its own — resolving its
   // inputs is the step's first act and can fail on its own. Then the id is all
@@ -37,11 +56,35 @@ export function WorkflowRunPanel({ graph, run, isRunning }: WorkflowRunPanelProp
   const isFailureUnrecorded = Boolean(
     run?.failedStepId && !run.steps.some((step) => step.id === run.failedStepId)
   );
+  const hasFailed = run?.status === "FAILED";
 
   return (
     <Panel
-      title="Last run"
-      description="Reported by the platform that ran it."
+      title="Run"
+      description={
+        run ? (
+          <span title={formatExactTime(run.startedAt)}>
+            {formatRelativeTime(run.startedAt)} · {formatDuration(run.durationMs)}
+            {run.trigger === "retry" ? " · retry" : null}
+          </span>
+        ) : (
+          "Reported by the platform that ran it."
+        )
+      }
+      actions={
+        run && hasFailed && onRetry ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onRetry(run.id)}
+            disabled={disabled || isRetrying}
+            aria-busy={isRetrying}
+          >
+            <RotateCcw className="size-4" aria-hidden="true" />
+            {isRetrying ? "Running…" : "Run again"}
+          </Button>
+        ) : null
+      }
     >
       {isRunning ? (
         <Alert variant="info">
@@ -50,6 +93,8 @@ export function WorkflowRunPanel({ graph, run, isRunning }: WorkflowRunPanelProp
             Running this workflow. Its steps run one after another, so this can take a moment.
           </span>
         </Alert>
+      ) : isLoading ? (
+        <LoadingState rows={3} />
       ) : run ? (
         <>
           <Alert
@@ -72,6 +117,8 @@ export function WorkflowRunPanel({ graph, run, isRunning }: WorkflowRunPanelProp
               ))}
             </ol>
           ) : null}
+
+          {run.logs.length > 0 ? <RunLog run={run} /> : null}
         </>
       ) : null}
     </Panel>
@@ -107,6 +154,7 @@ function RunStepRow({ graph, step }: { graph: WorkflowGraph; step: WorkflowRunSt
                 only when the node is gone from the graph. */}
             <span className="block truncate text-xs text-muted-foreground">
               {meta ? meta.label : step.capability}
+              {step.durationMs !== null ? ` · ${formatDuration(step.durationMs)}` : null}
             </span>
           </span>
         </span>
@@ -126,5 +174,41 @@ function RunStepRow({ graph, step }: { graph: WorkflowGraph; step: WorkflowRunSt
         </dl>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * The platform's account of the run.
+ *
+ * Structured records, not a wall of text: each carries a level and the step it
+ * concerns, so the level is what colours it and nothing has to be parsed out of
+ * a sentence.
+ */
+function RunLog({ run }: { run: WorkflowRunDetail }) {
+  return (
+    <details className="mt-4 rounded-md border">
+      <summary className="cursor-pointer rounded-md px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Log ({run.logs.length})
+      </summary>
+      <ul className="space-y-1 border-t px-3 py-2">
+        {run.logs.map((entry) => (
+          <li key={entry.sequence} className="flex gap-2 text-xs">
+            <span
+              className={cn(
+                "w-14 shrink-0 font-medium uppercase tracking-wide",
+                entry.level === "error"
+                  ? "text-destructive"
+                  : entry.level === "warning"
+                    ? "text-warning"
+                    : "text-muted-foreground"
+              )}
+            >
+              {entry.level}
+            </span>
+            <span className="min-w-0 flex-1 break-words text-foreground">{entry.message}</span>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

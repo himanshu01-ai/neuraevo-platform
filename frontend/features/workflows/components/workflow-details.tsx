@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Archive,
@@ -25,10 +25,15 @@ import { Reveal } from "@/components/motion/reveal";
 import { NODE_TYPES } from "../models/node-types";
 import { validateWorkflow } from "../validation/rules";
 import { useWorkflowActions } from "../hooks/use-workflow-actions";
-import { useWorkflowDetail } from "../hooks/use-workflows";
+import {
+  useWorkflowDetail,
+  useWorkflowExecution,
+  useWorkflowExecutions,
+} from "../hooks/use-workflows";
 import { WorkflowCardGridLoading } from "./workflow-loading-state";
 import { WorkflowEmptyState } from "./workflow-empty-state";
 import { WorkflowHeader } from "./workflow-header";
+import { WorkflowRunHistory } from "./workflow-run-history";
 import { WorkflowRunPanel } from "./workflow-run-panel";
 import { cn } from "@/lib/utils";
 
@@ -46,11 +51,28 @@ export function WorkflowDetails({ id }: { id: string }) {
   const router = useRouter();
   const query = useWorkflowDetail(id);
   const detail = query.data;
+
+  // Which run is on display. The only state this screen owns: everything about
+  // the run itself is fetched by id, so there is one copy of it and selecting a
+  // different one is a different query rather than a second store to keep in
+  // step. `null` means "the most recent, if there is one".
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+
   // Duplicating makes a new workflow, so go to it; every other action stays
   // here and reports what changed.
   const actions = useWorkflowActions({
     onDuplicated: (clone) => router.push(`/workspace/workflows/${clone.id}`),
+    // A run that just finished is the newest record, so it is shown the same
+    // way any other is — by selecting it.
+    onRan: (run) => setSelectedRunId(run.executionId),
   });
+
+  const historyQuery = useWorkflowExecutions(id);
+  const runs = historyQuery.data?.items ?? [];
+  // Falling back to the newest run means the panel has something to show the
+  // moment the page opens, without the screen tracking which that is.
+  const displayedRunId = selectedRunId ?? runs[0]?.id ?? null;
+  const runQuery = useWorkflowExecution(displayedRunId);
 
   const report = useMemo(() => (detail ? validateWorkflow(detail.graph) : null), [detail]);
 
@@ -184,11 +206,15 @@ export function WorkflowDetails({ id }: { id: string }) {
         <div className="min-w-0 space-y-6 lg:col-span-2">
           {/* Only once there's something to report — the page reads exactly as
               it did before this workflow was ever run. */}
-          {actions.isRunning || actions.lastRun ? (
+          {actions.isRunning || displayedRunId ? (
             <WorkflowRunPanel
               graph={detail.graph}
-              run={actions.lastRun}
+              run={runQuery.data ?? null}
               isRunning={actions.isRunning}
+              isLoading={runQuery.isPending && Boolean(displayedRunId)}
+              onRetry={actions.retry}
+              isRetrying={actions.pending === "retry"}
+              disabled={actions.isBusy}
             />
           ) : null}
 
@@ -254,6 +280,20 @@ export function WorkflowDetails({ id }: { id: string }) {
                 </div>
               </dl>
             </Panel>
+          </Reveal>
+
+          {/* History sits with the summary rather than beside the steps: it is
+              a property of this workflow, like its shape, and the run it selects
+              renders in the wider column where step outputs have room. */}
+          <Reveal delay={0.075}>
+            <WorkflowRunHistory
+              runs={runs}
+              total={historyQuery.data?.total ?? 0}
+              isLoading={historyQuery.isPending}
+              isError={historyQuery.isError}
+              selectedId={displayedRunId}
+              onSelect={setSelectedRunId}
+            />
           </Reveal>
 
           <Reveal delay={0.1}>

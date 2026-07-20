@@ -20,10 +20,18 @@ from app.models.memory import Memory
 from app.models.message import Message
 from app.models.user import User
 from app.models.workflow import Workflow
+from app.models.workflow_execution import (
+    WorkflowExecution,
+    WorkflowExecutionLog,
+    WorkflowExecutionStep,
+)
 
 __all__ = [
     "User",
     "Workflow",
+    "WorkflowExecution",
+    "WorkflowExecutionStep",
+    "WorkflowExecutionLog",
     "Employee",
     "EmployeeActivityEvent",
     "EmployeeAssignment",

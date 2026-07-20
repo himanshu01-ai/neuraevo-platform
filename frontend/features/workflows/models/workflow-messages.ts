@@ -1,4 +1,17 @@
-import { WorkflowError, type WorkflowRun } from "@/services/workflows";
+import { WorkflowError, type WorkflowRun, type WorkflowRunDetail } from "@/services/workflows";
+
+/**
+ * Just enough of a run to describe how it went.
+ *
+ * A live result and a recorded one differ in what they carry — one has an
+ * identity and timings, the other does not — but they agree exactly on the
+ * outcome, which is all these sentences are about. Naming that overlap lets one
+ * wording serve both rather than each getting its own.
+ */
+type RunOutcome = Pick<
+  WorkflowRun | WorkflowRunDetail,
+  "status" | "completedStepCount" | "totalStepCount" | "error"
+> & { failedStepId: string | null };
 
 /**
  * What the workflow screens say when a lifecycle action succeeds. Short, past
@@ -20,7 +33,7 @@ export const workflowDeleted = (name: string): string => `${name} was deleted.`;
  * can't happen — the platform refuses an empty workflow before running it — but
  * the wording holds if it ever did.
  */
-export function workflowRunSummary(run: WorkflowRun): string {
+export function workflowRunSummary(run: RunOutcome): string {
   const { completedStepCount: done, totalStepCount: total } = run;
   const steps = `${done} of ${total} step${total === 1 ? "" : "s"}`;
 
@@ -38,7 +51,7 @@ export function workflowRunSummary(run: WorkflowRun): string {
  * "step failed: <id>" is the exception: that is an internal restatement of the
  * step we already name in the results, so it's replaced rather than repeated.
  */
-export function workflowRunError(run: WorkflowRun): string | null {
+export function workflowRunError(run: RunOutcome): string | null {
   if (run.status !== "FAILED") return null;
   const reason = run.error?.trim();
   if (!reason || /^step failed:/i.test(reason)) {
@@ -75,4 +88,20 @@ export function workflowErrorMessage(error: unknown, fallback: string): string {
     case "unknown":
       return fallback;
   }
+}
+
+/**
+ * The same mapping, for something that went wrong with a *run* rather than a
+ * workflow.
+ *
+ * Only one code needs different words. The adapter has one `not_found`, so a
+ * missing run would otherwise be reported as a missing workflow — true only by
+ * accident, and misleading when the workflow is sitting on the screen behind
+ * the message.
+ */
+export function workflowRunErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof WorkflowError && error.code === "not_found") {
+    return "That run is no longer available.";
+  }
+  return workflowErrorMessage(error, fallback);
 }

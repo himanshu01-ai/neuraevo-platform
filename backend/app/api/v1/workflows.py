@@ -7,16 +7,20 @@ from fastapi import APIRouter, HTTPException, Response, status
 
 from app.core.dependencies import (
     CurrentUserDep,
+    WorkflowExecutionHistoryServiceDep,
     WorkflowExecutionServiceDep,
     WorkflowServiceDep,
 )
 from app.models.workflow import Workflow
+from app.models.workflow_execution import WorkflowExecution
 from app.schemas.workflow import (
     WorkflowCreate,
     WorkflowDuplicateRequest,
     WorkflowExecuteRequest,
+    WorkflowExecutionListResponse,
     WorkflowExecutionResponse,
     WorkflowExecutionStepResponse,
+    WorkflowExecutionSummaryResponse,
     WorkflowResponse,
     WorkflowRestoreRequest,
     WorkflowSummaryResponse,
@@ -88,14 +92,20 @@ def _to_response(workflow: Workflow) -> WorkflowResponse:
     )
 
 
-def _to_execution_response(result: WorkflowExecutionResult) -> WorkflowExecutionResponse:
+def execution_response(
+    result: WorkflowExecutionResult, execution: WorkflowExecution
+) -> WorkflowExecutionResponse:
     """Map the runtime's result into the API's own execution DTO.
 
     The runtime model and its nested references stay behind the service
     boundary; only these flat, documented fields cross the wire.
+
+    Since Sprint 18.10 the run also has a record, which supplies the identity
+    and the timings the runtime does not carry.
     """
     return WorkflowExecutionResponse(
         workflow_id=result.workflow_id,
+        execution_id=execution.id,
         status=result.workflow_status,
         completed_step_count=result.completed_step_count,
         total_step_count=result.total_step_count,
@@ -113,6 +123,9 @@ def _to_execution_response(result: WorkflowExecutionResult) -> WorkflowExecution
         # `result_metadata["error"]` is the coordinator's failure reason on a
         # FAILED run; absent on success.
         error=result.result_metadata.get("error"),
+        started_at=execution.started_at,
+        finished_at=execution.finished_at,
+        duration_ms=execution.duration_ms,
     )
 
 
@@ -346,7 +359,7 @@ def execute_workflow(
     it never mutates the workflow or touches the runtime's semantics.
     """
     try:
-        result = service.execute_workflow(
+        tracked = service.execute_and_record(
             current_user,
             workflow_id,
             initial_inputs=data.inputs if data else None,
@@ -358,4 +371,35 @@ def execute_workflow(
         WorkflowValidationError,
     ) as exc:
         raise _to_http_exception(exc)
-    return _to_execution_response(result)
+    return execution_response(tracked.result, tracked.execution)
+
+
+@router.get(
+    "/{workflow_id}/executions",
+    response_model=WorkflowExecutionListResponse,
+    summary="List a workflow's past runs",
+    responses=_OWNERSHIP_RESPONSES,
+)
+def list_workflow_executions(
+    workflow_id: uuid.UUID,
+    current_user: CurrentUserDep,
+    history: WorkflowExecutionHistoryServiceDep,
+    skip: int = 0,
+    limit: int = 50,
+) -> WorkflowExecutionListResponse:
+    """Return this workflow's runs, newest first (Sprint 18.10).
+
+    Summaries only — how each run went, when, and for how long. Fetch one run to
+    see its steps and log.
+    """
+    try:
+        rows, total = history.list_for_workflow(
+            current_user, workflow_id, skip=skip, limit=limit
+        )
+    except (WorkflowNotFoundError, WorkflowAccessDeniedError) as exc:
+        raise _to_http_exception(exc)
+
+    return WorkflowExecutionListResponse(
+        items=[WorkflowExecutionSummaryResponse.model_validate(row) for row in rows],
+        total=total,
+    )

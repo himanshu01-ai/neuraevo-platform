@@ -137,16 +137,74 @@ export function useDeleteWorkflow() {
 /**
  * Runs a published workflow and returns what happened.
  *
- * Nothing is invalidated on success, and that is the point: running a workflow
- * reads it, it does not change it — the platform is explicit that execution
- * never writes to the workflow. Refetching the list or the detail afterwards
- * would ask for data that cannot have moved.
+ * The workflow itself is not invalidated, and that is deliberate: running a
+ * workflow reads it, it does not change it. Its *history* is another matter —
+ * a run adds a row to it — so that is invalidated and nothing else.
  *
  * The result lives in this mutation's own state, so there is one copy of it and
  * starting the next run clears the last one.
  */
 export function useExecuteWorkflow() {
+  const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (id: string) => workflowsService.execute(id),
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({
+        queryKey: workflowKeys.executions(run.workflowId),
+      });
+    },
+  });
+}
+
+/**
+ * A workflow's run history, newest first.
+ *
+ * `staleTime` is zero: history is the one thing here that changes without this
+ * client asking, and a list showing a run that already finished elsewhere is
+ * the failure this screen exists to avoid.
+ */
+export function useWorkflowExecutions(id: string, enabled = true) {
+  return useQuery({
+    queryKey: workflowKeys.executions(id),
+    queryFn: () => workflowsService.executions(id),
+    enabled: enabled && Boolean(id),
+  });
+}
+
+/**
+ * One recorded run, with its steps and its log.
+ *
+ * Cached indefinitely and never refetched: a finished run is immutable by
+ * design, so once fetched there is nothing new to learn about it. This is also
+ * why a live run and a historical one can share one rendering path — the run
+ * that just finished is simply the newest immutable record.
+ */
+export function useWorkflowExecution(executionId: string | null) {
+  return useQuery({
+    queryKey: workflowKeys.execution(executionId ?? ""),
+    queryFn: () => workflowsService.execution(executionId as string),
+    enabled: Boolean(executionId),
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+/**
+ * Runs a workflow again, repeating a past run.
+ *
+ * Creates a new run and leaves the original alone, so nothing already cached is
+ * stale except the history it was added to.
+ */
+export function useRetryWorkflowExecution() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (executionId: string) => workflowsService.retry(executionId),
+    onSuccess: (run) => {
+      void queryClient.invalidateQueries({
+        queryKey: workflowKeys.executions(run.workflowId),
+      });
+    },
   });
 }

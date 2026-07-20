@@ -50,8 +50,13 @@ import {
   type NodeConfig,
   type WorkflowNode,
   type WorkflowRun,
+  type WorkflowRunDetail,
+  type WorkflowRunLog,
   type WorkflowRunOutput,
+  type WorkflowRunPage,
   type WorkflowRunStep,
+  type WorkflowRunSummary,
+  type WorkflowRunTrigger,
   type WorkflowSettings,
   type WorkflowSummary,
 } from "./types";
@@ -333,10 +338,13 @@ export const workflowExecutionStepSchema = z.object({
   capability: z.string(),
   status: z.string(),
   outputs: z.record(z.unknown()).nullable().optional(),
+  position: z.number().nullable().optional(),
+  duration_ms: z.number().nullable().optional(),
 });
 
 export const workflowExecutionSchema = z.object({
   workflow_id: z.string(),
+  execution_id: z.string(),
   status: z.string(),
   completed_step_count: z.number(),
   total_step_count: z.number(),
@@ -403,23 +411,121 @@ function toRunOutputs(outputs: Record<string, unknown> | null | undefined): Work
   return Object.entries(outputs).map(([key, value]) => ({ key, value: toOutputValue(value) }));
 }
 
-function toRunStep(response: z.infer<typeof workflowExecutionStepSchema>): WorkflowRunStep {
+function toRunStep(
+  response: z.infer<typeof workflowExecutionStepSchema>,
+  index: number
+): WorkflowRunStep {
   return {
     id: response.step_id,
     capability: response.capability,
     status: toStepStatus(response.status),
     outputs: toRunOutputs(response.outputs),
+    // A live result lists steps in the order they ran, so its index *is* the
+    // position; a recorded one states it, and that wins.
+    position: response.position ?? index,
+    durationMs: response.duration_ms ?? null,
   };
 }
 
 export function toWorkflowRun(response: WorkflowExecutionResponse): WorkflowRun {
   return {
     workflowId: response.workflow_id,
+    executionId: response.execution_id,
     status: toRunStatus(response.status),
     completedStepCount: response.completed_step_count,
     totalStepCount: response.total_step_count,
     failedStepId: response.failed_step_id ?? null,
     steps: (response.steps ?? []).map(toRunStep),
     error: response.error ?? null,
+  };
+}
+
+// --- History -------------------------------------------------------------
+
+export const workflowRunSummarySchema = z.object({
+  id: z.string(),
+  workflow_id: z.string(),
+  status: z.string(),
+  started_at: z.string(),
+  finished_at: z.string(),
+  duration_ms: z.number(),
+  total_step_count: z.number(),
+  completed_step_count: z.number(),
+  failed_step_id: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  trigger: z.string(),
+  retry_of_execution_id: z.string().nullable().optional(),
+});
+
+export const workflowRunPageSchema = z.object({
+  items: z.array(workflowRunSummarySchema),
+  total: z.number(),
+});
+
+export const workflowRunLogSchema = z.object({
+  sequence: z.number(),
+  level: z.string(),
+  message: z.string(),
+  step_id: z.string().nullable().optional(),
+});
+
+export const workflowRunDetailSchema = workflowRunSummarySchema.extend({
+  steps: z.array(workflowExecutionStepSchema).nullable().optional(),
+  logs: z.array(workflowRunLogSchema).nullable().optional(),
+});
+
+/** Anything unrecognised reads as `manual`: a run nobody repeated. */
+function toTrigger(value: string): WorkflowRunTrigger {
+  return value.trim().toLowerCase() === "retry" ? "retry" : "manual";
+}
+
+/** Levels are the platform's three. An unknown one reads as a plain message. */
+function toLogLevel(value: string): WorkflowRunLog["level"] {
+  const level = value.trim().toLowerCase();
+  if (level === "error") return "error";
+  if (level === "warning") return "warning";
+  return "info";
+}
+
+export function toWorkflowRunSummary(
+  response: z.infer<typeof workflowRunSummarySchema>
+): WorkflowRunSummary {
+  return {
+    id: response.id,
+    workflowId: response.workflow_id,
+    status: toRunStatus(response.status),
+    startedAt: response.started_at,
+    finishedAt: response.finished_at,
+    durationMs: response.duration_ms,
+    totalStepCount: response.total_step_count,
+    completedStepCount: response.completed_step_count,
+    failedStepId: response.failed_step_id ?? null,
+    error: response.error ?? null,
+    trigger: toTrigger(response.trigger),
+    retryOfId: response.retry_of_execution_id ?? null,
+  };
+}
+
+export function toWorkflowRunPage(
+  response: z.infer<typeof workflowRunPageSchema>
+): WorkflowRunPage {
+  return {
+    items: response.items.map(toWorkflowRunSummary),
+    total: response.total,
+  };
+}
+
+export function toWorkflowRunDetail(
+  response: z.infer<typeof workflowRunDetailSchema>
+): WorkflowRunDetail {
+  return {
+    ...toWorkflowRunSummary(response),
+    steps: (response.steps ?? []).map(toRunStep),
+    logs: (response.logs ?? []).map((log) => ({
+      sequence: log.sequence,
+      level: toLogLevel(log.level),
+      message: log.message,
+      stepId: log.step_id ?? null,
+    })),
   };
 }

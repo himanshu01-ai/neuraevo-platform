@@ -212,6 +212,9 @@ from app.services.interview_session_question_service import (
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
 from app.services.workflow_service import WorkflowService
+from app.services.workflow_execution_history_service import (
+    WorkflowExecutionHistoryService,
+)
 from app.services.workflow_execution_service import WorkflowExecutionService
 
 # ``auto_error=True`` => a missing/blank Authorization header is rejected by the
@@ -321,7 +324,22 @@ def get_workflow_execution_service(
     either domain depending on the other; the coordinator is built through the
     existing seam, so no runtime wiring changes.
     """
-    return WorkflowExecutionService(session, get_workflow_coordinator())
+    return WorkflowExecutionService(
+        session,
+        get_workflow_coordinator(),
+        WorkflowExecutionHistoryService(session),
+    )
+
+
+def get_workflow_execution_history_service(
+    session: SessionDep,
+) -> WorkflowExecutionHistoryService:
+    """Provide the Sprint 18.10 :class:`WorkflowExecutionHistoryService`.
+
+    Reads and retries recorded runs. Bound to the request-scoped session and
+    nothing else — it runs no workflow, so it needs no coordinator.
+    """
+    return WorkflowExecutionHistoryService(session)
 
 
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
@@ -3970,6 +3988,9 @@ EmployeeServiceDep = Annotated[EmployeeService, Depends(get_employee_service)]
 WorkflowServiceDep = Annotated[WorkflowService, Depends(get_workflow_service)]
 WorkflowExecutionServiceDep = Annotated[
     WorkflowExecutionService, Depends(get_workflow_execution_service)
+]
+WorkflowExecutionHistoryServiceDep = Annotated[
+    WorkflowExecutionHistoryService, Depends(get_workflow_execution_history_service)
 ]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
