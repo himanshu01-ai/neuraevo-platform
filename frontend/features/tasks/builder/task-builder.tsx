@@ -2,12 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import {
-  EMPLOYEE_OPTIONS,
-  WORKFLOW_OPTIONS,
-  type TaskDraft,
-  type TaskExecutionMode,
-} from "@/services/tasks";
+import { type TaskDraft, type TaskExecutionMode } from "@/services/tasks";
 import { PRIORITY_LABEL, type Priority } from "@/types/domain";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,6 +15,7 @@ import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { WorkspaceHeader } from "@/features/workspace/components/workspace-header";
 import { Reveal } from "@/components/motion/reveal";
+import { useEmployeeOptions, useWorkflowOptions } from "../hooks/use-assignment-options";
 import { useCreateTask } from "../hooks/use-tasks";
 import { EXECUTION_MODE_LIST } from "../models/task-commands";
 
@@ -39,6 +35,10 @@ const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 export function TaskBuilder() {
   const router = useRouter();
   const create = useCreateTask();
+  // The real choices: the user's own workflows and employees, from the same
+  // caches their workspaces read (Sprint 19) — no more hardcoded names.
+  const workflowOptions = useWorkflowOptions();
+  const employeeOptions = useEmployeeOptions();
 
   const [draft, setDraft] = useState<TaskDraft>({
     id: null,
@@ -169,7 +169,7 @@ export function TaskBuilder() {
                         aria-describedby={describedBy}
                       >
                         <option value="">Decide later</option>
-                        {WORKFLOW_OPTIONS.map((option) => (
+                        {(workflowOptions.data ?? []).map((option) => (
                           <option key={option.id} value={option.id}>
                             {option.name}
                           </option>
@@ -187,7 +187,7 @@ export function TaskBuilder() {
                         aria-describedby={describedBy}
                       >
                         <option value="">Decide later</option>
-                        {EMPLOYEE_OPTIONS.map((option) => (
+                        {(employeeOptions.data ?? []).map((option) => (
                           <option key={option.id} value={option.id}>
                             {option.name}
                           </option>

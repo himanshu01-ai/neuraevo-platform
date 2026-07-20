@@ -1,3 +1,4 @@
+import type { WorkflowRunPage } from "@/services/workflows";
 import { APPROVALS, ARTIFACTS, QUEUE_ORDER, TASKS, TIMELINES } from "./fixtures";
 import {
   COMMAND_RESULT,
@@ -374,6 +375,34 @@ export class MockTasksAdapter implements TasksAdapter {
     return copy(decided);
   }
 
+  // --- Execution (Sprint 19 seam) ----------------------------------------
+  //
+  // The mock stores descriptions of runs and never executes one, so the
+  // execution methods answer honestly: there is no engine here to launch.
+
+  async execute(_id: string): Promise<TaskDetail> {
+    await delay();
+    throw new TaskError(
+      "unavailable",
+      "The offline mock can't run a workflow. Switch to the backend adapter."
+    );
+  }
+
+  async executions(_id: string): Promise<WorkflowRunPage> {
+    await delay();
+    // No engine, no history — an empty page is the truth, and the screens
+    // already render an honest empty state for it.
+    return { items: [], total: 0 };
+  }
+
+  async retryExecution(_id: string, _executionId: string): Promise<TaskDetail> {
+    await delay();
+    throw new TaskError(
+      "unavailable",
+      "The offline mock can't run a workflow. Switch to the backend adapter."
+    );
+  }
+
   async queue(): Promise<QueueSnapshot> {
     await delay();
     const tasks = readTasks();
@@ -408,13 +437,13 @@ const toQueueEntry = (task: TaskDetail, position: number, estimatedOrder: string
 });
 
 /**
- * Names for the ids the builder offers.
+ * Names for the ids a stored mock task may reference.
  *
- * A task carries only a workflow/employee id and the name to show beside it; the
- * workflow and employee modules own the records themselves. Resolving a name is
- * the backend's job in 17.8 — until then it comes from here rather than by
- * reaching into another service's fixtures, which would couple two mocks
- * together for no gain.
+ * A task carries only a workflow/employee id and the name to show beside it;
+ * the workflow and employee modules own the records themselves. The real
+ * builder options come from those services (Sprint 19); these remain only so
+ * the offline mock can resolve a display name without reaching into another
+ * mock's fixtures.
  */
 const WORKFLOW_NAMES: Record<string, string> = {
   wfl_1: "Weekly competitor brief",
@@ -438,12 +467,3 @@ const EMPLOYEE_NAMES: Record<string, string> = {
   emp_6: "Echo",
   emp_7: "Sage",
 };
-
-/** The choices the builder offers, in a stable order. */
-export const WORKFLOW_OPTIONS: readonly { id: string; name: string }[] = Object.entries(WORKFLOW_NAMES).map(
-  ([id, name]) => ({ id, name })
-);
-
-export const EMPLOYEE_OPTIONS: readonly { id: string; name: string }[] = Object.entries(EMPLOYEE_NAMES).map(
-  ([id, name]) => ({ id, name })
-);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Copy } from "lucide-react";
+import { ArrowLeft, Copy, Play } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ALLOWED_COMMANDS, TASK_EXECUTION_MODE_LABEL, type TaskCommand } from "@/services/tasks";
@@ -21,9 +21,10 @@ import { ArtifactList } from "../artifacts/artifact-list";
 import { ExecutionGraph } from "../execution/execution-graph";
 import { ExecutionMonitor } from "../monitoring/execution-monitor";
 import { ExecutionTimeline } from "../timeline/execution-timeline";
-import { useDuplicateTask, useTaskCommand, useTaskDetail } from "../hooks/use-tasks";
+import { useDuplicateTask, useExecuteTask, useTaskCommand, useTaskDetail } from "../hooks/use-tasks";
 import { TASK_COMMAND_META } from "../models/task-commands";
 import { ResultsPanel } from "./results-panel";
+import { TaskRunHistory } from "./task-run-history";
 import { TaskInspectorLoading } from "./task-loading-state";
 import { TaskStateBadge } from "./task-state-badge";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,7 @@ export function TaskDetails({ id }: { id: string }) {
   const query = useTaskDetail(id);
   const command = useTaskCommand();
   const duplicate = useDuplicateTask();
+  const execute = useExecuteTask();
   const [notice, setNotice] = useState<{ tone: "info" | "error"; message: string } | null>(null);
 
   if (query.isPending) {
@@ -70,6 +72,29 @@ export function TaskDetails({ id }: { id: string }) {
 
   const task = query.data;
   const allowed = ALLOWED_COMMANDS[task.state];
+  // A launch makes sense while the task is live work; anything paused, waiting
+  // or finished goes through its own control first. The backend enforces the
+  // same rule — this only decides when the button is worth offering.
+  const canRun =
+    task.workflow !== null &&
+    ["PENDING", "QUEUED", "PLANNING", "RUNNING"].includes(task.state);
+
+  const runWorkflow = () => {
+    setNotice(null);
+    execute.mutate(task.id, {
+      onSuccess: (updated) =>
+        setNotice(
+          updated.state === "COMPLETED"
+            ? { tone: "info", message: "The workflow ran to completion." }
+            : { tone: "error", message: "The workflow ran but did not complete — see the run history." }
+        ),
+      onError: (error) =>
+        setNotice({
+          tone: "error",
+          message: error instanceof Error ? error.message : "That task couldn't be run.",
+        }),
+    });
+  };
 
   const runCommand = (next: TaskCommand) => {
     setNotice(null);
@@ -114,6 +139,12 @@ export function TaskDetails({ id }: { id: string }) {
                 <Copy className="size-4" aria-hidden="true" />
                 {duplicate.isPending ? "Duplicating…" : "Duplicate"}
               </Button>
+              {canRun ? (
+                <Button disabled={execute.isPending} onClick={runWorkflow}>
+                  <Play className="size-4" aria-hidden="true" />
+                  {execute.isPending ? "Running…" : "Run workflow"}
+                </Button>
+              ) : null}
               {allowed.map((next) => {
                 const meta = TASK_COMMAND_META[next];
                 const Icon = meta.icon;
@@ -219,6 +250,15 @@ export function TaskDetails({ id }: { id: string }) {
           <Reveal delay={0.05}>
             <Panel title="Monitor" description="What the platform reports.">
               <ExecutionMonitor monitor={task.monitor} graph={task.graph} />
+            </Panel>
+          </Reveal>
+
+          <Reveal delay={0.05}>
+            <Panel title="Run history" description="Every run this task launched.">
+              <TaskRunHistory
+                taskId={task.id}
+                onRetried={(message, tone) => setNotice({ tone, message })}
+              />
             </Panel>
           </Reveal>
 

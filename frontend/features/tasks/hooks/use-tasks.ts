@@ -163,6 +163,53 @@ export function useAssignEmployee() {
   });
 }
 
+/** The runs a task launched — the workflow platform's own history summaries. */
+export function useTaskExecutions(id: string | null) {
+  return useQuery({
+    queryKey: taskKeys.executions(id ?? ""),
+    queryFn: () => taskService.executions(id as string),
+    staleTime: LIST_STALE_TIME,
+    enabled: id !== null,
+    retry: false,
+  });
+}
+
+/** Everything a run changes, refreshed together: the task, and its history. */
+function invalidateRun(
+  queryClient: ReturnType<typeof useQueryClient>,
+  task: { id: string }
+) {
+  queryClient.setQueryData(taskKeys.detail(task.id), task);
+  void queryClient.invalidateQueries({ queryKey: taskKeys.executions(task.id) });
+  void queryClient.invalidateQueries({ queryKey: taskKeys.artifacts(task.id) });
+  invalidateTask(queryClient, task);
+}
+
+/**
+ * Launches the task's attached workflow on the platform's execution engine
+ * (Sprint 19). Resolves with the task as the run left it — a run that ran and
+ * failed resolves too; only a launch the platform refused rejects.
+ */
+export function useExecuteTask() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => taskService.execute(id),
+    onSuccess: (task) => invalidateRun(queryClient, task),
+  });
+}
+
+/** Repeats one of the task's recorded runs. History gains a run; none change. */
+export function useRetryTaskExecution() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, executionId }: { id: string; executionId: string }) =>
+      taskService.retryExecution(id, executionId),
+    onSuccess: (task) => invalidateRun(queryClient, task),
+  });
+}
+
 /**
  * Records a reviewer's decision. A decision can move the task it belongs to, so
  * the task's own caches are refreshed alongside the approval lists.

@@ -3,10 +3,8 @@
 import { ArrowDownUp, Bot, Copy, LayoutGrid, List, Plus, Search, Workflow, X } from "lucide-react";
 import {
   ALLOWED_COMMANDS,
-  EMPLOYEE_OPTIONS,
   TASK_EXECUTION_MODES,
   TASK_EXECUTION_MODE_LABEL,
-  WORKFLOW_OPTIONS,
   type TaskCommand,
   type TaskDetail,
   type TaskExecutionMode,
@@ -24,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { useEmployeeOptions, useWorkflowOptions } from "../hooks/use-assignment-options";
 import { priorityOptions, stateOptions } from "../hooks/use-filtered-tasks";
 import { TASK_COMMAND_LIST } from "../models/task-commands";
 import { cn } from "@/lib/utils";
@@ -73,6 +72,11 @@ export function TaskToolbar({
   const setSort = useTaskStore((s) => s.setSort);
   const setViewMode = useTaskStore((s) => s.setViewMode);
 
+  // Real workflows and employees to assign, from the same caches their own
+  // workspaces read (Sprint 19).
+  const workflowOptions = useWorkflowOptions();
+  const employeeOptions = useEmployeeOptions();
+
   const allowed = task ? ALLOWED_COMMANDS[task.state] : [];
   const isFiltered = hasActiveTaskFilters(filters);
 
@@ -105,7 +109,7 @@ export function TaskToolbar({
           <option value="" disabled>
             Assign workflow…
           </option>
-          {WORKFLOW_OPTIONS.map((option) => (
+          {(workflowOptions.data ?? []).map((option) => (
             <option key={option.id} value={option.id}>
               {option.name}
             </option>
@@ -125,7 +129,7 @@ export function TaskToolbar({
           <option value="" disabled>
             Assign employee…
           </option>
-          {EMPLOYEE_OPTIONS.map((option) => (
+          {(employeeOptions.data ?? []).map((option) => (
             <option key={option.id} value={option.id}>
               {option.name}
             </option>

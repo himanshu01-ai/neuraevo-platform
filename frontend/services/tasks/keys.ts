@@ -15,4 +15,5 @@ export const taskKeys = {
   approvals: (id: string) => ["tasks", "approvals", id] as const,
   allApprovals: ["tasks", "approvals", "all"] as const,
   queue: ["tasks", "queue"] as const,
+  executions: (id: string) => ["tasks", "executions", id] as const,
 } as const;

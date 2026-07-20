@@ -235,3 +235,41 @@ class WorkflowStatus(str, Enum):
     DRAFT = "draft"
     PUBLISHED = "published"
     ARCHIVED = "archived"
+
+
+class TaskStatus(str, Enum):
+    """Where a task stands (Sprint 19 Task Engine).
+
+    The persisted vocabulary behind the frontend's ``TASK_STATES`` — the same
+    ten states, stored lowercase like every other status column. Seven mirror
+    the platform's ``LifecycleStatus``; ``planning``, ``waiting_approval`` and
+    ``blocked`` are the task-specific additions the UI already names.
+
+    Ordered as a task moves, not alphabetically.
+    """
+
+    PENDING = "pending"
+    QUEUED = "queued"
+    PLANNING = "planning"
+    RUNNING = "running"
+    WAITING_APPROVAL = "waiting_approval"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+
+
+class TaskExecutionMode(str, Enum):
+    """What starts a task (Sprint 19 Task Engine).
+
+    Deliberately *not* :class:`ExecutionMode` — that orders an employee's
+    steps (sequential/parallel/hybrid), which is a different question from what
+    triggers a task. The frontend keeps the same two vocabularies apart for the
+    same reason.
+    """
+
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
+    APPROVAL_REQUIRED = "approval_required"
+    SCHEDULED = "scheduled"

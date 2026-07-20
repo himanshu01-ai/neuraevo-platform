@@ -211,6 +211,7 @@ from app.services.interview_session_question_service import (
 )
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
+from app.services.task_service import TaskService
 from app.services.workflow_service import WorkflowService
 from app.services.workflow_execution_history_service import (
     WorkflowExecutionHistoryService,
@@ -340,6 +341,17 @@ def get_workflow_execution_history_service(
     nothing else — it runs no workflow, so it needs no coordinator.
     """
     return WorkflowExecutionHistoryService(session)
+
+
+def get_task_service(session: SessionDep) -> TaskService:
+    """Provide the Sprint 19 :class:`TaskService`.
+
+    Composed over the existing Sprint 18.6 execution service (built through
+    its own provider, coordinator and all), so a task launches runs through
+    the one existing pipeline. The task service instantiates no runtime
+    collaborator itself.
+    """
+    return TaskService(session, get_workflow_execution_service(session))
 
 
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
@@ -3992,6 +4004,7 @@ WorkflowExecutionServiceDep = Annotated[
 WorkflowExecutionHistoryServiceDep = Annotated[
     WorkflowExecutionHistoryService, Depends(get_workflow_execution_history_service)
 ]
+TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
 MemoryServiceDep = Annotated[MemoryService, Depends(get_memory_service)]
 BlueprintServiceDep = Annotated[BlueprintService, Depends(get_blueprint_service)]
 BlueprintGenerationServiceDep = Annotated[

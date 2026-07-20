@@ -1,6 +1,5 @@
 export { taskService, type TaskService } from "./task-service";
 export { taskKeys } from "./keys";
-export { EMPLOYEE_OPTIONS, WORKFLOW_OPTIONS } from "./mock-adapter";
 export {
   COLUMN_PITCH,
   NODE_HEIGHT,

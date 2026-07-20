@@ -16,7 +16,7 @@
  * the platform would say about it; the backend is what runs one.
  */
 
-import type { CanvasPosition } from "@/services/workflows";
+import type { CanvasPosition, WorkflowRunPage } from "@/services/workflows";
 import {
   LIFECYCLE_LABEL,
   LIFECYCLE_TONE,
@@ -475,4 +475,17 @@ export interface TasksAdapter {
   allApprovals(): Promise<Approval[]>;
   decide(decision: ApprovalDecision): Promise<Approval>;
   queue(): Promise<QueueSnapshot>;
+  /**
+   * Launch the task's attached workflow on the platform's execution engine
+   * (Sprint 19). Resolves with the task as the run left it — a run that ran
+   * and failed is a successful request, so it resolves rather than throws.
+   */
+  execute(id: string): Promise<TaskDetail>;
+  /**
+   * The runs this task launched, newest first — the workflow platform's own
+   * history summaries, because a task's run *is* a workflow run.
+   */
+  executions(id: string): Promise<WorkflowRunPage>;
+  /** Run one of this task's recorded runs again. Resolves like `execute`. */
+  retryExecution(id: string, executionId: string): Promise<TaskDetail>;
 }
