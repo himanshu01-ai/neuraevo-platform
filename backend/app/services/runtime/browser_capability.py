@@ -133,6 +133,67 @@ class BrowserDriver(ABC):
         )
 
 
+class BrowserDependencyError(RuntimeError):
+    """Raised when the browser cannot run because its dependencies are absent.
+
+    Distinct from an ordinary navigation failure (Sprint 18.9): a page that would
+    not load is a fact about the page, while this is a fact about the deployment,
+    and only one of the two is fixed by installing something. The capability
+    reports it in those terms rather than passing on an ``ImportError`` that
+    names a module and no remedy.
+    """
+
+
+def _import_playwright():
+    """Import Playwright, or explain what to install.
+
+    Kept lazy — importing this module and constructing the driver must not
+    require the SDK, so a deployment that never runs a browser step needs
+    nothing installed.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:  # the package is not installed
+        raise BrowserDependencyError(
+            "The Browser capability requires Playwright, which isn't installed. "
+            "Install the backend requirements, then run "
+            "`python -m playwright install chromium`."
+        ) from exc
+    return sync_playwright
+
+
+def _launch_chromium(playwright, headless: bool):
+    """Launch headless Chromium, naming the missing browser if that is why not.
+
+    ``pip install playwright`` brings the client library but no browser, so the
+    likeliest deployment mistake is a Chromium that was never downloaded.
+    Playwright's own error says so, but says it with a filesystem path in it;
+    this reports the same thing without describing the host. Any other launch
+    failure is left alone — it is not a dependency problem and should not be
+    dressed as one.
+    """
+    try:
+        return playwright.chromium.launch(headless=headless)
+    except Exception as exc:
+        if not _chromium_present(playwright):
+            raise BrowserDependencyError(
+                "The Browser capability needs a Chromium build, which isn't "
+                "installed. Run `python -m playwright install chromium`."
+            ) from exc
+        raise
+
+
+def _chromium_present(playwright) -> bool:
+    """Whether Playwright's Chromium is actually on disk."""
+    try:
+        import pathlib
+
+        executable = playwright.chromium.executable_path
+        return bool(executable) and pathlib.Path(executable).exists()
+    except Exception:
+        return False
+
+
 class PlaywrightBrowserDriver(BrowserDriver):
     """Production :class:`BrowserDriver` backed by Playwright / Chromium.
 
@@ -155,10 +216,10 @@ class PlaywrightBrowserDriver(BrowserDriver):
 
     def load_page(self, url: str, timeout_ms: int) -> LoadedPage:
         """Load ``url`` in headless Chromium and return its title and DOM."""
-        from playwright.sync_api import sync_playwright  # lazy: SDK optional
+        sync_playwright = _import_playwright()  # lazy: SDK optional
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self.headless)
+            browser = _launch_chromium(playwright, self.headless)
             try:
                 page = browser.new_page()
                 page.goto(url, timeout=timeout_ms, wait_until="load")
@@ -182,10 +243,10 @@ class PlaywrightBrowserDriver(BrowserDriver):
         uploads, or downloads. Playwright is imported lazily; the browser is always
         closed. Provider failures propagate for the interaction layer to catch.
         """
-        from playwright.sync_api import sync_playwright  # lazy: SDK optional
+        sync_playwright = _import_playwright()  # lazy: SDK optional
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self.headless)
+            browser = _launch_chromium(playwright, self.headless)
             try:
                 page = browser.new_page()
                 page.goto(url, timeout=timeout_ms, wait_until="load")
@@ -230,10 +291,10 @@ class PlaywrightBrowserDriver(BrowserDriver):
         browser is always closed. Provider failures propagate for the workspace
         layer to catch.
         """
-        from playwright.sync_api import sync_playwright  # lazy: SDK optional
+        sync_playwright = _import_playwright()  # lazy: SDK optional
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=self.headless)
+            browser = _launch_chromium(playwright, self.headless)
             try:
                 page = browser.new_page()
                 if url:
@@ -342,6 +403,11 @@ class BrowserCapability(ExecutionCapability):
             page = self.browser_driver.load_page(
                 request.target_url, self.timeout_ms
             )
+        except BrowserDependencyError as exc:
+            # Nothing was attempted: the browser isn't installed. Its own message
+            # says what to install, so it is reported as written rather than
+            # wrapped as though a page had failed to load.
+            return self._failed(request, str(exc))
         except Exception as exc:  # graceful navigation failure — never propagate
             return self._failed(request, f"navigation error: {exc}")
 
@@ -404,6 +470,15 @@ class BrowserCapability(ExecutionCapability):
                 "page_loaded": navigation.session.page_loaded,
                 "navigation_status": navigation.navigation_status,
                 "page_content": navigation.page_content,
+                # Sprint 18.9: a failed navigation carried its reason only in
+                # metadata, so a failed browser step showed a person no reason at
+                # all. The other capabilities report theirs in outputs; this one
+                # now does too, and stays absent on success.
+                **(
+                    {"error": navigation.navigation_metadata["error"]}
+                    if "error" in navigation.navigation_metadata
+                    else {}
+                ),
             },
             execution_metadata={
                 "session_id": navigation.session.session_id,

@@ -14,10 +14,12 @@ themselves — the router maps them into the API's own DTOs.
 """
 
 import uuid
+from typing import List
 
 from app.models.user import User
+from app.services.runtime.capability_contracts import validate_inputs
 from app.services.runtime.workflow_coordinator import WorkflowCoordinator
-from app.services.runtime.workflow_models import WorkflowExecutionResult
+from app.services.runtime.workflow_models import WorkflowExecutionResult, WorkflowStep
 from app.services.workflow_service import (
     InvalidStatusTransitionError,
     WorkflowService,
@@ -58,7 +60,8 @@ class WorkflowExecutionService:
         * :class:`InvalidStatusTransitionError` — it is a draft or archived, so
           not runnable.
         * :class:`WorkflowValidationError` — its graph can't be translated into
-          runnable steps.
+          runnable steps, or a step is missing an input its capability needs
+          (checked against the canonical contract, Sprint 18.8).
 
         A workflow that runs but whose step fails does *not* raise: the
         coordinator reports a ``FAILED`` result, which is returned as-is. The
@@ -76,6 +79,8 @@ class WorkflowExecutionService:
             # Surface translation problems in the workflow domain's vocabulary,
             # the same way the service wraps graph-validation errors.
             raise WorkflowValidationError(str(exc)) from exc
+
+        self._require_configured(steps)
 
         logger.info(
             "User %s executing workflow %s (%d steps)",
@@ -96,6 +101,32 @@ class WorkflowExecutionService:
             result.total_step_count,
         )
         return result
+
+    @staticmethod
+    def _require_configured(steps: List[WorkflowStep]) -> None:
+        """Refuse a workflow whose steps are missing inputs they need.
+
+        Checked against the canonical contract (Sprint 18.8), so a step that
+        could only fail on its first instruction is turned away before anything
+        runs — an incomplete workflow gets one clear answer naming every step at
+        fault, rather than a run that dies at the first of them.
+
+        Only what the contract records is checked. Whether a path exists or an
+        address is deliverable is the capability's to discover, and a run is the
+        honest way to find out.
+        """
+        problems: List[str] = []
+        for step in steps:
+            messages = validate_inputs(step.capability_name, step.inputs)
+            if not messages:
+                continue
+            name = str(step.step_metadata.get("name") or "").strip() or step.step_id
+            problems.extend(f"{name}: {message}" for message in messages)
+
+        if problems:
+            raise WorkflowValidationError(
+                "This workflow isn't ready to run. " + " ".join(problems)
+            )
 
     @staticmethod
     def _require_runnable(workflow) -> None:

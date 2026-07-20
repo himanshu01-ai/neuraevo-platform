@@ -28,7 +28,8 @@ const nodeSchema = z.object({
   name: z.string().min(1),
   description: z.string(),
   position: positionSchema,
-  config: z.record(z.string()),
+  // Text, or a list of text — the two shapes a capability contract declares.
+  config: z.record(z.union([z.string(), z.array(z.string())])),
   status: z.enum(NODE_STATUS),
 });
 

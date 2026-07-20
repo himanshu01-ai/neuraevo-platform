@@ -9,14 +9,16 @@ is the only place the two vocabularies meet.
 No session, no I/O, no execution. It builds DTOs and raises on anything the
 runtime could not run.
 
-Why a translation is needed at all — the two models disagree in four ways:
+Why a translation is needed at all — the two models disagree in three ways:
 
 1. **Vocabulary.** The builder offers fourteen node *kinds*; the runtime has
-   six *capabilities*. Five map by name; ``file`` maps to ``filesystem``; the
-   remaining kinds (planning, task, approval, notification, memory, condition,
-   loop, output) have no runtime capability and cannot execute. A workflow that
-   uses one is rejected rather than silently trimmed — dropping a step would
-   change what the author built.
+   six *capabilities*. The mapping is not restated here: it is read from
+   :data:`app.services.runtime.capability_contracts.NODE_KIND_TO_CAPABILITY`,
+   the one place a kind is tied to a capability. The remaining kinds (planning,
+   task, approval, notification, memory, condition, loop, output) have no
+   runtime capability and cannot execute. A workflow that uses one is rejected
+   rather than silently trimmed — dropping a step would change what the author
+   built.
 
 2. **Ordering.** An authoring graph is an unordered DAG; the coordinator runs a
    *sequence* whose dependencies point backwards. So the nodes are
@@ -26,28 +28,19 @@ Why a translation is needed at all — the two models disagree in four ways:
 3. **Edge direction.** An authoring edge ``source → target`` means *target
    depends on source*; that becomes ``target.depends_on = [source]``.
 
-4. **Inputs.** A node's ``config`` (string key/values from the builder) becomes
-   the step's ``inputs``. Which keys a capability needs (``python_code``,
-   ``operation``, …) is the capability's contract, checked by the runtime at
-   execution, not here — translation stays structural.
+Inputs are *not* a difference any more. Since Sprint 18.8 the builder writes the
+canonical keys the capability reads, so a node's ``config`` becomes the step's
+``inputs`` unchanged. Nothing here renames a key, fills one in, or splits one
+apart: a configuration this module had to repair would be a configuration the
+builder should not have produced. Whether those inputs are *complete* is checked
+against the same contract by the execution service, before the runtime is
+called.
 """
 
 from typing import Any, Dict, List
 
+from app.services.runtime.capability_contracts import NODE_KIND_TO_CAPABILITY
 from app.services.runtime.workflow_models import WorkflowStep
-
-# Authoring node kind → runtime capability name. Only these six kinds are
-# executable; every other kind is an authoring construct the runtime has no
-# capability for. ``file`` is the one rename — the builder calls it "file", the
-# runtime capability is registered as "filesystem".
-KIND_TO_CAPABILITY: Dict[str, str] = {
-    "browser": "browser",
-    "python": "python",
-    "file": "filesystem",
-    "email": "email",
-    "calendar": "calendar",
-    "github": "github",
-}
 
 
 class WorkflowTranslationError(ValueError):
@@ -71,7 +64,12 @@ def _nodes_and_edges(graph: Any) -> tuple[List[dict], List[dict]]:
 
 
 def _coerce_inputs(config: Any) -> Dict[str, Any]:
-    """A node's ``config`` as runtime ``inputs``. Non-object config is dropped."""
+    """A node's ``config`` as runtime ``inputs``, carried across as authored.
+
+    Values are passed through untouched — a list stays a list, so a step that
+    needs several recipients gets them. Only the keys are stringified, because a
+    JSON object's keys already are strings and this makes that explicit.
+    """
     if not isinstance(config, dict):
         return {}
     return {str(key): value for key, value in config.items()}
@@ -104,7 +102,7 @@ def translate_graph(graph: Any) -> List[WorkflowStep]:
         node_by_id[node_id] = node
 
         kind = node.get("kind")
-        if kind not in KIND_TO_CAPABILITY:
+        if kind not in NODE_KIND_TO_CAPABILITY:
             # Collected rather than raised on the first, so the message can name
             # every offending kind at once.
             label = kind if isinstance(kind, str) and kind else "unknown"
@@ -139,7 +137,7 @@ def translate_graph(graph: Any) -> List[WorkflowStep]:
     return [
         WorkflowStep(
             step_id=node_id,
-            capability_name=KIND_TO_CAPABILITY[node_by_id[node_id]["kind"]],
+            capability_name=NODE_KIND_TO_CAPABILITY[node_by_id[node_id]["kind"]],
             inputs=_coerce_inputs(node_by_id[node_id].get("config")),
             depends_on=list(depends_on[node_id]),
             step_metadata={

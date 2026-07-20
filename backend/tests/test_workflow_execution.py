@@ -42,8 +42,8 @@ from app.services.workflow_service import (
     WorkflowNotFoundError,
     WorkflowValidationError,
 )
+from app.services.runtime.capability_contracts import NODE_KIND_TO_CAPABILITY
 from app.services.workflow_translation import (
-    KIND_TO_CAPABILITY,
     WorkflowTranslationError,
     translate_graph,
 )
@@ -74,7 +74,7 @@ PYTHON_GRAPH = graph([node("s1", "python", {"python_code": "outputs['v'] = 6 * 7
 
 class TranslationTests(unittest.TestCase):
     def test_all_six_kinds_map(self):
-        for kind, capability in KIND_TO_CAPABILITY.items():
+        for kind, capability in NODE_KIND_TO_CAPABILITY.items():
             steps = translate_graph(graph([node("n", kind)]))
             self.assertEqual(steps[0].capability_name, capability)
 

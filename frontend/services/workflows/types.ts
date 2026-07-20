@@ -57,8 +57,25 @@ export interface CanvasPosition {
   y: number;
 }
 
-/** Plain key/value step configuration. The backend owns interpretation. */
-export type NodeConfig = Record<string, string>;
+/**
+ * One configured value on a step.
+ *
+ * A string covers almost everything, but not quite: some capabilities take
+ * several values for one input — the addresses an email goes to — and reject a
+ * single string outright. Since Sprint 18.8 the builder writes a real list for
+ * those, so nothing downstream has to guess where one value ends and the next
+ * begins. Only these two shapes exist; the contracts declare which applies.
+ */
+export type NodeConfigValue = string | string[];
+
+/**
+ * Step configuration, keyed by the names the platform reads.
+ *
+ * The keys are not free-form: for an executable step they come from the
+ * canonical contract in `capability-contracts.ts`, which is why a workflow built
+ * here runs as built. The platform still owns interpretation.
+ */
+export type NodeConfig = Record<string, NodeConfigValue>;
 
 export interface WorkflowNode {
   id: string;

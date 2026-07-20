@@ -1,5 +1,17 @@
 export { workflowsService, type WorkflowsService } from "./workflows-service";
 export { workflowKeys } from "./keys";
+export {
+  ANY_OPERATION,
+  CAPABILITY_CONTRACTS,
+  OPERATION_KEY,
+  capabilityContract,
+  defaultConfig,
+  isExecutableKind,
+  isInputRequired,
+  type CapabilityContract,
+  type CapabilityInputContract,
+  type CapabilityValueType,
+} from "./capability-contracts";
 export { toWorkflowLifecycle, toGraphDocument, toGraphAndSettings } from "./mapping";
 export { GRID_SIZE } from "./fixtures";
 export {
@@ -30,6 +42,7 @@ export {
   WorkflowError,
   type CanvasPosition,
   type NodeConfig,
+  type NodeConfigValue,
   type NodeKind,
   type Sequence,
   type WorkflowDetail,

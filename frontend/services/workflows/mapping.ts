@@ -47,6 +47,7 @@ import {
   type WorkflowDraft,
   type WorkflowEdge,
   type WorkflowGraph,
+  type NodeConfig,
   type WorkflowNode,
   type WorkflowRun,
   type WorkflowRunOutput,
@@ -142,14 +143,26 @@ const isNodeKind = (value: unknown): value is NodeKind =>
 const isExecutionMode = (value: unknown): value is ExecutionMode =>
   typeof value === "string" && (EXECUTION_MODE as readonly string[]).includes(value);
 
-/** A record of strings, dropping anything that isn't one. */
-function toConfig(value: unknown): Record<string, string> {
+/**
+ * A stored config document → the builder's `NodeConfig`.
+ *
+ * Keeps strings and lists of strings, which are the two shapes the contracts
+ * declare, and drops anything else rather than handing the inspector a value it
+ * has no control for. A list is filtered to its string members for the same
+ * reason — a half-readable list is worse than a short one.
+ */
+function toConfig(value: unknown): NodeConfig {
   if (!value || typeof value !== "object") return {};
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string"
-    )
-  );
+
+  const config: NodeConfig = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof entry === "string") {
+      config[key] = entry;
+    } else if (Array.isArray(entry)) {
+      config[key] = entry.filter((item): item is string => typeof item === "string");
+    }
+  }
+  return config;
 }
 
 function toNode(raw: unknown): WorkflowNode | null {

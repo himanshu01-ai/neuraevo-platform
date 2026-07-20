@@ -1,10 +1,13 @@
 import {
   hasCycle,
+  isExecutableKind,
   isolatedNodes,
   leafNodes,
   rootNodes,
   type WorkflowGraph,
 } from "@/services/workflows";
+import { NODE_TYPES } from "../models/node-types";
+import { missingRequiredFields } from "../models/node-config";
 
 /**
  * Workflow validation rules. Each rule is a pure read of the graph structure —
@@ -23,6 +26,7 @@ export const VALIDATION_RULES = [
   "disconnected-node",
   "duplicate-names",
   "invalid-connection",
+  "missing-configuration",
 ] as const;
 export type ValidationRule = (typeof VALIDATION_RULES)[number];
 
@@ -152,6 +156,44 @@ function invalidConnection(graph: WorkflowGraph): ValidationIssue[] {
   return issues;
 }
 
+/**
+ * A step the platform could run, but not as configured.
+ *
+ * The capability contracts say which inputs each step needs, so this catches at
+ * the canvas what would otherwise be refused on the way to a run — while the
+ * step is in front of you and the fix is one click away. Only executable kinds
+ * are checked: an authoring construct has no capability waiting for inputs.
+ *
+ * The platform still checks the same contract before it runs anything. This is
+ * the earlier of two answers, not a substitute for it.
+ */
+function missingConfiguration(graph: WorkflowGraph): ValidationIssue[] {
+  const incomplete = graph.nodes
+    .filter((node) => isExecutableKind(node.kind))
+    .map((node) => ({
+      node,
+      missing: missingRequiredFields(node, NODE_TYPES[node.kind].fields),
+    }))
+    .filter((entry) => entry.missing.length > 0);
+
+  const first = incomplete[0];
+  if (!first) return [];
+
+  const fields = first.missing.map((field) => field.label).join(", ");
+
+  return [
+    {
+      rule: "missing-configuration",
+      severity: "error",
+      message:
+        incomplete.length === 1
+          ? `"${first.node.name}" still needs: ${fields}.`
+          : `${incomplete.length} steps are missing required settings, starting with "${first.node.name}": ${fields}.`,
+      nodeIds: incomplete.map((entry) => entry.node.id),
+    },
+  ];
+}
+
 const RULE_CHECKS: readonly ((graph: WorkflowGraph) => ValidationIssue[])[] = [
   emptyWorkflow,
   missingStart,
@@ -159,6 +201,7 @@ const RULE_CHECKS: readonly ((graph: WorkflowGraph) => ValidationIssue[])[] = [
   disconnectedNode,
   duplicateNames,
   invalidConnection,
+  missingConfiguration,
 ];
 
 /** Run every rule. Order is the order rules are declared above. */

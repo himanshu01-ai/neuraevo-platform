@@ -59,8 +59,7 @@ const researchGraph: WorkflowGraph = {
   nodes: [
     node("nd_res_1", "planning", "Plan the research", "Break the question into search topics.", 0, 0),
     node("nd_res_2", "browser", "Gather sources", "Collect pages that answer the question.", 1, 0, {
-      query: "",
-      maxResults: "10",
+      target_url: "",
     }),
     node("nd_res_3", "memory", "Remember findings", "Store what was learned for later.", 2, 0, {
       category: "Projects",
@@ -73,6 +72,7 @@ const researchGraph: WorkflowGraph = {
 const supportGraph: WorkflowGraph = {
   nodes: [
     node("nd_sup_1", "email", "Read the request", "Pick up the incoming support message.", 0, 0, {
+      operation: "READ_FOLDER",
       folder: "Support",
     }),
     node("nd_sup_2", "memory", "Recall the customer", "Look up what we know about them.", 1, 0, {
@@ -109,8 +109,8 @@ const emailGraph: WorkflowGraph = {
 
 const documentGraph: WorkflowGraph = {
   nodes: [
-    node("nd_doc_1", "file", "Open the document", "Load the file to review.", 0, 0, { path: "" }),
-    node("nd_doc_2", "python", "Extract the text", "Pull the readable content out.", 1, 0, { script: "" }),
+    node("nd_doc_1", "file", "Open the document", "Load the file to review.", 0, 0, { operation: "READ", path: "" }),
+    node("nd_doc_2", "python", "Extract the text", "Pull the readable content out.", 1, 0, { python_code: "" }),
     node("nd_doc_3", "task", "Review it", "Assess the document against the brief.", 2, 0),
     node("nd_doc_4", "approval", "Sign off", "Hold until a human signs off.", 3, 0),
     node("nd_doc_5", "output", "Review notes", "Return the review.", 4, 0),
@@ -137,12 +137,12 @@ const meetingGraph: WorkflowGraph = {
 
 const dataGraph: WorkflowGraph = {
   nodes: [
-    node("nd_dat_1", "file", "Load the dataset", "Read the source data.", 0, 0, { path: "" }),
-    node("nd_dat_2", "python", "Clean the data", "Normalize and drop bad rows.", 1, 0, { script: "" }),
+    node("nd_dat_1", "file", "Load the dataset", "Read the source data.", 0, 0, { operation: "READ", path: "" }),
+    node("nd_dat_2", "python", "Clean the data", "Normalize and drop bad rows.", 1, 0, { python_code: "" }),
     node("nd_dat_3", "loop", "For each segment", "Repeat the analysis per segment.", 2, 0, {
       collection: "",
     }),
-    node("nd_dat_4", "python", "Analyze", "Compute the figures.", 3, 0, { script: "" }),
+    node("nd_dat_4", "python", "Analyze", "Compute the figures.", 3, 0, { python_code: "" }),
     node("nd_dat_5", "output", "Analysis result", "Return the findings.", 4, 0),
   ],
   edges: chain(["nd_dat_1", "nd_dat_2", "nd_dat_3", "nd_dat_4", "nd_dat_5"]),
@@ -150,8 +150,8 @@ const dataGraph: WorkflowGraph = {
 
 const codeGraph: WorkflowGraph = {
   nodes: [
-    node("nd_cod_1", "github", "Fetch the change", "Load the pull request.", 0, 0, { repository: "" }),
-    node("nd_cod_2", "python", "Run the checks", "Execute the test suite.", 1, 0, { script: "" }),
+    node("nd_cod_1", "github", "Fetch the change", "Load the pull request.", 0, 0, { operation: "INIT", repository_name: "" }),
+    node("nd_cod_2", "python", "Run the checks", "Execute the test suite.", 1, 0, { python_code: "" }),
     node("nd_cod_3", "condition", "Checks passed?", "Branch on the result.", 2, 0, { expression: "" }),
     node("nd_cod_4", "task", "Review the diff", "Read the change and comment.", 3, 0),
     node("nd_cod_5", "notification", "Report failure", "Say which check failed.", 3, 1),
@@ -251,7 +251,7 @@ export const TEMPLATES: readonly WorkflowTemplate[] = [
  */
 const digestGraph: WorkflowGraph = {
   nodes: [
-    node("nd_dig_1", "github", "Fetch merged PRs", "Collect what shipped.", 0, 0, { repository: "" }),
+    node("nd_dig_1", "github", "Fetch merged PRs", "Collect what shipped.", 0, 0, { operation: "INIT", repository_name: "" }),
     node("nd_dig_2", "task", "Summarize them", "Write the digest.", 1, 0),
     node("nd_dig_3", "notification", "Post the digest", "Share it with the team.", 1, 1),
   ],

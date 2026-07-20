@@ -15,7 +15,12 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { NODE_KINDS, type NodeKind } from "@/services/workflows";
+import {
+  NODE_KINDS,
+  capabilityContract,
+  type CapabilityValueType,
+  type NodeKind,
+} from "@/services/workflows";
 
 /**
  * The step palette: what each node kind is, how it looks, and which properties
@@ -25,6 +30,13 @@ import { NODE_KINDS, type NodeKind } from "@/services/workflows";
  * (`StatusTone`), so tinting a node by category would spend a semantic signal on
  * a non-semantic distinction — the icon and the library grouping carry category
  * instead.
+ *
+ * Since Sprint 18.8 the six executable kinds do not declare their own fields.
+ * Those come from the canonical capability contract, so the form collects
+ * exactly the inputs the platform reads, under exactly the names it reads them
+ * by. What stays here is presentation — the icon, the wording, the grouping —
+ * which is this layer's to decide. The other eight kinds are authoring
+ * constructs with no capability behind them, so their fields remain local.
  */
 
 export const NODE_CATEGORIES = ["Flow", "Capabilities", "Platform"] as const;
@@ -33,10 +45,40 @@ export type NodeCategory = (typeof NODE_CATEGORIES)[number];
 export interface NodeConfigField {
   key: string;
   label: string;
-  control: "text" | "textarea" | "select";
+  control: "text" | "textarea" | "select" | "list";
   options?: readonly string[];
   placeholder?: string;
   description?: string;
+  /**
+   * Actions that require this field, straight from the contract. `["*"]` means
+   * always. Absent on the authoring-only kinds, which nothing executes and so
+   * nothing requires.
+   */
+  requiredFor?: readonly string[];
+}
+
+/** Which control collects each contract value type. */
+const CONTROL_FOR: Record<CapabilityValueType, NodeConfigField["control"]> = {
+  text: "text",
+  long_text: "textarea",
+  text_list: "list",
+  choice: "select",
+};
+
+/** An executable kind's form, read from the contract rather than restated. */
+function contractFields(kind: NodeKind): readonly NodeConfigField[] {
+  const contract = capabilityContract(kind);
+  if (!contract) return [];
+
+  return contract.inputs.map((spec) => ({
+    key: spec.key,
+    label: spec.label,
+    control: CONTROL_FOR[spec.valueType],
+    options: spec.choices.length > 0 ? spec.choices : undefined,
+    placeholder: spec.placeholder || undefined,
+    description: spec.helpText || undefined,
+    requiredFor: spec.requiredFor,
+  }));
 }
 
 export interface NodeTypeMeta {
@@ -111,10 +153,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Read the web.",
     icon: Globe,
     category: "Capabilities",
-    fields: [
-      { key: "query", label: "Query or URL", control: "text", placeholder: "What to look up" },
-      { key: "maxResults", label: "Max results", control: "text", placeholder: "e.g. 10" },
-    ],
+    fields: contractFields("browser"),
   },
   python: {
     kind: "python",
@@ -122,7 +161,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Compute with code.",
     icon: Code,
     category: "Capabilities",
-    fields: [{ key: "script", label: "Script", control: "textarea", placeholder: "# runs on the platform" }],
+    fields: contractFields("python"),
   },
   file: {
     kind: "file",
@@ -130,10 +169,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Read or write a file.",
     icon: FileText,
     category: "Capabilities",
-    fields: [
-      { key: "path", label: "Path", control: "text", placeholder: "e.g. reports/q3.csv" },
-      { key: "mode", label: "Mode", control: "select", options: ["Read", "Write"] },
-    ],
+    fields: contractFields("file"),
   },
   email: {
     kind: "email",
@@ -141,11 +177,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Read or send mail.",
     icon: Mail,
     category: "Capabilities",
-    fields: [
-      { key: "folder", label: "Folder", control: "text", placeholder: "e.g. Support" },
-      { key: "recipient", label: "Recipient", control: "text", placeholder: "who@company.com" },
-      { key: "subject", label: "Subject", control: "text" },
-    ],
+    fields: contractFields("email"),
   },
   calendar: {
     kind: "calendar",
@@ -153,10 +185,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Read or schedule events.",
     icon: Calendar,
     category: "Capabilities",
-    fields: [
-      { key: "calendarId", label: "Calendar", control: "text", placeholder: "e.g. primary" },
-      { key: "window", label: "Window", control: "text", placeholder: "e.g. next 7 days" },
-    ],
+    fields: contractFields("calendar"),
   },
   github: {
     kind: "github",
@@ -164,10 +193,7 @@ export const NODE_TYPES: Record<NodeKind, NodeTypeMeta> = {
     description: "Work with a repository.",
     icon: Github,
     category: "Capabilities",
-    fields: [
-      { key: "repository", label: "Repository", control: "text", placeholder: "owner/repo" },
-      { key: "reference", label: "Reference", control: "text", placeholder: "e.g. main or #42" },
-    ],
+    fields: contractFields("github"),
   },
   approval: {
     kind: "approval",

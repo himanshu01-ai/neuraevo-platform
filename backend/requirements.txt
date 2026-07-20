@@ -9,3 +9,7 @@ bcrypt==4.2.1
 PyJWT==2.10.1
 anthropic==0.112.0
 qdrant-client==1.12.1
+# Browser capability. Installing this brings the client library only — the
+# browser itself is a separate download: `python -m playwright install chromium`.
+# See docs/deployment.md.
+playwright==1.61.0

@@ -4,12 +4,14 @@ import {
   NODE_WIDTH,
   ZOOM_STEP,
   clampZoom,
+  defaultConfig,
   edgeExists,
   graphBounds,
   snapPosition,
   wouldCycle,
   type CanvasPosition,
   type NodeConfig,
+  type NodeConfigValue,
   type NodeKind,
   type WorkflowDetail,
   type WorkflowGraph,
@@ -102,7 +104,7 @@ interface BuilderState {
   // ---- Node actions --------------------------------------------------
   addNode: (input: AddNodeInput) => string;
   updateNode: (id: string, patch: Partial<Pick<WorkflowNode, "name" | "description">>) => void;
-  updateNodeConfig: (id: string, key: string, value: string) => void;
+  updateNodeConfig: (id: string, key: string, value: NodeConfigValue) => void;
   beginNodeDrag: () => void;
   moveNode: (id: string, position: CanvasPosition) => void;
   endNodeDrag: (id: string) => void;
@@ -246,7 +248,11 @@ export const useBuilderStore = create<BuilderState>()((set, get) => ({
       name: uniqueName(state.graph.nodes, input.name),
       description: input.description,
       position: snapPosition(input.position ?? DEFAULT_DROP),
-      config: input.config ?? {},
+      // An executable step starts with the defaults its capability contract
+      // declares — chiefly the action it performs — so it is added in a state
+      // that means something rather than one the author has to complete before
+      // it makes sense. An explicit config still wins.
+      config: input.config ?? defaultConfig(input.kind),
       status: "PENDING",
     };
 
