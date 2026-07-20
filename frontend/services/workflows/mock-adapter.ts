@@ -3,6 +3,7 @@ import {
   WorkflowError,
   type WorkflowDetail,
   type WorkflowDraft,
+  type WorkflowRun,
   type WorkflowSummary,
   type WorkflowTemplate,
   type WorkflowTemplateSummary,
@@ -17,7 +18,8 @@ import {
  *
  * This mock stores structure only. It never runs a workflow, never invokes a
  * capability, and never derives a status from anything but the fixtures and
- * what the user saved.
+ * what the user saved. `execute` simulates a result rather than producing one —
+ * see its own note.
  */
 
 const STORE_KEY = "neuraevo.mock.workflows";
@@ -203,6 +205,57 @@ export class MockWorkflowsAdapter implements WorkflowsAdapter {
     await delay();
     const rows = readStore().filter((w) => w.id !== id);
     writeStore(rows);
+  }
+
+  /**
+   * A simulated run, so the result UI can be worked on offline.
+   *
+   * It enforces the one rule this adapter already owns — only a published
+   * workflow runs — and then reports every step as completed. It does not
+   * translate the graph, does not know which node kinds the platform can
+   * execute, and never invokes anything: those are the engine's to decide, and
+   * copying that table here would be a second answer to the same question.
+   *
+   * So translation failures and step failures can only be seen against the real
+   * backend. That is the point of a mock, not a gap in it.
+   */
+  async execute(id: string): Promise<WorkflowRun> {
+    await delay();
+    const found = readStore().find((w) => w.id === id);
+    if (!found) throw new WorkflowError("not_found", "That workflow doesn't exist.");
+    if (found.lifecycle === "ARCHIVED") {
+      throw new WorkflowError(
+        "invalid_import",
+        "An archived workflow can't be run. Restore it first.",
+      );
+    }
+    if (found.lifecycle !== "PUBLISHED") {
+      throw new WorkflowError(
+        "invalid_import",
+        "Only a published workflow can be run. Publish it first.",
+      );
+    }
+    if (found.graph.nodes.length === 0) {
+      throw new WorkflowError(
+        "invalid_import",
+        "This workflow has no steps to run. Add at least one before executing it.",
+      );
+    }
+
+    return {
+      workflowId: found.id,
+      status: "COMPLETED",
+      completedStepCount: found.graph.nodes.length,
+      totalStepCount: found.graph.nodes.length,
+      failedStepId: null,
+      steps: found.graph.nodes.map((node) => ({
+        id: node.id,
+        capability: node.kind,
+        status: "COMPLETED",
+        outputs: [{ key: "simulated", value: "This run was simulated by the mock adapter." }],
+      })),
+      error: null,
+    };
   }
 
   async templates(): Promise<WorkflowTemplateSummary[]> {

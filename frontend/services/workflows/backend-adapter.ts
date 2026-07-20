@@ -5,7 +5,9 @@ import {
   toCreatePayload,
   toUpdatePayload,
   toWorkflowDetail,
+  toWorkflowRun,
   toWorkflowSummary,
+  workflowExecutionSchema,
   workflowResponseSchema,
   workflowSummarySchema,
 } from "./mapping";
@@ -13,6 +15,7 @@ import {
   WorkflowError,
   type WorkflowDetail,
   type WorkflowDraft,
+  type WorkflowRun,
   type WorkflowSummary,
   type WorkflowTemplate,
   type WorkflowTemplateSummary,
@@ -34,6 +37,7 @@ import {
  *   POST   /workflows/{id}/archive       archive
  *   POST   /workflows/{id}/restore       restore
  *   POST   /workflows/{id}/duplicate     duplicate
+ *   POST   /workflows/{id}/execute       run (Sprint 18.6)
  *
  * Ownership and auth are the backend's; `services/http.ts` attaches and
  * refreshes the token on its own. Nothing is derived that the backend can
@@ -72,6 +76,22 @@ function toWorkflowError(error: unknown, fallback: string): WorkflowError {
   }
 
   return new WorkflowError("unknown", fallback);
+}
+
+/**
+ * Execution's error mapping. The same as `toWorkflowError` but for one case.
+ *
+ * A 422 from the run endpoint is normally the platform saying it can't turn this
+ * graph into runnable steps, and its wording is written for a person — that
+ * passes through. A 422 whose `detail` is a *list* is FastAPI rejecting the
+ * request's own shape instead, and "path.workflow_id: invalid uuid" tells a user
+ * nothing they can act on, so it gets our wording.
+ */
+function toExecutionError(error: unknown, fallback: string): WorkflowError {
+  if (error instanceof ApiError && error.status === 422 && Array.isArray(error.details)) {
+    return new WorkflowError("unknown", fallback);
+  }
+  return toWorkflowError(error, fallback);
 }
 
 export class BackendWorkflowsAdapter implements WorkflowsAdapter {
@@ -208,6 +228,38 @@ export class BackendWorkflowsAdapter implements WorkflowsAdapter {
       });
     } catch (error) {
       throw toWorkflowError(error, "That couldn't be deleted.");
+    }
+  }
+
+  // --- Execution ---------------------------------------------------------
+
+  /**
+   * Run a published workflow on the platform's execution engine (Sprint 18.6).
+   *
+   * The platform owns every rule about running: whether this workflow may run,
+   * how its graph becomes steps, and what each step does. Nothing here decides
+   * any of it — the request is made and the answer is translated.
+   *
+   * Two outcomes, deliberately different:
+   *
+   * * A **finished run** — completed or failed — comes back as a `WorkflowRun`.
+   *   A failed step is a successful request, so it resolves rather than throws.
+   * * A run that **never started** throws: 409 when the workflow isn't
+   *   published, 422 when its graph can't be translated, 404/403 when it isn't
+   *   the caller's, and a transport failure when the platform can't be reached.
+   *
+   * No body is sent beyond an empty object: seed inputs exist on the endpoint
+   * but nothing in the UI collects them yet, and the workflow runs as authored.
+   */
+  async execute(id: string): Promise<WorkflowRun> {
+    try {
+      const raw = await request<unknown>(`/workflows/${encodeURIComponent(id)}/execute`, {
+        method: "POST",
+        body: {},
+      });
+      return toWorkflowRun(parseOrThrow(workflowExecutionSchema, raw));
+    } catch (error) {
+      throw toExecutionError(error, "That workflow couldn't be run.");
     }
   }
 

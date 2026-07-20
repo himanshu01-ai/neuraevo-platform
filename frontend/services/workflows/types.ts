@@ -12,7 +12,12 @@
  * Nothing in this layer executes anything. It describes structure only.
  */
 
-import type { ExecutionMode, NodeStatus, WorkflowLifecycle } from "@/types/domain";
+import type {
+  ExecutionMode,
+  LifecycleStatus,
+  NodeStatus,
+  WorkflowLifecycle,
+} from "@/types/domain";
 
 /**
  * Deterministic ordinal standing in for recency, mirroring the backend's
@@ -131,6 +136,53 @@ export interface WorkflowDraft {
   settings: WorkflowSettings;
 }
 
+// =====================================================================
+// Execution (Sprint 18.7)
+// =====================================================================
+//
+// Authoring describes structure; a *run* is what happened when the platform
+// executed that structure. The two are separate shapes on purpose — a run is
+// never stored on a workflow, and asking for one never changes it.
+//
+// No new status vocabulary is invented here. A run's outcome is a
+// `LifecycleStatus` and a step's is a `NodeStatus`, both from `types/domain.ts`,
+// so `StatusBadge` renders them with no new mapping.
+
+/** One key/value a step produced, already flattened for display. */
+export interface WorkflowRunOutput {
+  key: string;
+  value: string;
+}
+
+/** What one step did during a run. */
+export interface WorkflowRunStep {
+  /** The authored node's id — how a step is joined back to the graph. */
+  id: string;
+  /** The platform capability that ran it (`filesystem` for a File step). */
+  capability: string;
+  status: NodeStatus;
+  outputs: WorkflowRunOutput[];
+}
+
+/**
+ * The outcome of one execution.
+ *
+ * `status` is terminal — the platform answers a run request with a finished run,
+ * so `COMPLETED` or `FAILED` is what arrives. A failed run is still a successful
+ * request: it is reported here, not thrown.
+ */
+export interface WorkflowRun {
+  workflowId: string;
+  status: LifecycleStatus;
+  completedStepCount: number;
+  totalStepCount: number;
+  /** The step that stopped the run, or `null` when it finished. */
+  failedStepId: string | null;
+  steps: WorkflowRunStep[];
+  /** Why the run stopped. `null` when it completed. */
+  error: string | null;
+}
+
 export type WorkflowErrorCode = "not_found" | "unavailable" | "invalid_import" | "unknown";
 
 export class WorkflowError extends Error {
@@ -157,6 +209,15 @@ export interface WorkflowsAdapter {
   /** Bring an archived workflow back to the bench. */
   restore(id: string): Promise<WorkflowDetail>;
   remove(id: string): Promise<void>;
+  /**
+   * Run a published workflow and report what happened.
+   *
+   * Resolves with a finished `WorkflowRun` — including a failed one. It rejects
+   * only when the run could not be started at all (not found, not published,
+   * untranslatable, unreachable), which is a different fact from a run that
+   * started and failed.
+   */
+  execute(id: string): Promise<WorkflowRun>;
   templates(): Promise<WorkflowTemplateSummary[]>;
   template(id: string): Promise<WorkflowTemplate>;
 }

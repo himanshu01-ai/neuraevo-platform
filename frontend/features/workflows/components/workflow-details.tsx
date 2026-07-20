@@ -8,6 +8,7 @@ import {
   CircleCheck,
   Copy,
   Pencil,
+  Play,
   Send,
   Settings,
   TriangleAlert,
@@ -28,6 +29,7 @@ import { useWorkflowDetail } from "../hooks/use-workflows";
 import { WorkflowCardGridLoading } from "./workflow-loading-state";
 import { WorkflowEmptyState } from "./workflow-empty-state";
 import { WorkflowHeader } from "./workflow-header";
+import { WorkflowRunPanel } from "./workflow-run-panel";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,6 +37,10 @@ import { cn } from "@/lib/utils";
  * and every lifecycle move — without opening the builder. Read-only for the
  * structure; the lifecycle actions live here because this is the one workflow
  * screen that shows a single workflow whole.
+ *
+ * Since Sprint 18.7 it is also where a published workflow is run. Running lives
+ * here for the same reason: a run's result is a list of steps, and this is the
+ * only screen with the graph in hand to name them.
  */
 export function WorkflowDetails({ id }: { id: string }) {
   const router = useRouter();
@@ -99,6 +105,20 @@ export function WorkflowDetails({ id }: { id: string }) {
               </>
             ) : (
               <>
+                {/* Running is offered for a published workflow and nowhere else.
+                    A draft isn't released yet and an archived one is retired —
+                    the platform refuses both, and the UI shouldn't invite a
+                    click it knows will be turned down. */}
+                {isPublished ? (
+                  <Button
+                    onClick={() => actions.run(ref)}
+                    disabled={actions.isBusy}
+                    aria-busy={actions.pending === "run"}
+                  >
+                    <Play className="size-4" aria-hidden="true" />
+                    {actions.pending === "run" ? "Running…" : "Run"}
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   onClick={() => actions.archive(ref)}
@@ -130,7 +150,11 @@ export function WorkflowDetails({ id }: { id: string }) {
                   <Settings className="size-4" aria-hidden="true" />
                   Settings
                 </Button>
-                <Button href={`/workspace/workflows/${detail.id}/builder`}>
+                {/* Editing leads for a draft; once published, running does. */}
+                <Button
+                  variant={isPublished ? "outline" : "primary"}
+                  href={`/workspace/workflows/${detail.id}/builder`}
+                >
                   <Pencil className="size-4" aria-hidden="true" />
                   Open in builder
                 </Button>
@@ -157,7 +181,17 @@ export function WorkflowDetails({ id }: { id: string }) {
       ) : null}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
+          {/* Only once there's something to report — the page reads exactly as
+              it did before this workflow was ever run. */}
+          {actions.isRunning || actions.lastRun ? (
+            <WorkflowRunPanel
+              graph={detail.graph}
+              run={actions.lastRun}
+              isRunning={actions.isRunning}
+            />
+          ) : null}
+
           <Reveal delay={0.05}>
             <Panel title="Steps" description="In the order the platform would resolve them.">
               {detail.graph.nodes.length === 0 ? (

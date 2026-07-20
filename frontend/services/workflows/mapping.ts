@@ -5,7 +5,7 @@
  * — hooks, stores, canvas — sees only the Sprint 17.5 domain model, so the
  * backend's names, casing and lifecycle never leak into a component.
  *
- * Four differences are reconciled here, each deliberate:
+ * Five differences are reconciled here, each deliberate:
  *
  * 1. **Status.** The backend tracks an authoring lifecycle
  *    (`draft`/`published`/`archived`). Sprint 18.5 gave the frontend a matching
@@ -26,10 +26,21 @@
  *
  * 4. **Sequence.** The frontend orders by an ordinal `sequence`; the backend
  *    returns `created_at`. Derived the same way the employee adapter does.
+ *
+ * 5. **Execution.** Sprint 18.6's run result speaks the runtime's status
+ *    vocabulary and returns arbitrary capability outputs. Both are translated
+ *    into the frontend's existing status words and flat display pairs — see the
+ *    execution section at the foot of this file.
  */
 
 import { z } from "zod";
-import { EXECUTION_MODE, type ExecutionMode, type WorkflowLifecycle } from "@/types/domain";
+import {
+  EXECUTION_MODE,
+  type ExecutionMode,
+  type LifecycleStatus,
+  type NodeStatus,
+  type WorkflowLifecycle,
+} from "@/types/domain";
 import {
   type Sequence,
   type WorkflowDetail,
@@ -37,6 +48,9 @@ import {
   type WorkflowEdge,
   type WorkflowGraph,
   type WorkflowNode,
+  type WorkflowRun,
+  type WorkflowRunOutput,
+  type WorkflowRunStep,
   type WorkflowSettings,
   type WorkflowSummary,
 } from "./types";
@@ -281,5 +295,118 @@ export function toUpdatePayload(draft: WorkflowDraft): Record<string, unknown> {
     name: draft.name.trim(),
     description: draft.description.trim() || null,
     graph: toGraphDocument(draft.graph, draft.settings),
+  };
+}
+
+// =====================================================================
+// Execution (Sprint 18.7)
+// =====================================================================
+//
+// The execution endpoint answers in its own vocabulary, reconciled here like
+// everything else:
+//
+// * The run's status is the runtime's `WorkflowStatus`
+//   (`PENDING`/`RUNNING`/`COMPLETED`/`FAILED`), which the frontend already has a
+//   word for — `LifecycleStatus`. A step's is the capability's
+//   `CapabilityExecutionStatus`, which maps onto `NodeStatus`.
+// * `final_outputs` is not carried across. The platform derives it as the last
+//   completed step's outputs, so keeping it would give the UI two sources for
+//   one fact; the step list already holds it.
+// * Outputs arrive as arbitrary JSON. They are flattened to string pairs here so
+//   no component ever renders an unknown backend shape.
+
+export const workflowExecutionStepSchema = z.object({
+  step_id: z.string(),
+  capability: z.string(),
+  status: z.string(),
+  outputs: z.record(z.unknown()).nullable().optional(),
+});
+
+export const workflowExecutionSchema = z.object({
+  workflow_id: z.string(),
+  status: z.string(),
+  completed_step_count: z.number(),
+  total_step_count: z.number(),
+  failed_step_id: z.string().nullable().optional(),
+  steps: z.array(workflowExecutionStepSchema).nullable().optional(),
+  error: z.string().nullable().optional(),
+});
+
+export type WorkflowExecutionResponse = z.infer<typeof workflowExecutionSchema>;
+
+/**
+ * Runtime workflow status → the frontend's lifecycle vocabulary.
+ *
+ * Anything unrecognised reads as `FAILED`: this endpoint returns a *finished*
+ * run, so a status we can't name is not something to report as success.
+ */
+const RUN_STATUS_TO_FRONTEND: Record<string, LifecycleStatus> = {
+  PENDING: "PENDING",
+  RUNNING: "RUNNING",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+};
+
+export function toRunStatus(status: string): LifecycleStatus {
+  return RUN_STATUS_TO_FRONTEND[status.trim().toUpperCase()] ?? "FAILED";
+}
+
+/**
+ * Capability execution status → per-node status.
+ *
+ * `CANCELLED` becomes `SKIPPED` — the node's vocabulary has no cancelled, and a
+ * cancelled step did not fail, it just never delivered. An unrecognised status
+ * reads as `FAILED`, which is what the platform did with it: the run stops on
+ * anything that isn't `COMPLETED`.
+ */
+const STEP_STATUS_TO_FRONTEND: Record<string, NodeStatus> = {
+  READY: "PENDING",
+  EXECUTING: "RUNNING",
+  COMPLETED: "COMPLETED",
+  FAILED: "FAILED",
+  CANCELLED: "SKIPPED",
+};
+
+export function toStepStatus(status: string): NodeStatus {
+  return STEP_STATUS_TO_FRONTEND[status.trim().toUpperCase()] ?? "FAILED";
+}
+
+/** One value a capability produced, as text. Objects are shown as their JSON. */
+function toOutputValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    // Circular or otherwise unserialisable — it came over the wire as JSON, so
+    // this shouldn't happen, but a result panel must never throw.
+    return "—";
+  }
+}
+
+function toRunOutputs(outputs: Record<string, unknown> | null | undefined): WorkflowRunOutput[] {
+  if (!outputs) return [];
+  return Object.entries(outputs).map(([key, value]) => ({ key, value: toOutputValue(value) }));
+}
+
+function toRunStep(response: z.infer<typeof workflowExecutionStepSchema>): WorkflowRunStep {
+  return {
+    id: response.step_id,
+    capability: response.capability,
+    status: toStepStatus(response.status),
+    outputs: toRunOutputs(response.outputs),
+  };
+}
+
+export function toWorkflowRun(response: WorkflowExecutionResponse): WorkflowRun {
+  return {
+    workflowId: response.workflow_id,
+    status: toRunStatus(response.status),
+    completedStepCount: response.completed_step_count,
+    totalStepCount: response.total_step_count,
+    failedStepId: response.failed_step_id ?? null,
+    steps: (response.steps ?? []).map(toRunStep),
+    error: response.error ?? null,
   };
 }

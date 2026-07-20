@@ -27,6 +27,7 @@ export const workflowsService = {
   archive: (id: string) => adapter.archive(id),
   restore: (id: string) => adapter.restore(id),
   remove: (id: string) => adapter.remove(id),
+  execute: (id: string) => adapter.execute(id),
   templates: () => adapter.templates(),
   template: (id: string) => adapter.template(id),
 };

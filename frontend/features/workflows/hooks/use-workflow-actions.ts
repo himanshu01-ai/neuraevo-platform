@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { WorkflowDetail } from "@/services/workflows";
+import type { WorkflowDetail, WorkflowRun } from "@/services/workflows";
 import {
   workflowArchived,
   workflowDeleted,
@@ -15,6 +15,7 @@ import {
   useArchiveWorkflow,
   useDeleteWorkflow,
   useDuplicateWorkflow,
+  useExecuteWorkflow,
   usePublishWorkflow,
   useRestoreWorkflow,
   useUnpublishWorkflow,
@@ -38,7 +39,8 @@ export type WorkflowActionKind =
   | "unpublish"
   | "archive"
   | "restore"
-  | "delete";
+  | "delete"
+  | "run";
 
 export interface UseWorkflowActionsOptions {
   /** Where to go once a clone exists. Omit to stay put and report it instead. */
@@ -54,6 +56,16 @@ export interface WorkflowActions {
   archive: (workflow: WorkflowRef) => void;
   restore: (workflow: WorkflowRef) => void;
   remove: (workflow: WorkflowRef) => void;
+  /** Run a published workflow. Draft and archived workflows are refused. */
+  run: (workflow: WorkflowRef) => void;
+  /**
+   * The last finished run, or `null` before one has happened. Cleared when the
+   * next run starts, and left alone by every other action — it belongs to the
+   * run, not to the screen.
+   */
+  lastRun: WorkflowRun | null;
+  /** Whether a run is in flight, so its result panel can say so. */
+  isRunning: boolean;
   /** The outcome of the last action, cleared when the next one starts. */
   feedback: WorkflowActionFeedback | null;
   pending: WorkflowActionKind | null;
@@ -61,13 +73,17 @@ export interface WorkflowActions {
 }
 
 /**
- * The workflow lifecycle actions, with something to show for each.
+ * The workflow lifecycle actions — and, since Sprint 18.7, running one — with
+ * something to show for each.
  *
  * The same shape as the employee domain's `useEmployeeActions`: the list, the
  * detail page and the builder all offer these, and sharing one hook means an
  * action reports its outcome the same way everywhere and never fires twice
  * from a double-click. Handlers are identity-stable so the memoized cards in
  * the list don't re-render when an action starts.
+ *
+ * A run shares the same busy state as the rest, so nothing else can be started
+ * while a workflow is executing — including a second run.
  */
 export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): WorkflowActions {
   const { onDuplicated, onDeleted } = options;
@@ -78,6 +94,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
   const archiveMutation = useArchiveWorkflow();
   const restoreMutation = useRestoreWorkflow();
   const removeMutation = useDeleteWorkflow();
+  const runMutation = useExecuteWorkflow();
 
   const [feedback, setFeedback] = useState<WorkflowActionFeedback | null>(null);
 
@@ -93,7 +110,9 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
             ? "restore"
             : removeMutation.isPending
               ? "delete"
-              : null;
+              : runMutation.isPending
+                ? "run"
+                : null;
   const isBusy = pending !== null;
 
   // The re-entrancy guard reads a ref rather than closing over `isBusy`, so the
@@ -114,6 +133,7 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
   const { mutate: mutateArchive } = archiveMutation;
   const { mutate: mutateRestore } = restoreMutation;
   const { mutate: mutateRemove } = removeMutation;
+  const { mutate: mutateRun } = runMutation;
 
   const duplicate = useCallback(
     (workflow: WorkflowRef) => {
@@ -193,8 +213,58 @@ export function useWorkflowActions(options: UseWorkflowActionsOptions = {}): Wor
     [mutateRemove, onDeleted, succeed, fail]
   );
 
+  /**
+   * Running is the one action whose outcome isn't a sentence.
+   *
+   * A run that started reports itself through `lastRun`, however it ended — a
+   * failed run is a result, not an action error, and the panel that renders it
+   * says more than a feedback line could. Only a run that never started sets
+   * `feedback`, which is exactly what every other action does when it's refused.
+   */
+  const run = useCallback(
+    (workflow: WorkflowRef) => {
+      if (busyRef.current) return;
+      setFeedback(null);
+      mutateRun(workflow.id, {
+        onError: (error) => fail(error, `${workflow.name} couldn't be run.`),
+      });
+    },
+    [mutateRun, fail]
+  );
+
+  // The run's own state is the mutation's, so there is never a second copy to
+  // keep in step: starting a run clears the previous result on its own.
+  const lastRun = runMutation.data ?? null;
+  const isRunning = runMutation.isPending;
+
   return useMemo(
-    () => ({ duplicate, publish, unpublish, archive, restore, remove, feedback, pending, isBusy }),
-    [duplicate, publish, unpublish, archive, restore, remove, feedback, pending, isBusy]
+    () => ({
+      duplicate,
+      publish,
+      unpublish,
+      archive,
+      restore,
+      remove,
+      run,
+      lastRun,
+      isRunning,
+      feedback,
+      pending,
+      isBusy,
+    }),
+    [
+      duplicate,
+      publish,
+      unpublish,
+      archive,
+      restore,
+      remove,
+      run,
+      lastRun,
+      isRunning,
+      feedback,
+      pending,
+      isBusy,
+    ]
   );
 }

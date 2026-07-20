@@ -133,3 +133,20 @@ export function useDeleteWorkflow() {
     },
   });
 }
+
+/**
+ * Runs a published workflow and returns what happened.
+ *
+ * Nothing is invalidated on success, and that is the point: running a workflow
+ * reads it, it does not change it — the platform is explicit that execution
+ * never writes to the workflow. Refetching the list or the detail afterwards
+ * would ask for data that cannot have moved.
+ *
+ * The result lives in this mutation's own state, so there is one copy of it and
+ * starting the next run clears the last one.
+ */
+export function useExecuteWorkflow() {
+  return useMutation({
+    mutationFn: (id: string) => workflowsService.execute(id),
+  });
+}

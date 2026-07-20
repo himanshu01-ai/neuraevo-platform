@@ -1,4 +1,4 @@
-import { WorkflowError } from "@/services/workflows";
+import { WorkflowError, type WorkflowRun } from "@/services/workflows";
 
 /**
  * What the workflow screens say when a lifecycle action succeeds. Short, past
@@ -11,6 +11,41 @@ export const workflowArchived = (name: string): string => `${name} was archived.
 export const workflowRestored = (name: string): string => `${name} was restored.`;
 export const workflowDuplicated = (name: string): string => `${name} was duplicated.`;
 export const workflowDeleted = (name: string): string => `${name} was deleted.`;
+
+/**
+ * How a finished run reads in one line.
+ *
+ * The step tally is the honest summary of both outcomes: a completed run did all
+ * of them, a failed run says how far it got before stopping. A run with no steps
+ * can't happen — the platform refuses an empty workflow before running it — but
+ * the wording holds if it ever did.
+ */
+export function workflowRunSummary(run: WorkflowRun): string {
+  const { completedStepCount: done, totalStepCount: total } = run;
+  const steps = `${done} of ${total} step${total === 1 ? "" : "s"}`;
+
+  if (run.status === "COMPLETED") return `Finished — ${steps} completed.`;
+  if (run.status === "FAILED") return `Stopped — ${steps} completed.`;
+  // PENDING or RUNNING: the platform answered before the run reached an end.
+  return `Still running — ${steps} completed so far.`;
+}
+
+/**
+ * Why a run stopped.
+ *
+ * The platform's own reason is shown when there is one — it names the capability
+ * or the input that gave out, which nothing here could reconstruct. Its
+ * "step failed: <id>" is the exception: that is an internal restatement of the
+ * step we already name in the results, so it's replaced rather than repeated.
+ */
+export function workflowRunError(run: WorkflowRun): string | null {
+  if (run.status !== "FAILED") return null;
+  const reason = run.error?.trim();
+  if (!reason || /^step failed:/i.test(reason)) {
+    return "A step didn't finish. The step that stopped the run is marked below.";
+  }
+  return reason;
+}
 
 /**
  * What the workflow screens say when an action fails.
