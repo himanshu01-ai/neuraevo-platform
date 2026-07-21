@@ -35,6 +35,13 @@ const envSchema = z.object({
    * FastAPI; `mock` keeps the Sprint 17.7 offline adapter for UI-only work.
    */
   NEXT_PUBLIC_TASKS_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
+  /**
+   * Which memory-integration adapter the app runs against. `backend` (default)
+   * talks to the FastAPI memory-link endpoints; `mock` keeps an offline adapter
+   * for UI-only work. Governs the task/workflow memory-link surface — the
+   * standalone memory *workspace* is a separate visualisation on its own mock.
+   */
+  NEXT_PUBLIC_MEMORY_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
 });
 
 const parsed = envSchema.safeParse({
@@ -43,6 +50,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_EMPLOYEES_ADAPTER: process.env.NEXT_PUBLIC_EMPLOYEES_ADAPTER,
   NEXT_PUBLIC_WORKFLOWS_ADAPTER: process.env.NEXT_PUBLIC_WORKFLOWS_ADAPTER,
   NEXT_PUBLIC_TASKS_ADAPTER: process.env.NEXT_PUBLIC_TASKS_ADAPTER,
+  NEXT_PUBLIC_MEMORY_ADAPTER: process.env.NEXT_PUBLIC_MEMORY_ADAPTER,
 });
 
 if (!parsed.success) {

@@ -22,6 +22,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { Reveal } from "@/components/motion/reveal";
+import { LinkedMemories } from "@/features/memory-links/components/linked-memories";
 import { NODE_TYPES } from "../models/node-types";
 import { validateWorkflow } from "../validation/rules";
 import { useWorkflowActions } from "../hooks/use-workflow-actions";
@@ -294,6 +295,15 @@ export function WorkflowDetails({ id }: { id: string }) {
               selectedId={displayedRunId}
               onSelect={setSelectedRunId}
             />
+          </Reveal>
+
+          <Reveal delay={0.09}>
+            <Panel
+              title="Reference memories"
+              description="Documentation and context for this workflow."
+            >
+              <LinkedMemories scope="workflow" parentId={detail.id} />
+            </Panel>
           </Reveal>
 
           <Reveal delay={0.1}>

@@ -16,6 +16,7 @@ import { Panel } from "@/features/workspace/panels/panel";
 import { WorkspaceContent } from "@/features/workspace/components/workspace-content";
 import { WorkspaceHeader } from "@/features/workspace/components/workspace-header";
 import { Reveal } from "@/components/motion/reveal";
+import { LinkedMemories } from "@/features/memory-links/components/linked-memories";
 import { ApprovalList } from "../approvals/approval-list";
 import { ArtifactList } from "../artifacts/artifact-list";
 import { ExecutionGraph } from "../execution/execution-graph";
@@ -250,6 +251,15 @@ export function TaskDetails({ id }: { id: string }) {
           <Reveal delay={0.05}>
             <Panel title="Monitor" description="What the platform reports.">
               <ExecutionMonitor monitor={task.monitor} graph={task.graph} />
+            </Panel>
+          </Reveal>
+
+          <Reveal delay={0.05}>
+            <Panel
+              title="Reference memories"
+              description="Knowledge this task can draw on."
+            >
+              <LinkedMemories scope="task" parentId={task.id} />
             </Panel>
           </Reveal>
 

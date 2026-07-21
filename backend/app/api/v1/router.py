@@ -25,6 +25,7 @@ from app.api.v1 import (
     interview_sessions,
     memory,
     memory_context,
+    memory_links,
     messages,
     tasks,
     workflow_executions,
@@ -41,6 +42,7 @@ api_router.include_router(workflow_executions.router)
 api_router.include_router(tasks.router)
 api_router.include_router(memory.router)
 api_router.include_router(memory_context.router)
+api_router.include_router(memory_links.router)
 api_router.include_router(conversations.router)
 api_router.include_router(messages.router)
 api_router.include_router(conversation_context.router)

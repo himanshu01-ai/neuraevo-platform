@@ -17,6 +17,7 @@ from app.models.interview_question import InterviewQuestion
 from app.models.interview_session import InterviewSession
 from app.models.interview_session_question import InterviewSessionQuestion
 from app.models.memory import Memory
+from app.models.memory_link import TaskMemoryLink, WorkflowMemoryLink
 from app.models.message import Message
 from app.models.task import Task, TaskWorkflowExecution
 from app.models.user import User
@@ -41,6 +42,8 @@ __all__ = [
     "EmployeeCapabilityGrant",
     "EmployeePermissionGrant",
     "Memory",
+    "TaskMemoryLink",
+    "WorkflowMemoryLink",
     "Blueprint",
     "BlueprintVersion",
     "Conversation",

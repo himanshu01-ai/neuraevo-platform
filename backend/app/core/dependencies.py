@@ -211,6 +211,7 @@ from app.services.interview_session_question_service import (
 )
 from app.services.interview_session_service import InterviewSessionService
 from app.services.memory_service import MemoryService
+from app.services.memory_link_service import MemoryLinkService
 from app.services.task_service import TaskService
 from app.services.workflow_service import WorkflowService
 from app.services.workflow_execution_history_service import (
@@ -352,6 +353,22 @@ def get_task_service(session: SessionDep) -> TaskService:
     collaborator itself.
     """
     return TaskService(session, get_workflow_execution_service(session))
+
+
+def get_memory_link_service(session: SessionDep) -> MemoryLinkService:
+    """Provide the memory-integration service bound to the request-scoped session.
+
+    Composes the reused Employee, Task and Workflow ownership chains and the new
+    link repository; it launches nothing, so it needs no execution or runtime
+    collaborator. The service instantiates its own reused services from the
+    session, exactly as :class:`TaskService` and :class:`WorkflowService` do.
+    """
+    return MemoryLinkService(session)
+
+
+MemoryLinkServiceDep = Annotated[
+    MemoryLinkService, Depends(get_memory_link_service)
+]
 
 
 def get_blueprint_service(session: SessionDep) -> BlueprintService:
