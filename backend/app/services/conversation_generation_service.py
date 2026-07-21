@@ -25,7 +25,7 @@ from app.services.providers.conversation_provider import ConversationProvider
 from app.services.providers.conversation_provider_factory import (
     ConversationProviderFactory,
 )
-from app.utils.constants import MessageRole
+from app.utils.constants import MessageChannel, MessageRole
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -59,6 +59,7 @@ class ConversationGenerationService:
         owner: User,
         employee_id: uuid.UUID,
         conversation_id: uuid.UUID,
+        channel: MessageChannel = MessageChannel.TEXT,
     ) -> Message:
         """Generate the next assistant reply and store it as a message.
 
@@ -69,6 +70,10 @@ class ConversationGenerationService:
         failure (in which case nothing is written). On success, exactly one
         assistant message is created and committed atomically; any persistence
         failure rolls back, leaving no partial write.
+
+        ``channel`` records how the reply is delivered — defaulting to ``text``
+        so existing callers are unchanged, and set to ``voice`` for a spoken
+        turn so a voice exchange reads as one in the conversation's history.
         """
         # 1. Build the unified AI context (blueprint + memory + conversation).
         #    All ownership validation (employee/blueprint 404/403, conversation
@@ -92,7 +97,9 @@ class ConversationGenerationService:
         try:
             message = self.messages.create_message(
                 ai_context.conversation_id,
-                MessageCreate(role=MessageRole.ASSISTANT, content=reply),
+                MessageCreate(
+                    role=MessageRole.ASSISTANT, content=reply, channel=channel
+                ),
             )
             self.session.commit()
         except Exception:

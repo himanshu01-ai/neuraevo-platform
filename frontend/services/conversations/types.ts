@@ -63,6 +63,17 @@ export const MESSAGE_ROLE_LABEL: Record<MessageRole, string> = {
   system: "System",
 };
 
+/**
+ * **Backend contract.** Mirrors `app/utils/constants.MessageChannel` exactly.
+ * The channel a message happened on: `text` was typed, `voice` was spoken (and
+ * transcribed). Voice is a first-class conversation channel, not a separate
+ * domain — a spoken turn is an ordinary message tagged `voice`, so text and
+ * voice share this one model. Extensible to the wider multimodal vocabulary
+ * (image, document) without a redesign.
+ */
+export const MESSAGE_CHANNELS = ["text", "voice"] as const;
+export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
+
 // =====================================================================
 // Projected vocabulary (no backend column yet)
 // =====================================================================
@@ -226,6 +237,8 @@ export interface ConversationMessage {
   conversationId: string;
   role: MessageRole;
   content: string;
+  /** **Backend.** The channel this message happened on — `text` or `voice`. */
+  channel: MessageChannel;
   /** ISO timestamp, fixture-pinned — formatted through `utils/format` only. */
   createdAt: string;
   // ---- projection from here down ----
@@ -312,6 +325,12 @@ export interface ConversationDetail extends ConversationSummary {
 export interface OutgoingMessage {
   content: string;
   attachments: Attachment[];
+  /**
+   * The channel the human used. Defaults to `text`; the composer sends `voice`
+   * when the content came from speech. The backend records it on both the
+   * user message and the reply, so a spoken exchange reads as one in history.
+   */
+  channel?: MessageChannel;
 }
 
 /**

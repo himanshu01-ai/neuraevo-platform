@@ -46,6 +46,7 @@ from app.services.conversation_generation_service import (
     ConversationGenerationService,
 )
 from app.services.conversation_service import ConversationService
+from app.services.conversation_turn_service import ConversationTurnService
 from app.services.memory_context_service import MemoryContextService
 from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
@@ -3941,6 +3942,25 @@ def get_conversation_generation_service(
     )
 
 
+def get_conversation_turn_service(
+    session: SessionDep,
+    generation: Annotated[
+        ConversationGenerationService,
+        Depends(get_conversation_generation_service),
+    ],
+) -> ConversationTurnService:
+    """Provide the Sprint 21 :class:`ConversationTurnService`.
+
+    Composes the reused generation service (built through its own AI provider)
+    with the request-scoped session, so a turn persists the human message and
+    generates the reply through the one existing pipeline — it adds no second
+    generator of its own. The generation dependency is referenced inline (not
+    via its ``...Dep`` alias, which is declared lower in this module) so the
+    annotation resolves at import time.
+    """
+    return ConversationTurnService(session, generation)
+
+
 def get_interview_question_service(
     session: SessionDep,
 ) -> InterviewQuestionService:
@@ -4049,6 +4069,9 @@ ConversationContextServiceDep = Annotated[
 ConversationGenerationServiceDep = Annotated[
     ConversationGenerationService,
     Depends(get_conversation_generation_service),
+]
+ConversationTurnServiceDep = Annotated[
+    ConversationTurnService, Depends(get_conversation_turn_service)
 ]
 InterviewQuestionServiceDep = Annotated[
     InterviewQuestionService, Depends(get_interview_question_service)

@@ -1,6 +1,7 @@
 "use client";
 
 import { memo } from "react";
+import { Mic, Square, Volume2 } from "lucide-react";
 import type { ConversationMessage } from "@/services/conversations";
 import { MESSAGE_ROLE_LABEL, READ_STATUS_LABEL } from "@/services/conversations";
 import { Avatar } from "@/components/ui/avatar";
@@ -34,6 +35,10 @@ export interface MessageBlockProps {
   onSelectMessage: (id: string | null) => void;
   onDecideApproval: (messageId: string, status: "APPROVED" | "REJECTED", comment: string) => void;
   isDeciding: boolean;
+  /** Speak an assistant message aloud (browser text-to-speech). */
+  onSpeak?: (text: string, id: string) => void;
+  /** The message currently being spoken, if any. */
+  speakingId?: string | null;
 }
 
 function CardBody({
@@ -72,6 +77,8 @@ export const MessageBlock = memo(function MessageBlock({
   onSelectMessage,
   onDecideApproval,
   isDeciding,
+  onSpeak,
+  speakingId,
 }: MessageBlockProps) {
   const first = group.messages[0];
   if (!first) return null;
@@ -138,9 +145,37 @@ export const MessageBlock = memo(function MessageBlock({
 
               {message.attachments.length > 0 ? <AttachmentRow attachments={message.attachments} /> : null}
 
-              {isUser && isLast ? (
-                <p className="px-1 text-[0.65rem] text-muted-foreground">{READ_STATUS_LABEL[message.readStatus]}</p>
-              ) : null}
+              <div className={cn("flex items-center gap-2 px-1", isUser ? "flex-row-reverse" : "flex-row")}>
+                {message.channel === "voice" ? (
+                  <span
+                    className="inline-flex items-center gap-1 text-[0.65rem] text-muted-foreground"
+                    title="Spoken message"
+                  >
+                    <Mic className="size-3" aria-hidden="true" />
+                    Voice
+                  </span>
+                ) : null}
+
+                {group.role === "assistant" && onSpeak ? (
+                  <button
+                    type="button"
+                    onClick={() => onSpeak(message.content, message.id)}
+                    aria-label={speakingId === message.id ? "Stop speaking" : "Read this reply aloud"}
+                    className="inline-flex items-center gap-1 rounded-sm text-[0.65rem] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {speakingId === message.id ? (
+                      <Square className="size-3" aria-hidden="true" />
+                    ) : (
+                      <Volume2 className="size-3" aria-hidden="true" />
+                    )}
+                    {speakingId === message.id ? "Stop" : "Speak"}
+                  </button>
+                ) : null}
+
+                {isUser && isLast ? (
+                  <span className="text-[0.65rem] text-muted-foreground">{READ_STATUS_LABEL[message.readStatus]}</span>
+                ) : null}
+              </div>
             </div>
           );
         })}

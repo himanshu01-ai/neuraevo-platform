@@ -1,13 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
-import { MessageSquareText } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { MessageSquareText, Volume2, VolumeX } from "lucide-react";
 import type { ConversationMessage } from "@/services/conversations";
 import { useConversationStore } from "@/store/conversations";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatDate } from "@/utils/format";
 import { useMessageGroups } from "../hooks/use-message-groups";
 import { useDecideConversationApproval } from "../hooks/use-conversations";
+import { useSpeechOutput } from "../hooks/use-speech";
 import { MessageBlock } from "./message-bubble";
 import { TypingIndicator } from "./typing-indicator";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,41 @@ export function ConversationThread({
   const streamingMessageId = useConversationStore((s) => s.streamingMessageId);
   const setStreamingMessageId = useConversationStore((s) => s.setStreamingMessageId);
   const decide = useDecideConversationApproval();
+
+  // Text-to-speech: speak a reply on demand, or read new replies aloud as they
+  // arrive. Browser-side; the platform never handles audio.
+  const { speak, cancel, speakingId, supported: speechSupported } = useSpeechOutput();
+  const [readAloud, setReadAloud] = useState(false);
+  const lastSpokenRef = useRef<string | null>(null);
+
+  const handleSpeak = useCallback(
+    (text: string, id: string) => {
+      if (speakingId === id) cancel();
+      else speak(text, id);
+    },
+    [speak, cancel, speakingId]
+  );
+
+  const toggleReadAloud = useCallback(() => {
+    setReadAloud((on) => {
+      const next = !on;
+      // Turning on reads only *future* replies, not the one already on screen;
+      // turning off stops anything mid-sentence.
+      if (next) lastSpokenRef.current = messages[messages.length - 1]?.id ?? null;
+      else cancel();
+      return next;
+    });
+  }, [messages, cancel]);
+
+  // Auto-speak the newest assistant reply when reading aloud is on.
+  useEffect(() => {
+    if (!readAloud) return;
+    const last = messages[messages.length - 1];
+    if (last && last.role === "assistant" && last.id !== lastSpokenRef.current) {
+      lastSpokenRef.current = last.id;
+      speak(last.content, last.id);
+    }
+  }, [messages, readAloud, speak]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedToEnd = useRef(true);
@@ -96,6 +132,30 @@ export function ConversationThread({
       aria-label={`Conversation with ${employeeName}`}
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-4">
+        {speechSupported ? (
+          <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-0 flex justify-end bg-gradient-to-b from-background via-background/90 to-transparent px-4 pb-2 pt-2">
+            <button
+              type="button"
+              onClick={toggleReadAloud}
+              aria-pressed={readAloud}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs shadow-sm transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                readAloud
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "bg-card text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {readAloud ? (
+                <Volume2 className="size-3.5" aria-hidden="true" />
+              ) : (
+                <VolumeX className="size-3.5" aria-hidden="true" />
+              )}
+              {readAloud ? "Reading replies aloud" : "Read replies aloud"}
+            </button>
+          </div>
+        ) : null}
+
         {sections.map((section) => (
           <section key={section.day} aria-label={formatDate(`${section.day}T00:00:00Z`)}>
             <div className="mb-3 flex items-center gap-3" aria-hidden="true">
@@ -117,6 +177,8 @@ export function ConversationThread({
                   onSelectMessage={selectMessage}
                   onDecideApproval={handleDecide}
                   isDeciding={decide.isPending}
+                  onSpeak={speechSupported ? handleSpeak : undefined}
+                  speakingId={speakingId}
                 />
               ))}
             </div>

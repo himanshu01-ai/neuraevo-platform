@@ -42,6 +42,12 @@ const envSchema = z.object({
    * standalone memory *workspace* is a separate visualisation on its own mock.
    */
   NEXT_PUBLIC_MEMORY_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
+  /**
+   * Which conversations adapter the app runs against. `backend` (default) talks
+   * to the FastAPI Conversation Hub (text and voice turns); `mock` keeps the
+   * Sprint 17.9 offline adapter for UI-only work.
+   */
+  NEXT_PUBLIC_CONVERSATIONS_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
 });
 
 const parsed = envSchema.safeParse({
@@ -51,6 +57,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_WORKFLOWS_ADAPTER: process.env.NEXT_PUBLIC_WORKFLOWS_ADAPTER,
   NEXT_PUBLIC_TASKS_ADAPTER: process.env.NEXT_PUBLIC_TASKS_ADAPTER,
   NEXT_PUBLIC_MEMORY_ADAPTER: process.env.NEXT_PUBLIC_MEMORY_ADAPTER,
+  NEXT_PUBLIC_CONVERSATIONS_ADAPTER: process.env.NEXT_PUBLIC_CONVERSATIONS_ADAPTER,
 });
 
 if (!parsed.success) {

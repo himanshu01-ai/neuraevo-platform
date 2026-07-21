@@ -3,6 +3,7 @@
 import {
   Archive,
   ArchiveRestore,
+  AudioLines,
   Ellipsis,
   History,
   PanelRight,
@@ -90,6 +91,20 @@ export function ConversationToolbar({
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
+        {/* Voice is the primary interaction — offered prominently on a selected
+            conversation, opening the full-screen voice session. */}
+        {conversation ? (
+          <Button
+            size="sm"
+            href={`/voice/${conversation.id}`}
+            aria-label={`Start a voice session with ${conversation.employee.employeeName}`}
+            className="mr-1"
+          >
+            <AudioLines className="size-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Voice</span>
+          </Button>
+        ) : null}
+
         <DropdownMenu
           menuLabel="New conversation"
           align="end"

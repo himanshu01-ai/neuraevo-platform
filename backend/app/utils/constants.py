@@ -64,6 +64,26 @@ class MessageRole(str, Enum):
     SYSTEM = "system"
 
 
+class MessageChannel(str, Enum):
+    """The channel a conversation message came in or went out on.
+
+    Voice is a first-class conversation *channel*, not a separate domain: a
+    spoken turn is transcribed to text and stored as an ordinary message, tagged
+    with the channel it happened on. Text and voice therefore produce the same
+    internal message model — the only difference is this tag.
+
+    The persisted subset of the multimodal
+    :class:`app.services.interaction.models.InteractionType`
+    (``text``/``voice``/``image``/``document``); only the two channels the
+    platform speaks today are stored, and new ones slot in here without a
+    schema redesign. Stored lowercase like every other status column, and
+    defaulting to ``text`` so every pre-existing message reads as typed.
+    """
+
+    TEXT = "text"
+    VOICE = "voice"
+
+
 # --- Employee domain (Sprint 18.2A) --------------------------------------
 #
 # These replace the free-form strings the employee domain used previously.

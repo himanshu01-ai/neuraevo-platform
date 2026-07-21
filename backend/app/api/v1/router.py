@@ -15,6 +15,7 @@ from app.api.v1 import (
     blueprints,
     conversation_context,
     conversation_generation,
+    conversation_hub,
     conversation_runtime,
     conversations,
     employees,
@@ -44,6 +45,7 @@ api_router.include_router(memory.router)
 api_router.include_router(memory_context.router)
 api_router.include_router(memory_links.router)
 api_router.include_router(conversations.router)
+api_router.include_router(conversation_hub.router)
 api_router.include_router(messages.router)
 api_router.include_router(conversation_context.router)
 api_router.include_router(conversation_generation.router)

@@ -58,6 +58,7 @@ const makeMessages = (conversationId: string, seeds: MessageSeed[]): Conversatio
   seeds.map((seed, index) => ({
     id: `${conversationId}_m${index + 1}`,
     conversationId,
+    channel: "text",
     kind: "text",
     readStatus: "read",
     attachments: [],

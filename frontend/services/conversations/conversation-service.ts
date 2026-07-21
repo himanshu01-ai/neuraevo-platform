@@ -1,3 +1,5 @@
+import { env } from "@/lib/env";
+import { BackendConversationsAdapter } from "./backend-adapter";
 import { MockConversationsAdapter } from "./mock-adapter";
 import type {
   ConversationApprovalDecision,
@@ -9,11 +11,19 @@ import type {
 } from "./types";
 
 /**
- * The app's single entry point to conversation data. Swapping providers =
- * swapping this one adapter for the Sprint 5 backend adapter; callers (the
- * feature hooks) never change. No fetch/axios/SDKs.
+ * The app's single entry point to conversation data, and the only place that
+ * knows which adapter is active. Callers (the feature hooks) never import an
+ * adapter.
+ *
+ * Sprint 21 swapped the default from the Sprint 17.9 mock to the real FastAPI
+ * Conversation Hub — text and voice both run through it. The mock stays
+ * selectable via `NEXT_PUBLIC_CONVERSATIONS_ADAPTER=mock` for offline UI work;
+ * the choice is app-wide, so mock and real conversations are never mixed.
  */
-const adapter: ConversationsAdapter = new MockConversationsAdapter();
+const adapter: ConversationsAdapter =
+  env.NEXT_PUBLIC_CONVERSATIONS_ADAPTER === "mock"
+    ? new MockConversationsAdapter()
+    : new BackendConversationsAdapter();
 
 export const conversationService = {
   list: () => adapter.list(),
