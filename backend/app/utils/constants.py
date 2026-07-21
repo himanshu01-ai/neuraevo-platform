@@ -293,3 +293,103 @@ class TaskExecutionMode(str, Enum):
     MANUAL = "manual"
     APPROVAL_REQUIRED = "approval_required"
     SCHEDULED = "scheduled"
+
+
+class CollaborationResourceType(str, Enum):
+    """A platform resource that can be collaborated on (Sprint 20 Collaboration).
+
+    Polymorphic on purpose: collaboration attaches to any of these by
+    ``(resource_type, resource_id)`` rather than a per-domain foreign key, so
+    one participant, permission and activity model serves every domain and a
+    future domain plugs in by adding a member here. Ownership of each is *not*
+    re-implemented — it is read back through the resource's existing chain
+    (``Task``/``Workflow`` own a ``user_id``; ``Conversation``/``Memory`` reach
+    a user through their employee).
+    """
+
+    CONVERSATION = "conversation"
+    TASK = "task"
+    WORKFLOW = "workflow"
+    MEMORY = "memory"
+
+
+class ParticipantType(str, Enum):
+    """What kind of collaborator a participant is (Sprint 20 Collaboration).
+
+    A participant is never assumed to be a human: an AI employee joins a
+    resource on the same footing as a user, so collaboration is not user-only.
+    """
+
+    USER = "user"
+    EMPLOYEE = "employee"
+
+
+class CollaborationRole(str, Enum):
+    """What a participant may do on a shared resource (Sprint 20 Collaboration).
+
+    Ordered by authority. ``OWNER`` is never stored as a participant row — it is
+    derived from the resource's existing ownership chain — but is named here so
+    effective-role resolution has one vocabulary. ``EDITOR`` may change the
+    resource; ``VIEWER`` is read-only.
+    """
+
+    OWNER = "owner"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+
+class ActivityActorType(str, Enum):
+    """Who caused an activity event (Sprint 20C).
+
+    An actor is a user, an AI employee, or the platform itself — the same
+    open set of collaborators the participant model recognises, plus ``system``
+    for events no one person triggered.
+    """
+
+    USER = "user"
+    EMPLOYEE = "employee"
+    SYSTEM = "system"
+
+
+class ActivityKind(str, Enum):
+    """What happened, in the platform's own verbs (Sprint 20C).
+
+    The first nine mirror the frontend's activity vocabulary (a generic
+    lifecycle any domain can record); the rest are the collaboration-specific
+    events this platform emits itself — a participant joining, a role changing,
+    a link being shared or withdrawn.
+    """
+
+    CREATED = "created"
+    UPDATED = "updated"
+    ASSIGNED = "assigned"
+    COMPLETED = "completed"
+    COMMENTED = "commented"
+    MENTIONED = "mentioned"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    ARCHIVED = "archived"
+    # Collaboration-specific
+    PARTICIPANT_ADDED = "participant_added"
+    PARTICIPANT_REMOVED = "participant_removed"
+    ROLE_CHANGED = "role_changed"
+    SHARED = "shared"
+    SHARE_REVOKED = "share_revoked"
+    JOINED = "joined"
+
+
+class NotificationType(str, Enum):
+    """What a notification is about — which subsystem raised it (Sprint 20D).
+
+    Mirrors the frontend's notification vocabulary so the inbox reads in one set
+    of categories. The first four are the collaborated resource types; the rest
+    cover approvals, employee events, and platform-level notices.
+    """
+
+    TASK = "task"
+    WORKFLOW = "workflow"
+    MEMORY = "memory"
+    CONVERSATION = "conversation"
+    APPROVAL = "approval"
+    EMPLOYEE = "employee"
+    SYSTEM = "system"

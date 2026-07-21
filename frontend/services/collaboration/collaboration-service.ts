@@ -1,12 +1,24 @@
+import { env } from "@/lib/env";
+import { BackendCollaborationAdapter } from "./backend-adapter";
 import { MockCollaborationAdapter } from "./mock-adapter";
 import type { ApprovalDecision, CollaborationAdapter } from "./types";
 
 /**
- * The app's single entry point to collaboration data. Swapping providers =
- * swapping this one adapter for a Sprint 18 backend adapter; callers (the
- * feature hooks) never change. No fetch/axios/SDKs, no sockets.
+ * The app's single entry point to collaboration data, and the only place that
+ * knows which adapter is active. Callers (the feature hooks) never import an
+ * adapter.
+ *
+ * Sprint 20 wired the notification center to the real Collaboration Platform:
+ * `backend` (default) shows notifications the platform actually raised (a
+ * participant added, a shared resource joined); `mock` keeps the Sprint 17.10
+ * offline fixtures — richer for surfaces the platform does not yet back
+ * (comments, watchers, approvals) — selectable via
+ * `NEXT_PUBLIC_COLLABORATION_ADAPTER=mock`.
  */
-const adapter: CollaborationAdapter = new MockCollaborationAdapter();
+const adapter: CollaborationAdapter =
+  env.NEXT_PUBLIC_COLLABORATION_ADAPTER === "mock"
+    ? new MockCollaborationAdapter()
+    : new BackendCollaborationAdapter();
 
 export const collaborationService = {
   notifications: () => adapter.notifications(),

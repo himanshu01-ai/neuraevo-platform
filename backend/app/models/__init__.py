@@ -4,8 +4,11 @@ Importing the models here ensures they are registered on ``Base.metadata``
 and that relationship string references resolve.
 """
 
+from app.models.activity_event import ActivityEvent
 from app.models.blueprint import Blueprint
 from app.models.blueprint_version import BlueprintVersion
+from app.models.collaboration_participant import CollaborationParticipant
+from app.models.collaboration_share import CollaborationShare
 from app.models.conversation import Conversation
 from app.models.employee import Employee
 from app.models.employee_activity import EmployeeActivityEvent
@@ -19,6 +22,7 @@ from app.models.interview_session_question import InterviewSessionQuestion
 from app.models.memory import Memory
 from app.models.memory_link import TaskMemoryLink, WorkflowMemoryLink
 from app.models.message import Message
+from app.models.notification import Notification
 from app.models.task import Task, TaskWorkflowExecution
 from app.models.user import User
 from app.models.workflow import Workflow
@@ -29,6 +33,7 @@ from app.models.workflow_execution import (
 )
 
 __all__ = [
+    "ActivityEvent",
     "User",
     "Task",
     "TaskWorkflowExecution",
@@ -42,10 +47,13 @@ __all__ = [
     "EmployeeCapabilityGrant",
     "EmployeePermissionGrant",
     "Memory",
+    "Notification",
     "TaskMemoryLink",
     "WorkflowMemoryLink",
     "Blueprint",
     "BlueprintVersion",
+    "CollaborationParticipant",
+    "CollaborationShare",
     "Conversation",
     "Message",
     "InterviewQuestion",

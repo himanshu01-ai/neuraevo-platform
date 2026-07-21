@@ -12,6 +12,7 @@ import { formatDateTime } from "@/utils/format";
 import { ATTACHMENT_KIND_META } from "../models/message-kinds";
 import { ReferenceCard } from "../references/reference-card";
 import { ParticipantList } from "../participants/participant-list";
+import { ResourceCollaborationPanel } from "@/features/collaboration";
 import { cn } from "@/lib/utils";
 
 const TABS: { id: ContextPanelTab; label: string }[] = [
@@ -150,10 +151,19 @@ export function ContextPanel({ conversation, className }: { conversation: Conver
         ) : null}
 
         {tab === "participants" ? (
-          <section className="space-y-2">
-            <SectionHeading>Participants</SectionHeading>
-            <ParticipantList participants={conversation.participants} />
-          </section>
+          <div className="space-y-5">
+            <section className="space-y-2">
+              <SectionHeading>In this conversation</SectionHeading>
+              <ParticipantList participants={conversation.participants} />
+            </section>
+            {/* Collaboration platform: real participants, share links and
+                activity for this conversation, permission-gated by the viewer's
+                role. Renders its own loading/empty states. */}
+            <ResourceCollaborationPanel
+              resourceType="conversation"
+              resourceId={conversation.id}
+            />
+          </div>
         ) : null}
 
         {tab === "pinned" ? (

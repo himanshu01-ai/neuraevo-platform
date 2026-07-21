@@ -48,6 +48,14 @@ const envSchema = z.object({
    * Sprint 17.9 offline adapter for UI-only work.
    */
   NEXT_PUBLIC_CONVERSATIONS_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
+  /**
+   * Which collaboration adapter the notification center runs against. `backend`
+   * (default) talks to the Sprint 20 Collaboration Platform (real notifications
+   * raised by participant/share actions); `mock` keeps the Sprint 17.10 offline
+   * fixtures for UI-only work. The participant/share/activity resource surface is
+   * always backend — it is fully served by the platform.
+   */
+  NEXT_PUBLIC_COLLABORATION_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
 });
 
 const parsed = envSchema.safeParse({
@@ -58,6 +66,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_TASKS_ADAPTER: process.env.NEXT_PUBLIC_TASKS_ADAPTER,
   NEXT_PUBLIC_MEMORY_ADAPTER: process.env.NEXT_PUBLIC_MEMORY_ADAPTER,
   NEXT_PUBLIC_CONVERSATIONS_ADAPTER: process.env.NEXT_PUBLIC_CONVERSATIONS_ADAPTER,
+  NEXT_PUBLIC_COLLABORATION_ADAPTER: process.env.NEXT_PUBLIC_COLLABORATION_ADAPTER,
 });
 
 if (!parsed.success) {

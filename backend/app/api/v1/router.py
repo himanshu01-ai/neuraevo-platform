@@ -13,6 +13,7 @@ from app.api.v1 import (
     blueprint_generation,
     blueprint_versions,
     blueprints,
+    collaboration,
     conversation_context,
     conversation_generation,
     conversation_hub,
@@ -41,6 +42,7 @@ api_router.include_router(employees.router)
 api_router.include_router(workflows.router)
 api_router.include_router(workflow_executions.router)
 api_router.include_router(tasks.router)
+api_router.include_router(collaboration.router)
 api_router.include_router(memory.router)
 api_router.include_router(memory_context.router)
 api_router.include_router(memory_links.router)

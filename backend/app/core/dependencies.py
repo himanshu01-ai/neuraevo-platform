@@ -204,6 +204,12 @@ from app.services.interaction import (
     InteractionService,
 )
 from app.services.providers import ConversationProviderFactory
+from app.services.collaboration.activity_recorder import ActivityRecorder
+from app.services.collaboration.activity_service import ActivityService
+from app.services.collaboration.notification_emitter import NotificationEmitter
+from app.services.collaboration.notification_service import NotificationService
+from app.services.collaboration.service import CollaborationService
+from app.services.collaboration.sharing_service import SharingService
 from app.services.employee_service import EmployeeService
 from app.services.interview_answer_service import InterviewAnswerService
 from app.services.interview_question_service import InterviewQuestionService
@@ -369,6 +375,69 @@ def get_memory_link_service(session: SessionDep) -> MemoryLinkService:
 
 MemoryLinkServiceDep = Annotated[
     MemoryLinkService, Depends(get_memory_link_service)
+]
+
+
+def get_collaboration_service(session: SessionDep) -> CollaborationService:
+    """Provide the Sprint 20 :class:`CollaborationService`.
+
+    Composes the reused ownership chains (via its resource resolver and
+    :class:`EmployeeService`) with the new participant repository, exactly as
+    :class:`MemoryLinkService` composes its reused chains. The Sprint 20C
+    activity recorder is injected so the API path records a timeline; it
+    launches nothing, so it needs no execution or runtime collaborator.
+    """
+    return CollaborationService(
+        session, ActivityRecorder(session), NotificationEmitter(session)
+    )
+
+
+CollaborationServiceDep = Annotated[
+    CollaborationService, Depends(get_collaboration_service)
+]
+
+
+def get_sharing_service(session: SessionDep) -> SharingService:
+    """Provide the Sprint 20B :class:`SharingService`.
+
+    Composes the collaboration core (for access resolution and participation)
+    with the share repository; every ownership and permission decision is reused
+    from :class:`CollaborationService`, not re-implemented here. The activity
+    recorder and notification emitter are injected so shares and joins appear on
+    the timeline and in the owner's inbox.
+    """
+    return SharingService(
+        session, ActivityRecorder(session), NotificationEmitter(session)
+    )
+
+
+SharingServiceDep = Annotated[SharingService, Depends(get_sharing_service)]
+
+
+def get_activity_service(session: SessionDep) -> ActivityService:
+    """Provide the Sprint 20C :class:`ActivityService` (timeline reads).
+
+    Reuses the collaboration core for permission-aware resource timelines and
+    the participant table for the per-user feed. Read-only; it records nothing.
+    """
+    return ActivityService(session)
+
+
+ActivityServiceDep = Annotated[ActivityService, Depends(get_activity_service)]
+
+
+def get_notification_service(session: SessionDep) -> NotificationService:
+    """Provide the Sprint 20D :class:`NotificationService` (the inbox).
+
+    Reads, mutates, and counts the authenticated user's own notifications.
+    Read/write of existing notifications only; new ones are raised by the
+    collaboration and sharing services through :class:`NotificationEmitter`.
+    """
+    return NotificationService(session)
+
+
+NotificationServiceDep = Annotated[
+    NotificationService, Depends(get_notification_service)
 ]
 
 

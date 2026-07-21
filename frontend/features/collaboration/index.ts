@@ -19,3 +19,4 @@ export { EntityReferenceCard, EntityChip } from "./references/entity-reference-c
 export { NotificationFilterBar } from "./filters/notification-filters";
 export { FeedLoading, InspectorLoading } from "./components/collaboration-loading";
 export { COLLABORATION_TABS } from "./models/collaboration-tabs";
+export { ResourceCollaborationPanel } from "./components/resource-collaboration-panel";
