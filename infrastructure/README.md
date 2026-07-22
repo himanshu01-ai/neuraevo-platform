@@ -20,7 +20,12 @@ the application in this repository — no speculative services.
 - **Backend API + database → Render**, declared in [`render/render.yaml`](render/render.yaml).
 - **Frontend → Vercel** (recommended; Next.js-native). A container image is also
   provided for self-hosting — see [`docker/frontend.Dockerfile`](docker/frontend.Dockerfile).
-- Full walkthrough (env vars, steps, rollback, ops): [`../docs/deployment.md`](../docs/deployment.md).
+
+Deployment documentation set:
+
+- [`../docs/deployment.md`](../docs/deployment.md) — deployment guide (architecture, services, env vars, steps, rollback).
+- [`../docs/launch-checklist.md`](../docs/launch-checklist.md) — production launch (go-live) checklist.
+- [`../docs/operations-runbook.md`](../docs/operations-runbook.md) — day-2 operations & incident response.
 
 ## Files
 

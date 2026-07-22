@@ -234,6 +234,11 @@ The runtime-capability notes above are about what a single backend process can
 *do*. This section is about *running the platform* — the services, how they fit
 together, and how to deploy, configure, and roll them back.
 
+**Documentation set:** this is the deployment guide. Before go-live, work through
+the [production launch checklist](launch-checklist.md); once you are live, the
+[operations runbook](operations-runbook.md) covers routine operations and
+incident response.
+
 ## Architecture
 
 NeuraEvo is a split deployment of two independently shippable units plus a

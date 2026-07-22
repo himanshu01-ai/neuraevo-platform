@@ -177,7 +177,9 @@ offline **mock** adapter via a `NEXT_PUBLIC_*_ADAPTER=mock` switch — see
 ## Documentation
 
 - [`CLAUDE.md`](CLAUDE.md) — architecture rules and layer boundaries
-- [`docs/deployment.md`](docs/deployment.md) — runtime dependencies & the Browser capability
+- [`docs/deployment.md`](docs/deployment.md) — deployment guide: architecture, services, env vars, runtime dependencies
+- [`docs/launch-checklist.md`](docs/launch-checklist.md) — production launch (go-live) checklist
+- [`docs/operations-runbook.md`](docs/operations-runbook.md) — day-2 operations: deploy, roll back, migrate, observe, incident response
 - [`docs/architecture/`](docs/architecture/) and [`docs/adr/`](docs/adr/) — architecture & decision records
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — roadmap
 - [`frontend/docs/`](frontend/docs/) — frontend design system, accessibility, state & API guides
