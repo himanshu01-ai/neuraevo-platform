@@ -15,7 +15,8 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import dispose_engine, init_engine
 from app.core.exception_handlers import register_exception_handlers
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import BodySizeLimitMiddleware, RequestContextMiddleware
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.schemas.error import ErrorResponse
 from app.services.runtime.capability_dependencies import log_startup_report
 from app.utils.logger import configure_logging, get_logger
@@ -93,17 +94,29 @@ def create_app() -> FastAPI:
     # Every failure returns the one `{"detail": ...}` JSON contract (Sprint 24).
     register_exception_handlers(app)
 
-    # CORS first, then request-context so the latter is outermost: it assigns the
-    # correlation id before anything else runs and stamps id + timing onto every
-    # response, including CORS preflights.
+    # Middleware stack. add_middleware makes the *last* added the outermost, so
+    # these are declared innermost-first. The intent, outermost → innermost:
+    #   RequestContext  — assigns the correlation id first and stamps id + timing
+    #                     onto every response (including 413s and errors).
+    #   SecurityHeaders — hardening headers on every response.
+    #   CORS            — cross-origin headers.
+    #   BodySizeLimit   — refuses an oversized body early, but after the id exists.
+    #
+    # Credentials are enabled only with explicit origins: a wildcard origin with
+    # credentials would let any site make credentialed requests, so with the
+    # permissive development default (``*``) credentials are off. Production must
+    # list explicit origins (enforced at settings load), where credentials are safe.
+    allow_all_origins = "*" in settings.CORS_ORIGINS
+    app.add_middleware(BodySizeLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
-        allow_credentials=True,
+        allow_credentials=not allow_all_origins,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "X-Response-Time-ms"],
     )
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
 
     # Document the one universally-true error response — an unexpected 500 can

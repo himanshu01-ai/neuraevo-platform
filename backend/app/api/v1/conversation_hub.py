@@ -21,8 +21,9 @@ synthesis are the browser's, never the server's.
 import uuid
 from typing import List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.api.rate_limit import enforce_ai_rate_limit
 from app.core.dependencies import (
     ConversationActionServiceDep,
     ConversationServiceDep,
@@ -260,6 +261,7 @@ def list_messages(
     response_model=ConversationTurnResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Run one conversation turn (text or voice) and get both messages",
+    dependencies=[Depends(enforce_ai_rate_limit)],
     responses=_TURN_RESPONSES,
 )
 def run_turn(

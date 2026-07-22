@@ -16,9 +16,11 @@ import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
+from starlette.responses import JSONResponse
 from starlette.types import ASGIApp
 
-from app.core.request_context import REQUEST_ID_HEADER, request_id_var
+from app.core.config import settings
+from app.core.request_context import REQUEST_ID_HEADER, get_request_id, request_id_var
 from app.utils.logger import get_logger
 
 logger = get_logger("app.access")
@@ -83,3 +85,38 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         )
         request_id_var.reset(token)
         return response
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Rejects request bodies larger than the configured limit with 413.
+
+    A single oversized payload can exhaust memory before any handler runs; this
+    turns that into a clean, early refusal. The declared ``Content-Length`` is
+    checked (which every JSON client sends), so the body is refused *before* it
+    is read. The 413 uses the platform's one ``{"detail": ...}`` error contract
+    and carries the request's correlation id, exactly like every other error.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        super().__init__(app)
+
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared = int(content_length)
+            except ValueError:
+                declared = None
+            if declared is not None and declared > settings.MAX_REQUEST_BODY_BYTES:
+                request_id = getattr(request.state, "request_id", None) or get_request_id()
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": (
+                            "Request body is too large "
+                            f"(limit {settings.MAX_REQUEST_BODY_BYTES} bytes)."
+                        )
+                    },
+                    headers={REQUEST_ID_HEADER: request_id},
+                )
+        return await call_next(request)

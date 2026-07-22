@@ -99,11 +99,19 @@ def token_epoch_matches(claims: dict[str, Any], token_epoch: int) -> bool:
 def decode_token(token: str) -> dict[str, Any]:
     """Decode and validate a JWT, returning its claims.
 
+    The algorithm is pinned to the configured one (so ``alg=none`` and
+    algorithm-confusion are rejected), and a small ``leeway`` (Sprint 25) absorbs
+    minor clock skew between the signing and validating hosts so a just-issued
+    token is not spuriously rejected.
+
     Raises ``jwt.PyJWTError`` (or a subclass) if the token is invalid or
     expired.
     """
     return jwt.decode(
-        token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+        token,
+        settings.JWT_SECRET_KEY,
+        algorithms=[settings.JWT_ALGORITHM],
+        leeway=settings.JWT_LEEWAY_SECONDS,
     )
 
 

@@ -52,6 +52,40 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = Field(default="HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
+    # Clock-skew tolerance for JWT ``exp``/``iat`` validation (Sprint 25), so a
+    # small difference between the signing and validating clocks does not
+    # spuriously reject a just-issued token. Applied by ``decode_token``.
+    JWT_LEEWAY_SECONDS: int = Field(default=30)
+
+    # --- Security headers / transport (Sprint 25) -----------------------
+    # Additive response hardening. All are configurable so a deployment can tune
+    # the policy without a code change. The CSP default is restrictive because
+    # this is a JSON API that serves no HTML of its own.
+    SECURITY_HEADERS_ENABLED: bool = Field(default=True)
+    SECURITY_CSP: str = Field(
+        default="default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    )
+    SECURITY_REFERRER_POLICY: str = Field(default="no-referrer")
+    SECURITY_PERMISSIONS_POLICY: str = Field(
+        default="geolocation=(), microphone=(), camera=(), usb=(), payment=()"
+    )
+    # HSTS is emitted only in production and only over HTTPS (see the security
+    # headers middleware), so it can never pin an http development host.
+    HSTS_MAX_AGE_SECONDS: int = Field(default=63072000)  # two years
+    HSTS_INCLUDE_SUBDOMAINS: bool = Field(default=True)
+
+    # --- Request limits (Sprint 25) -------------------------------------
+    # Reject request bodies larger than this with 413, so a single oversized
+    # payload cannot exhaust memory. Generous for a JSON API.
+    MAX_REQUEST_BODY_BYTES: int = Field(default=2 * 1024 * 1024)  # 2 MB
+
+    # --- AI endpoint rate limiting (Sprint 25) --------------------------
+    # A per-user cap on the expensive AI/generation endpoints, reusing the auth
+    # rate limiter's abstraction. Defaults are deliberately generous so a normal
+    # user is never affected; the point is to bound cost/abuse.
+    AI_RATE_LIMIT_ENABLED: bool = Field(default=True)
+    AI_RATE_LIMIT_ATTEMPTS: int = Field(default=60)
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60)
 
     # --- Email verification / password reset (Sprint 18.1A) --------------
     # Verification uses a short numeric code (entered in the UI); password
@@ -121,6 +155,38 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
+
+    @property
+    def is_production(self) -> bool:
+        """True in any non-``development`` environment.
+
+        The single place the environment gate is defined, so security features
+        that must only apply to a real deployment (HSTS, the CORS wildcard
+        refusal) all read the same predicate.
+        """
+        return self.ENVIRONMENT.strip().lower() != "development"
+
+    @model_validator(mode="after")
+    def _require_explicit_cors_origins_in_production(self) -> "Settings":
+        """Fail fast when a wildcard CORS origin is used outside development.
+
+        A wildcard origin (``*``) combined with the API's credentialed requests
+        would let any site talk to a production deployment. Development keeps the
+        permissive default for convenience; any other environment must list its
+        real origins explicitly, and the application refuses to start otherwise —
+        an invalid production CORS configuration is caught at boot, not at the
+        first cross-origin request.
+        """
+        if (
+            self.ENVIRONMENT.strip().lower() != "development"
+            and "*" in self.CORS_ORIGINS
+        ):
+            raise ValueError(
+                "CORS_ORIGINS must list explicit origins in non-development "
+                f"environments (ENVIRONMENT={self.ENVIRONMENT!r}); the wildcard "
+                "'*' is not permitted outside development."
+            )
+        return self
 
     @model_validator(mode="after")
     def _require_secure_jwt_secret_outside_development(self) -> "Settings":

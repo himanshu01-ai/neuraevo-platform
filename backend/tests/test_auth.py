@@ -293,8 +293,10 @@ class RefreshAndRevocationTests(AuthServiceTestBase):
             self.service.refresh("not.a.jwt")
 
     def test_expired_refresh_token_rejected(self):
+        # Expired well beyond the JWT clock-skew leeway (Sprint 25), so this still
+        # asserts expiry rejection rather than landing inside the skew window.
         expired = create_refresh_token(
-            str(self.user.id), expires_delta=timedelta(seconds=-1)
+            str(self.user.id), expires_delta=timedelta(minutes=-5)
         )
         with self.assertRaises(InvalidTokenError):
             self.service.refresh(expired)
