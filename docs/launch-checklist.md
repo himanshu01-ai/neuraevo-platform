@@ -21,7 +21,7 @@ incident response once you are live.
 
 ## 1. Infrastructure
 
-- [ ] Render Blueprint launched from [`infrastructure/render/render.yaml`](../infrastructure/render/render.yaml); it created `neuraevo-api` (web) and `neuraevo-db` (Postgres 16).
+- [ ] Render Blueprint launched from the repo-root [`render.yaml`](../render.yaml); it created `neuraevo-api` (web) and `neuraevo-db` (Postgres 18).
 - [ ] Confirm the pinned plan slugs (`starter` web, `basic-256mb` db) are still valid Render plans, and sized for expected load.
 - [ ] `neuraevo-api` is on an **always-on** plan (not free) — no cold starts for an API.
 - [ ] **(blocker)** `numInstances: 1` is preserved and no extra uvicorn workers are added — the auth/AI rate limiter and workflow runtime keep per-process state; scaling out or adding workers splits it.

@@ -17,7 +17,7 @@ the application in this repository — no speculative services.
                                             └────────────────────────┘
 ```
 
-- **Backend API + database → Render**, declared in [`render/render.yaml`](render/render.yaml).
+- **Backend API + database → Render**, declared in the repo-root [`render.yaml`](../render.yaml) (Render discovers Blueprints only at the repository root).
 - **Frontend → Vercel** (recommended; Next.js-native). A container image is also
   provided for self-hosting — see [`docker/frontend.Dockerfile`](docker/frontend.Dockerfile).
 
@@ -31,7 +31,7 @@ Deployment documentation set:
 
 | Path | Purpose |
 |---|---|
-| `render/render.yaml` | Render Blueprint: backend web service + managed PostgreSQL |
+| `../render.yaml` | Render Blueprint (at the repo root): backend web service + managed PostgreSQL |
 | `docker/backend.Dockerfile` | Production backend image (Python 3.12, non-root) |
 | `docker/frontend.Dockerfile` | Production frontend image (Node 22, multi-stage, non-root) |
 | `../backend/docker-entrypoint.sh` | Container entrypoint: DB-scheme normalise → migrate → serve |

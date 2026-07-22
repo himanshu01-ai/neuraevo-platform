@@ -246,8 +246,8 @@ database:
 
 | Component | Host | Defined by |
 |---|---|---|
-| Backend API (FastAPI/uvicorn) | Render — Docker web service | `infrastructure/docker/backend.Dockerfile`, `infrastructure/render/render.yaml` |
-| PostgreSQL (vanilla) | Render — managed database | `infrastructure/render/render.yaml` |
+| Backend API (FastAPI/uvicorn) | Render — Docker web service | `infrastructure/docker/backend.Dockerfile`, `render.yaml` |
+| PostgreSQL (vanilla) | Render — managed database | `render.yaml` |
 | Frontend (Next.js 15 SSR) | Vercel (recommended) | Vercel project; or `infrastructure/docker/frontend.Dockerfile` to self-host |
 
 The browser talks to the frontend, and — because the API base URL is a public,
@@ -272,10 +272,11 @@ backend is the only thing that talks to Postgres.
 
 ## Backend on Render
 
-`render.yaml` is a Blueprint: connect the repo in the Render dashboard
-(**New → Blueprint**) or run `render blueprint launch`. It creates:
+`render.yaml` (at the repository root, per Render's discovery convention) is a
+Blueprint: connect the repo in the Render dashboard (**New → Blueprint**) or run
+`render blueprint launch`. It creates:
 
-- `neuraevo-db` — managed PostgreSQL 16.
+- `neuraevo-db` — managed PostgreSQL 18.
 - `neuraevo-api` — the backend, built from `backend.Dockerfile`.
 
 On each deploy the container entrypoint (`backend/docker-entrypoint.sh`):

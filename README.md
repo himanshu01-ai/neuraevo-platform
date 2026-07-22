@@ -65,8 +65,8 @@ not just documented (see [`CLAUDE.md`](CLAUDE.md) for the full rules).
   (optional Browser capability).
 - **Frontend:** Next.js 15, TypeScript, TanStack Query, React Hook Form + Zod,
   Framer Motion, Tailwind-based design system, Vitest.
-- **Infrastructure:** Docker, Nginx, Render; Prometheus scrape config under
-  `infrastructure/monitoring/`.
+- **Infrastructure:** Docker (backend & frontend images) and Render — the
+  Blueprint (`render.yaml`) lives at the repository root.
 
 ---
 
@@ -91,8 +91,9 @@ NeuraEvo/
 │   ├── features/            Feature-sliced modules
 │   ├── services/            Backend/mock service adapters
 │   └── docs/                Frontend design & engineering guides
-├── docs/                    Architecture, ADRs, deployment
-└── infrastructure/          Docker, Nginx, Render, monitoring
+├── docs/                    Architecture, ADRs, deployment, runbook, checklist
+├── infrastructure/          Backend & frontend Dockerfiles + infra README
+└── render.yaml              Render Blueprint (repo root — Render's discovery convention)
 ```
 
 ---
