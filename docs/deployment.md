@@ -221,8 +221,135 @@ deployment normally sets:
 - **Chromium is large.** Roughly 150 MB on top of the image, plus its shared
   libraries. Budget for it, or leave Browser out deliberately.
 - **`JWT_SECRET_KEY` defaults to a development value.** Set it, or every
-  deployment shares a signing key.
-- **The infrastructure directory is a scaffold.** `infrastructure/docker`,
-  `nginx`, `render` and `monitoring` contain empty placeholder files. The
-  Dockerfile fragment above is what the backend image needs, not a description of
-  one that exists.
+  deployment shares a signing key. The Render Blueprint generates one
+  automatically (`generateValue: true`).
+
+The rest of this document is the production deployment itself.
+
+---
+
+# Production deployment
+
+The runtime-capability notes above are about what a single backend process can
+*do*. This section is about *running the platform* — the services, how they fit
+together, and how to deploy, configure, and roll them back.
+
+## Architecture
+
+NeuraEvo is a split deployment of two independently shippable units plus a
+database:
+
+| Component | Host | Defined by |
+|---|---|---|
+| Backend API (FastAPI/uvicorn) | Render — Docker web service | `infrastructure/docker/backend.Dockerfile`, `infrastructure/render/render.yaml` |
+| PostgreSQL (vanilla) | Render — managed database | `infrastructure/render/render.yaml` |
+| Frontend (Next.js 15 SSR) | Vercel (recommended) | Vercel project; or `infrastructure/docker/frontend.Dockerfile` to self-host |
+
+The browser talks to the frontend, and — because the API base URL is a public,
+client-inlined value (`NEXT_PUBLIC_API_BASE_URL`) — directly to the backend. The
+backend is the only thing that talks to Postgres.
+
+**Why this shape** (every piece is derived from the code):
+
+- **No Nginx / Prometheus / Grafana / Redis / message broker / worker.** The
+  backend is one stateless FastAPI app: no `/metrics` endpoint, no background
+  worker process, and no scheduler (the `scheduler` service module is a pure,
+  timer-free planning model — no threads, no cron). The platform provides TLS,
+  routing, and metrics.
+- **Vanilla PostgreSQL.** No `pgvector` column or Qdrant call exists at runtime;
+  the schema is the 12 Alembic migrations under `backend/alembic/versions/`.
+- **No object storage.** Nothing uses Supabase Storage or S3.
+- **Single instance.** The auth/AI rate limiter and the workflow runtime keep
+  per-process in-memory state. Running more than one instance — or more than one
+  uvicorn worker — would split it, so `render.yaml` pins `numInstances: 1` and a
+  single worker. This is the first constraint to lift (via externalised state) if
+  you ever need to scale out.
+
+## Backend on Render
+
+`render.yaml` is a Blueprint: connect the repo in the Render dashboard
+(**New → Blueprint**) or run `render blueprint launch`. It creates:
+
+- `neuraevo-db` — managed PostgreSQL 16.
+- `neuraevo-api` — the backend, built from `backend.Dockerfile`.
+
+On each deploy the container entrypoint (`backend/docker-entrypoint.sh`):
+
+1. rewrites a `postgresql://` connection string to `postgresql+psycopg://` so it
+   uses psycopg v3 (the installed driver);
+2. runs `alembic upgrade head` (idempotent);
+3. `exec`s uvicorn on `$PORT`.
+
+Render marks the service live once `GET /api/v1/health` returns `200`.
+
+### Required environment variables
+
+The Blueprint wires these; the ones marked **set** must be provided in the Render
+dashboard before the first deploy (the app fails fast in production without them):
+
+| Variable | Source in `render.yaml` | Notes |
+|---|---|---|
+| `DATABASE_URL` | `fromDatabase` (auto) | Injected from `neuraevo-db`. |
+| `ENVIRONMENT` | `value: production` | Enables the production security gates. |
+| `JWT_SECRET_KEY` | `generateValue` (auto) | Strong secret generated once by Render. |
+| `CORS_ORIGINS` | **set** (`sync: false`) | Explicit frontend origin(s). Production refuses `*`. |
+| `ANTHROPIC_API_KEY` | **set** (`sync: false`) | Required for AI generation. |
+| `FRONTEND_BASE_URL` | **set** (`sync: false`) | Public frontend URL, used in email links. |
+
+Every other setting in `backend/app/core/config.py` has a safe default and is
+documented in `backend/.env.example`.
+
+## Frontend on Vercel
+
+Vercel is the recommended host — it builds and serves Next.js natively and makes
+the build-time public env var trivial:
+
+1. Import the repo into Vercel; set the project root to `frontend/`.
+2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL, e.g.
+   `https://neuraevo-api.onrender.com/api/v1`. (`NEXT_PUBLIC_*` values are inlined
+   at build time, so this must be set before the build.)
+3. Deploy. Optionally set the other `NEXT_PUBLIC_*_ADAPTER` switches from
+   `frontend/.env.example` — all default to `backend`.
+
+**Self-hosting alternative.** To avoid a second vendor, build
+`infrastructure/docker/frontend.Dockerfile` and run it on any container platform
+(including Render as a second Docker service), passing the API URL as a build arg:
+
+```bash
+docker build -f infrastructure/docker/frontend.Dockerfile \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://<api-host>/api/v1 ./frontend
+```
+
+Set `CORS_ORIGINS` on the backend to the resulting frontend origin.
+
+## Deploy workflow
+
+1. **First deploy:** launch the Blueprint → set the three `sync: false` backend
+   variables → deploy. The database migrates automatically on container start.
+2. **Frontend:** deploy to Vercel with `NEXT_PUBLIC_API_BASE_URL` pointing at the
+   backend, then set the backend's `CORS_ORIGINS` to the frontend origin.
+3. **Subsequent deploys:** push to the tracked branch. `autoDeploy` rebuilds the
+   backend and applies any new migrations via the entrypoint; Vercel rebuilds the
+   frontend.
+
+## Rollback
+
+- **Backend:** use Render's **Rollback** to redeploy a previous image. Note that
+  Alembic migrations are **not** auto-reversed — a rollback that must also revert
+  a schema change needs `alembic downgrade` run against the database (all 12
+  migrations define `downgrade()`). Prefer forward-fixes; treat destructive
+  migrations with care.
+- **Frontend:** Vercel keeps immutable deployments — promote a previous one
+  instantly. It has no database coupling.
+
+## Operational notes
+
+- **Health:** `GET /api/v1/health` (liveness, constant-time). `GET
+  /api/v1/health/capabilities` reports which runtime capabilities the host can run.
+- **Logs:** the app logs one structured access line per request with a correlation
+  id (`X-Request-ID`, echoed on every response). Use Render's log stream.
+- **Migrations block startup:** a failing migration fails the deploy (the
+  container exits before serving) rather than serving a half-migrated schema.
+- **Scaling:** vertical only for now (see the single-instance constraint above).
+- **Browser capability** is off by default in the image (Chromium is not
+  installed); the platform reports it as `unavailable`, which is not an error.
