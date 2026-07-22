@@ -19,6 +19,8 @@ from typing import List, Optional
 
 from app.models.user import User
 from app.models.workflow_execution import WorkflowExecution
+from app.services.collaboration.activity_recorder import ActivityRecorder
+from app.services.collaboration.notification_emitter import NotificationEmitter
 from app.services.runtime.capability_contracts import validate_inputs
 from app.services.runtime.workflow_coordinator import WorkflowCoordinator
 from app.services.runtime.workflow_models import WorkflowExecutionResult, WorkflowStep
@@ -37,7 +39,13 @@ from app.services.workflow_service import (
     WorkflowValidationError,
 )
 from app.services.workflow_translation import WorkflowTranslationError, translate_graph
-from app.utils.constants import WorkflowStatus
+from app.utils.constants import (
+    ActivityActorType,
+    ActivityKind,
+    CollaborationResourceType,
+    NotificationType,
+    WorkflowStatus,
+)
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -73,11 +81,21 @@ class WorkflowExecutionService:
         session,
         coordinator: WorkflowCoordinator,
         history: Optional[WorkflowExecutionHistoryService] = None,
+        activity_recorder: Optional[ActivityRecorder] = None,
+        notifier: Optional[NotificationEmitter] = None,
     ) -> None:
         self.session = session
         self.coordinator = coordinator
         self.workflows = WorkflowService(session)
         self.history = history
+        #: Optional cross-domain emission, injected by the DI factory so every
+        #: run appears on the workflow's platform timeline and a failed run
+        #: reaches the owner's inbox (Sprint 23). Named ``activity_recorder`` to
+        #: avoid confusion with the per-step timing ``recorder`` this service
+        #: already threads through execution. Left ``None`` in bare
+        #: constructions (tests, nested composition) so nothing is emitted.
+        self.activity_recorder = activity_recorder
+        self.notifier = notifier
 
     def execute_workflow(
         self,
@@ -191,7 +209,49 @@ class WorkflowExecutionService:
             trigger=trigger,
             retry_of_execution_id=retry_of_execution_id,
         )
+        self._emit_run(owner, workflow_id, result)
         return TrackedExecution(result=result, execution=execution)
+
+    # --- Cross-domain emission (best-effort) -----------------------------
+
+    def _emit_run(
+        self,
+        owner: User,
+        workflow_id: uuid.UUID,
+        result: WorkflowExecutionResult,
+    ) -> None:
+        """Record the run on the workflow's timeline and, on failure, notify.
+
+        Best-effort and after history is committed: the collaboration recorder
+        and emitter each swallow their own failures, so a timeline or inbox
+        problem never affects the run that already happened. Emits nothing when
+        no recorder/notifier was injected (bare or nested construction).
+        """
+        completed = result.workflow_status == _COMPLETED
+        steps = f"{result.completed_step_count}/{result.total_step_count} steps"
+        if self.activity_recorder is not None:
+            self.activity_recorder.record(
+                CollaborationResourceType.WORKFLOW,
+                workflow_id,
+                ActivityKind.COMPLETED if completed else ActivityKind.UPDATED,
+                f"Run completed ({steps})" if completed else f"Run failed ({steps})",
+                actor_type=ActivityActorType.USER,
+                actor_id=owner.id,
+                owner_user_id=owner.id,
+            )
+        if not completed and self.notifier is not None:
+            # A failed run is worth an inbox entry regardless of who launched it,
+            # so it is attributed to the platform (no human actor).
+            self.notifier.emit(
+                owner.id,
+                NotificationType.WORKFLOW,
+                "A workflow run failed",
+                f"A workflow run stopped after {steps}. Open it to review and retry.",
+                resource_type=CollaborationResourceType.WORKFLOW,
+                resource_id=workflow_id,
+                actor_type=ActivityActorType.SYSTEM,
+                actor_id=None,
+            )
 
     @staticmethod
     def _build_log(

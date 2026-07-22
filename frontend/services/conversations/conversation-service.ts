@@ -2,6 +2,7 @@ import { env } from "@/lib/env";
 import { BackendConversationsAdapter } from "./backend-adapter";
 import { MockConversationsAdapter } from "./mock-adapter";
 import type {
+  ConversationActionInput,
   ConversationApprovalDecision,
   ConversationDraft,
   ConversationSearchQuery,
@@ -33,6 +34,8 @@ export const conversationService = {
   setStatus: (id: string, status: ConversationStatus) => adapter.setStatus(id, status),
   messages: (id: string) => adapter.messages(id),
   send: (id: string, outgoing: OutgoingMessage) => adapter.send(id, outgoing),
+  createAction: (id: string, action: ConversationActionInput) =>
+    adapter.createAction(id, action),
   togglePinned: (id: string) => adapter.togglePinned(id),
   markRead: (id: string) => adapter.markRead(id),
   setShared: (id: string, shared: boolean) => adapter.setShared(id, shared),

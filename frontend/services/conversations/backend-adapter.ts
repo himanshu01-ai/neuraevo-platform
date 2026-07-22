@@ -12,6 +12,8 @@ import {
 } from "./mapping";
 import {
   ConversationError,
+  type ConversationActionInput,
+  type ConversationActionReceipt,
   type ConversationApprovalDecision,
   type ConversationDetail,
   type ConversationDraft,
@@ -25,6 +27,15 @@ import {
   type SendReceipt,
   type Suggestion,
 } from "./types";
+
+/** The shape the `POST /conversations/{id}/actions` endpoint answers with. */
+const actionSchema = z.object({
+  task_id: z.string(),
+  business_id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  employee_id: z.string().nullable().optional(),
+});
 
 /**
  * Real conversation adapter, backed by the FastAPI Conversation Hub. Implements
@@ -173,6 +184,36 @@ export class BackendConversationsAdapter implements ConversationsAdapter {
       };
     } catch (error) {
       throw toConversationError(error, "That message couldn't be sent.");
+    }
+  }
+
+  /**
+   * Carry out a confirmed action. The backend creates a real task through the
+   * one Task Engine, carried by the conversation's employee, and records the
+   * activity + notification — so the work is linked and visible, not a detached
+   * call. The confirmation gate is upheld by the caller before this runs.
+   */
+  async createAction(
+    id: string,
+    action: ConversationActionInput
+  ): Promise<ConversationActionReceipt> {
+    try {
+      const raw = await request<unknown>(
+        `/conversations/${encodeURIComponent(id)}/actions`,
+        {
+          method: "POST",
+          body: { label: action.label.trim(), summary: action.summary.trim() },
+        }
+      );
+      const created = parseOrThrow(actionSchema, raw);
+      return {
+        taskId: created.task_id,
+        businessId: created.business_id,
+        name: created.name,
+        status: created.status,
+      };
+    } catch (error) {
+      throw toConversationError(error, "That action couldn't be carried out.");
     }
   }
 

@@ -48,6 +48,31 @@ class ConversationTurnResponse(BaseModel):
     assistant_message: MessageResponse
 
 
+class ConversationActionRequest(BaseModel):
+    """A confirmed action to carry out for a conversation (Sprint 23).
+
+    Raised after the user approves an action the assistant proposed. ``label`` is
+    the action's title (e.g. "Send email", "Create task") and ``summary`` is a
+    one-line paraphrase of what was asked. The platform turns the confirmed
+    request into a real task, carried by the conversation's employee, so the work
+    lands in the workspace rather than being a side effect the conversation
+    fabricates.
+    """
+
+    label: str = Field(min_length=1, max_length=120)
+    summary: str = Field(min_length=1, max_length=280)
+
+
+class ConversationActionResponse(BaseModel):
+    """The task a confirmed conversation action created."""
+
+    task_id: uuid.UUID
+    business_id: str
+    name: str
+    status: str
+    employee_id: Optional[uuid.UUID] = None
+
+
 class ConversationSummaryResponse(BaseModel):
     """A conversation with the display facts a list or header needs.
 

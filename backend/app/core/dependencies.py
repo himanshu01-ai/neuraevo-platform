@@ -45,6 +45,7 @@ from app.services.conversation_context_service import (
 from app.services.conversation_generation_service import (
     ConversationGenerationService,
 )
+from app.services.conversation_action_service import ConversationActionService
 from app.services.conversation_service import ConversationService
 from app.services.conversation_turn_service import ConversationTurnService
 from app.services.memory_context_service import MemoryContextService
@@ -337,6 +338,8 @@ def get_workflow_execution_service(
         session,
         get_workflow_coordinator(),
         WorkflowExecutionHistoryService(session),
+        ActivityRecorder(session),
+        NotificationEmitter(session),
     )
 
 
@@ -357,9 +360,16 @@ def get_task_service(session: SessionDep) -> TaskService:
     Composed over the existing Sprint 18.6 execution service (built through
     its own provider, coordinator and all), so a task launches runs through
     the one existing pipeline. The task service instantiates no runtime
-    collaborator itself.
+    collaborator itself. Sprint 23 also injects the collaboration
+    :class:`ActivityRecorder`/:class:`NotificationEmitter` so a task's
+    lifecycle feeds the platform timeline and inbox.
     """
-    return TaskService(session, get_workflow_execution_service(session))
+    return TaskService(
+        session,
+        get_workflow_execution_service(session),
+        ActivityRecorder(session),
+        NotificationEmitter(session),
+    )
 
 
 def get_memory_link_service(session: SessionDep) -> MemoryLinkService:
@@ -496,8 +506,14 @@ def get_blueprint_restore_service(
 
 
 def get_conversation_service(session: SessionDep) -> ConversationService:
-    """Provide a :class:`ConversationService` bound to the session."""
-    return ConversationService(session)
+    """Provide a :class:`ConversationService` bound to the session.
+
+    Sprint 23 injects the collaboration :class:`ActivityRecorder` so starting a
+    conversation appears on the platform timeline; the nested construction inside
+    :class:`ConversationTurnService` stays recorder-less so an event is recorded
+    once, by this API-path owner.
+    """
+    return ConversationService(session, ActivityRecorder(session))
 
 
 def get_message_service(session: SessionDep) -> MessageService:
@@ -4030,6 +4046,27 @@ def get_conversation_turn_service(
     return ConversationTurnService(session, generation)
 
 
+def get_conversation_action_service(
+    session: SessionDep,
+) -> ConversationActionService:
+    """Provide the Sprint 23 :class:`ConversationActionService`.
+
+    The backend conversation orchestrator: it composes a *silent*
+    :class:`TaskService` (no recorder/notifier of its own) with the reused
+    :class:`ConversationService` ownership chain and the collaboration
+    :class:`ActivityRecorder`/:class:`NotificationEmitter`, so a confirmed
+    conversational action becomes a real task — carried by the conversation's
+    employee, recorded on the timeline, and announced in the inbox — with the
+    task-created event emitted once, here, as the employee's doing.
+    """
+    return ConversationActionService(
+        session,
+        TaskService(session),
+        ActivityRecorder(session),
+        NotificationEmitter(session),
+    )
+
+
 def get_interview_question_service(
     session: SessionDep,
 ) -> InterviewQuestionService:
@@ -4138,6 +4175,9 @@ ConversationContextServiceDep = Annotated[
 ConversationGenerationServiceDep = Annotated[
     ConversationGenerationService,
     Depends(get_conversation_generation_service),
+]
+ConversationActionServiceDep = Annotated[
+    ConversationActionService, Depends(get_conversation_action_service)
 ]
 ConversationTurnServiceDep = Annotated[
     ConversationTurnService, Depends(get_conversation_turn_service)

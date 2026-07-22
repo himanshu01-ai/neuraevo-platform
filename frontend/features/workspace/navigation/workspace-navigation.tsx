@@ -40,7 +40,7 @@ export function WorkspaceNavigation({
         ))}
       </div>
 
-      {footer ? (
+      {footer && footer.length > 0 ? (
         <ul className="space-y-0.5 border-t pt-3">
           {footer.map((item) => (
             <li key={item.id}>

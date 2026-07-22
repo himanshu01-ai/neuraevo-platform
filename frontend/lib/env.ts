@@ -38,10 +38,16 @@ const envSchema = z.object({
   /**
    * Which memory-integration adapter the app runs against. `backend` (default)
    * talks to the FastAPI memory-link endpoints; `mock` keeps an offline adapter
-   * for UI-only work. Governs the task/workflow memory-link surface — the
-   * standalone memory *workspace* is a separate visualisation on its own mock.
+   * for UI-only work. Governs the task/workflow memory-link surface.
    */
   NEXT_PUBLIC_MEMORY_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
+  /**
+   * Which adapter the standalone memory *workspace* runs against. `backend`
+   * (default, Sprint 23) shows the user's real memories via the Memory Engine's
+   * `GET /memories`, with the workspace's richer surfaces derived from those
+   * real records; `mock` keeps the Sprint 17 offline fixtures for UI-only work.
+   */
+  NEXT_PUBLIC_MEMORY_WORKSPACE_ADAPTER: z.enum(["backend", "mock"]).default("backend"),
   /**
    * Which conversations adapter the app runs against. `backend` (default) talks
    * to the FastAPI Conversation Hub (text and voice turns); `mock` keeps the
@@ -65,6 +71,7 @@ const parsed = envSchema.safeParse({
   NEXT_PUBLIC_WORKFLOWS_ADAPTER: process.env.NEXT_PUBLIC_WORKFLOWS_ADAPTER,
   NEXT_PUBLIC_TASKS_ADAPTER: process.env.NEXT_PUBLIC_TASKS_ADAPTER,
   NEXT_PUBLIC_MEMORY_ADAPTER: process.env.NEXT_PUBLIC_MEMORY_ADAPTER,
+  NEXT_PUBLIC_MEMORY_WORKSPACE_ADAPTER: process.env.NEXT_PUBLIC_MEMORY_WORKSPACE_ADAPTER,
   NEXT_PUBLIC_CONVERSATIONS_ADAPTER: process.env.NEXT_PUBLIC_CONVERSATIONS_ADAPTER,
   NEXT_PUBLIC_COLLABORATION_ADAPTER: process.env.NEXT_PUBLIC_COLLABORATION_ADAPTER,
 });

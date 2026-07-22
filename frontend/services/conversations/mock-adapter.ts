@@ -9,6 +9,8 @@ import {
 } from "./fixtures";
 import {
   ConversationError,
+  type ConversationActionInput,
+  type ConversationActionReceipt,
   type ConversationApprovalDecision,
   type ConversationDetail,
   type ConversationDraft,
@@ -286,6 +288,28 @@ export class MockConversationsAdapter implements ConversationsAdapter {
     // the window the typing indicator fills. Animation timing, not generation.
     await delay(REPLY_LATENCY_MS);
     return { userMessage: copy(userMessage), assistantMessage: copy(assistantMessage) };
+  }
+
+  /**
+   * Carry out a confirmed action. Offline, this synthesises the task receipt the
+   * backend would return — no task store to write to here — so the voice
+   * approval flow stays exercisable in the mock. The real linking, activity, and
+   * notification are the backend adapter's.
+   */
+  async createAction(
+    id: string,
+    action: ConversationActionInput
+  ): Promise<ConversationActionReceipt> {
+    await delay();
+    const rows = readConversations();
+    findConversation(rows, id); // asserts the conversation exists (throws if not)
+    const name = `${action.label.trim()}: ${action.summary.trim()}`.replace(/^:\s*|\s*:$/g, "").trim();
+    return {
+      taskId: `tsk_${id}_${Date.now()}`,
+      businessId: "TSK-preview",
+      name: name || action.label.trim(),
+      status: "pending",
+    };
   }
 
   async togglePinned(id: string): Promise<ConversationSummary> {

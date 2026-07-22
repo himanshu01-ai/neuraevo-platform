@@ -343,6 +343,28 @@ export interface SendReceipt {
   assistantMessage: ConversationMessage;
 }
 
+/**
+ * A user-approved action to carry out for a conversation. Raised after the
+ * confirmation gate: `label` is the action's title ("Send email", "Create
+ * task") and `summary` paraphrases what was asked.
+ */
+export interface ConversationActionInput {
+  label: string;
+  summary: string;
+}
+
+/**
+ * What carrying out a confirmed action returns: the real task the platform
+ * created, carried by the conversation's employee. Enough for the UI to
+ * acknowledge it and refresh the task list.
+ */
+export interface ConversationActionReceipt {
+  taskId: string;
+  businessId: string;
+  name: string;
+  status: string;
+}
+
 /** What the UI sends when a reviewer decides an in-thread approval. */
 export interface ConversationApprovalDecision {
   conversationId: string;
@@ -473,6 +495,12 @@ export interface ConversationsAdapter {
   messages(id: string): Promise<ConversationMessage[]>;
   /** Appends the user message and the employee's scripted reply. */
   send(id: string, outgoing: OutgoingMessage): Promise<SendReceipt>;
+  /**
+   * Carry out a user-approved action: the platform creates a real task carried
+   * by the conversation's employee, recorded on the timeline and announced in
+   * the inbox. Replaces the old detached `taskService.create` call.
+   */
+  createAction(id: string, action: ConversationActionInput): Promise<ConversationActionReceipt>;
   togglePinned(id: string): Promise<ConversationSummary>;
   markRead(id: string): Promise<ConversationSummary>;
   setShared(id: string, shared: boolean): Promise<ConversationSummary>;

@@ -7,7 +7,7 @@ import {
   conversationService,
   type ConversationMessage,
 } from "@/services/conversations";
-import { taskKeys, taskService } from "@/services/tasks";
+import { taskKeys } from "@/services/tasks";
 import {
   useSpeechInput,
   useSpeechOutput,
@@ -85,9 +85,6 @@ export interface VoiceSession {
   toggleOutput: () => void;
   end: () => void;
 }
-
-const MEDIUM = "MEDIUM" as const;
-const MANUAL = "MANUAL" as const;
 
 export function useVoiceSession(conversationId: string): VoiceSession {
   const queryClient = useQueryClient();
@@ -246,21 +243,18 @@ export function useVoiceSession(conversationId: string): VoiceSession {
   }, [speechIn.listening, speechIn.transcript, submit]);
 
   // --- executor seam: an approved action creates a real task -----------
+  //
+  // The task is created by the backend Conversation Orchestrator, not a
+  // detached `taskService.create`: it is carried by this conversation's
+  // employee, recorded on the platform timeline, and announced in the inbox —
+  // so voice-started work is linked and visible everywhere, not orphaned.
 
   const createTask = useMutation({
-    mutationFn: (name: string) =>
-      taskService.create({
-        id: null,
-        name,
-        description: "Created from a voice session.",
-        priority: MEDIUM,
-        executionMode: MANUAL,
-        workflowId: null,
-        employeeId: null,
-      }),
-    onSuccess: (task) => {
+    mutationFn: (action: { label: string; summary: string }) =>
+      conversationService.createAction(conversationId, action),
+    onSuccess: (receipt) => {
       void queryClient.invalidateQueries({ queryKey: taskKeys.lists });
-      setExecution({ label: `Created ${task.businessId}`, active: false });
+      setExecution({ label: `Created ${receipt.businessId}`, active: false });
       emit("EXECUTE_DONE");
       speakThenAdvance(`Done — I've created a task to ${lower(pendingAction?.label)}.`);
       setPendingAction(null);
@@ -294,7 +288,7 @@ export function useVoiceSession(conversationId: string): VoiceSession {
     if (!action) return;
     emit("APPROVE"); // waiting_permission → executing
     setExecution({ label: `${action.label}…`, active: true });
-    createTask.mutate(`${action.label}: ${action.summary}`);
+    createTask.mutate({ label: action.label, summary: action.summary });
   }, [emit, pendingAction, createTask]);
 
   const deny = useCallback(() => {

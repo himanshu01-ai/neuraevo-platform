@@ -26,6 +26,8 @@ from app.models.user import User
 from app.models.workflow_execution import WorkflowExecution
 from app.repositories.task_repository import TaskRepository
 from app.schemas.task import TaskCreate, TaskUpdate
+from app.services.collaboration.activity_recorder import ActivityRecorder
+from app.services.collaboration.notification_emitter import NotificationEmitter
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
     EmployeeNotFoundError,
@@ -44,7 +46,13 @@ from app.services.workflow_service import (
     WorkflowNotFoundError,
     WorkflowService,
 )
-from app.utils.constants import TaskStatus
+from app.utils.constants import (
+    ActivityActorType,
+    ActivityKind,
+    CollaborationResourceType,
+    NotificationType,
+    TaskStatus,
+)
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -128,12 +136,20 @@ class TaskService:
         self,
         session,
         execution_service: Optional[WorkflowExecutionService] = None,
+        recorder: Optional[ActivityRecorder] = None,
+        notifier: Optional[NotificationEmitter] = None,
     ) -> None:
         self.session = session
         self.tasks = TaskRepository(session)
         self.workflows = WorkflowService(session)
         self.employees = EmployeeService(session)
         self.execution_service = execution_service
+        #: Optional cross-domain emission, injected by the DI factory so the API
+        #: path feeds the platform timeline and inbox (Sprint 23). Left ``None``
+        #: when this service is composed inside another (e.g. the conversation
+        #: orchestrator), so an event is emitted once, by the outer owner.
+        self.recorder = recorder
+        self.notifier = notifier
 
     # --- Creation --------------------------------------------------------
 
@@ -162,6 +178,12 @@ class TaskService:
         self.session.commit()
         self.session.refresh(task)
         logger.info("User %s created task %s", owner.id, task.id)
+        self._record(
+            task,
+            ActivityKind.CREATED,
+            f"Created task {task.business_id}: {task.name}",
+            actor_id=owner.id,
+        )
         return task
 
     # --- Reads -----------------------------------------------------------
@@ -445,6 +467,85 @@ class TaskService:
         )
         self.session.commit()
         self.session.refresh(task)
+
+        if completed:
+            self._record(
+                task,
+                ActivityKind.COMPLETED,
+                f"Run completed ({progress}%)",
+                actor_id=task.user_id,
+            )
+        else:
+            self._record(
+                task,
+                ActivityKind.UPDATED,
+                f"Run failed at {progress}%",
+                actor_id=task.user_id,
+            )
+            # A failed run is worth an inbox entry even when the owner launched
+            # it, so it is attributed to the platform (no human actor) rather
+            # than suppressed as a self-notification.
+            self._notify(
+                task,
+                "A task run failed",
+                f"{task.business_id} didn't finish. Open it to review and retry.",
+                actor_type=ActivityActorType.SYSTEM,
+                actor_id=None,
+            )
+
+    # --- Cross-domain emission (best-effort) -----------------------------
+
+    def _record(
+        self,
+        task: Task,
+        kind: ActivityKind,
+        summary: str,
+        *,
+        actor_id: Optional[uuid.UUID],
+        actor_type: ActivityActorType = ActivityActorType.USER,
+    ) -> None:
+        """Append one task-timeline event when a recorder is attached."""
+        if self.recorder is None:
+            return
+        self.recorder.record(
+            CollaborationResourceType.TASK,
+            task.id,
+            kind,
+            summary,
+            actor_type=actor_type,
+            actor_id=actor_id,
+            owner_user_id=task.user_id,
+        )
+
+    def _notify(
+        self,
+        task: Task,
+        title: str,
+        description: str,
+        *,
+        actor_type: ActivityActorType,
+        actor_id: Optional[uuid.UUID],
+    ) -> None:
+        """Raise an inbox notification for the task's owner (best-effort).
+
+        Never notifies someone of their own action: an actor who is the owner is
+        skipped, so only work done *for* the owner (by an AI employee or the
+        platform) reaches the inbox.
+        """
+        if self.notifier is None:
+            return
+        if actor_id is not None and actor_id == task.user_id:
+            return
+        self.notifier.emit(
+            task.user_id,
+            NotificationType.TASK,
+            title,
+            description,
+            resource_type=CollaborationResourceType.TASK,
+            resource_id=task.id,
+            actor_type=actor_type,
+            actor_id=actor_id,
+        )
 
     def _require_execution_service(self) -> WorkflowExecutionService:
         if self.execution_service is None:  # pragma: no cover - wiring guarantees one

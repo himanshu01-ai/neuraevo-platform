@@ -1,20 +1,16 @@
 import {
   Home,
-  LayoutDashboard,
   ListChecks,
   Bot,
   Brain,
   MessagesSquare,
+  AudioLines,
   ShieldCheck,
   Workflow,
-  BarChart3,
-  Blocks,
   Bell,
   Activity,
   AtSign,
   Users,
-  Settings,
-  CircleHelp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,15 +27,23 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-/** Primary sidebar sections, grouped. Order is canonical across all nav surfaces. */
+/**
+ * Primary sidebar sections, grouped. Order is canonical across all nav surfaces.
+ *
+ * Sprint 23 made this a map of destinations that actually exist: Voice — the
+ * platform's headline interaction — became a first-class entry, and the
+ * placeholder links that only reached a "Coming soon" page (canvas, analytics,
+ * integrations, settings, help) were removed so there are no dead ends. What is
+ * listed here is reachable and real.
+ */
 export const NAV_GROUPS: NavGroup[] = [
   {
     id: "workspace",
     label: "Workspace",
     items: [
       { id: "home", label: "Home", href: "/workspace", icon: Home },
-      { id: "canvas", label: "Workspace", href: "/workspace/canvas", icon: LayoutDashboard },
       { id: "conversations", label: "Conversations", href: "/workspace/conversations", icon: MessagesSquare },
+      { id: "voice", label: "Voice", href: "/voice", icon: AudioLines },
       { id: "tasks", label: "Tasks", href: "/workspace/tasks", icon: ListChecks },
       { id: "employees", label: "AI Employees", href: "/workspace/employees", icon: Bot },
     ],
@@ -54,18 +58,10 @@ export const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: "insights",
-    label: "Insights",
-    items: [
-      { id: "analytics", label: "Analytics", href: "/workspace/analytics", icon: BarChart3 },
-      { id: "integrations", label: "Integrations", href: "/workspace/integrations", icon: Blocks },
-      { id: "notifications", label: "Notifications", href: "/workspace/collaboration", icon: Bell },
-    ],
-  },
-  {
     id: "collaboration",
     label: "Collaboration",
     items: [
+      { id: "notifications", label: "Notifications", href: "/workspace/collaboration", icon: Bell },
       { id: "activity", label: "Activity", href: "/workspace/collaboration/activity", icon: Activity },
       { id: "mentions", label: "Mentions", href: "/workspace/collaboration/mentions", icon: AtSign },
       { id: "team", label: "Team activity", href: "/workspace/collaboration/team", icon: Users },
@@ -73,11 +69,12 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-/** Pinned to the bottom of the sidebar. */
-export const NAV_FOOTER: NavItem[] = [
-  { id: "settings", label: "Settings", href: "/workspace/settings", icon: Settings },
-  { id: "help", label: "Help", href: "/workspace/help", icon: CircleHelp },
-];
+/**
+ * Pinned to the bottom of the sidebar. Empty for now: the Settings and Help
+ * destinations aren't built yet, and Sprint 23 removed the placeholder links
+ * rather than leave them pointing at a "Coming soon" page.
+ */
+export const NAV_FOOTER: NavItem[] = [];
 
 /** Flat list of every navigable item. */
 export const ALL_NAV_ITEMS: NavItem[] = [...NAV_GROUPS.flatMap((g) => g.items), ...NAV_FOOTER];

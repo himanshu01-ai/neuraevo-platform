@@ -13,10 +13,16 @@ from app.models.conversation import Conversation
 from app.models.user import User
 from app.repositories.conversation_repository import ConversationRepository
 from app.schemas.conversation import ConversationCreate, ConversationUpdate
+from app.services.collaboration.activity_recorder import ActivityRecorder
 from app.services.employee_service import (
     EmployeeAccessDeniedError,
     EmployeeNotFoundError,
     EmployeeService,
+)
+from app.utils.constants import (
+    ActivityActorType,
+    ActivityKind,
+    CollaborationResourceType,
 )
 from app.utils.logger import get_logger
 
@@ -39,11 +45,18 @@ class ConversationService:
     :class:`EmployeeService` (User -> Employee chain).
     """
 
-    def __init__(self, session) -> None:
+    def __init__(
+        self, session, recorder: Optional[ActivityRecorder] = None
+    ) -> None:
         self.session = session
         self.conversations = ConversationRepository(session)
         # Reused for the User -> Employee ownership chain.
         self.employees = EmployeeService(session)
+        #: Optional platform-timeline emission, injected by the DI factory so the
+        #: API path records when a conversation begins (Sprint 23). Left ``None``
+        #: when composed inside another service (e.g. the turn service), so an
+        #: event is recorded once, by the API-path owner.
+        self.recorder = recorder
 
     def create_conversation(
         self, owner: User, employee_id: uuid.UUID, data: ConversationCreate
@@ -59,6 +72,16 @@ class ConversationService:
             conversation.id,
             employee.id,
         )
+        if self.recorder is not None:
+            self.recorder.record(
+                CollaborationResourceType.CONVERSATION,
+                conversation.id,
+                ActivityKind.CREATED,
+                f"Started a conversation with {employee.name}",
+                actor_type=ActivityActorType.USER,
+                actor_id=owner.id,
+                owner_user_id=owner.id,
+            )
         return conversation
 
     def list_conversations(

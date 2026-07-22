@@ -34,6 +34,8 @@ export {
   type ArtifactPayload,
   type Attachment,
   type AttachmentKind,
+  type ConversationActionInput,
+  type ConversationActionReceipt,
   type ConversationApprovalDecision,
   type ConversationArtifactKind,
   type ConversationDetail,

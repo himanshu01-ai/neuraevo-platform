@@ -2,6 +2,7 @@
  * Public surface of the Voice Experience feature. Routes compose from here.
  */
 export { VoiceExperience } from "./components/voice-experience";
+export { VoiceLanding } from "./components/voice-landing";
 export { useVoiceSession, type VoiceSession, type ExecutionStatus } from "./hooks/use-voice-session";
 export {
   VOICE_STATES,

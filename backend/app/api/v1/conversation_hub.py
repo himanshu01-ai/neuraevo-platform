@@ -24,6 +24,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status
 
 from app.core.dependencies import (
+    ConversationActionServiceDep,
     ConversationServiceDep,
     ConversationTurnServiceDep,
     CurrentUserDep,
@@ -32,6 +33,8 @@ from app.core.dependencies import (
 from app.models.conversation import Conversation
 from app.schemas.conversation import ConversationUpdate
 from app.schemas.conversation_hub import (
+    ConversationActionRequest,
+    ConversationActionResponse,
     ConversationHubCreate,
     ConversationListResponse,
     ConversationSummaryResponse,
@@ -303,4 +306,47 @@ def run_turn(
     return ConversationTurnResponse(
         user_message=MessageResponse.model_validate(user_message),
         assistant_message=MessageResponse.model_validate(assistant_message),
+    )
+
+
+@router.post(
+    "/{conversation_id}/actions",
+    response_model=ConversationActionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Carry out a confirmed conversation action (creates a linked task)",
+    responses=_RESPONSES,
+)
+def create_conversation_action(
+    conversation_id: uuid.UUID,
+    data: ConversationActionRequest,
+    current_user: CurrentUserDep,
+    service: ConversationActionServiceDep,
+) -> ConversationActionResponse:
+    """Turn a user-approved action into a real task carried by the employee.
+
+    Called after the user confirms an action the assistant proposed. The task
+    is created by the one Task Engine, carried by the conversation's employee,
+    recorded on both the task's and the conversation's timelines, and announced
+    in the owner's inbox — so work started in a conversation lands in the
+    workspace and is visible everywhere, rather than being a detached call. The
+    conversation must belong to the caller (``404``); the confirmation itself is
+    the client's, upheld before this endpoint is reached.
+    """
+    try:
+        task = service.create_task_from_conversation(
+            current_user,
+            conversation_id,
+            data.label,
+            data.summary,
+        )
+    except ConversationNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found."
+        )
+    return ConversationActionResponse(
+        task_id=task.id,
+        business_id=task.business_id,
+        name=task.name,
+        status=task.status,
+        employee_id=task.employee_id,
     )
