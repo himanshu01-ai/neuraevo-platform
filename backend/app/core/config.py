@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # --- Application -----------------------------------------------------
     PROJECT_NAME: str = "NeuraEvo"
+    # Semantic version of the public API, surfaced in the OpenAPI document.
+    API_VERSION: str = Field(default="1.0.0")
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=False)
     API_V1_PREFIX: str = "/api/v1"

@@ -11,6 +11,14 @@ from app.services.runtime.capability_dependencies import probe_all
 router = APIRouter(tags=["Health"])
 
 
+class HealthResponse(BaseModel):
+    """Basic liveness — the constant-time answer probes poll."""
+
+    status: str = Field(default="ok", description="ok while the service is live.")
+    service: str = Field(description="The service name.")
+    environment: str = Field(description="The deployment environment.")
+
+
 class CapabilityHealthResponse(BaseModel):
     """One runtime capability's readiness on this host.
 
@@ -36,19 +44,23 @@ class RuntimeHealthResponse(BaseModel):
     capabilities: List[CapabilityHealthResponse]
 
 
-@router.get("/health", summary="Service health check")
-def health_check() -> dict[str, str]:
+@router.get(
+    "/health",
+    response_model=HealthResponse,
+    summary="Service health check",
+)
+def health_check() -> HealthResponse:
     """Return basic liveness information for the service.
 
     Kept to a constant-time answer: liveness probes call this often, so the
     capability audit lives at ``/health/capabilities`` rather than being folded
     in here.
     """
-    return {
-        "status": "ok",
-        "service": settings.PROJECT_NAME,
-        "environment": settings.ENVIRONMENT,
-    }
+    return HealthResponse(
+        status="ok",
+        service=settings.PROJECT_NAME,
+        environment=settings.ENVIRONMENT,
+    )
 
 
 @router.get(

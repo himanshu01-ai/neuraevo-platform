@@ -1,7 +1,8 @@
 """Authentication API endpoints."""
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
+from app.api.cache import no_store
 from app.core.dependencies import AuthServiceDep, CurrentUserDep, RateLimiterDep
 from app.core.config import settings
 from app.schemas.auth import (
@@ -71,7 +72,12 @@ def register(data: RegisterRequest, service: AuthServiceDep) -> UserResponse:
     return UserResponse.model_validate(user)
 
 
-@router.post("/login", response_model=TokenResponse, summary="Log in")
+@router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Log in",
+    dependencies=[Depends(no_store)],
+)
 def login(
     data: LoginRequest,
     service: AuthServiceDep,
@@ -100,7 +106,10 @@ def login(
 
 
 @router.post(
-    "/refresh", response_model=TokenResponse, summary="Refresh access token"
+    "/refresh",
+    response_model=TokenResponse,
+    summary="Refresh access token",
+    dependencies=[Depends(no_store)],
 )
 def refresh(data: RefreshRequest, service: AuthServiceDep) -> TokenResponse:
     try:

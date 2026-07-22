@@ -5,6 +5,7 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from app.api.pagination import PaginationDep
 from app.core.dependencies import (
     CurrentUserDep,
     WorkflowExecutionHistoryServiceDep,
@@ -384,17 +385,18 @@ def list_workflow_executions(
     workflow_id: uuid.UUID,
     current_user: CurrentUserDep,
     history: WorkflowExecutionHistoryServiceDep,
-    skip: int = 0,
-    limit: int = 50,
+    pagination: PaginationDep,
 ) -> WorkflowExecutionListResponse:
     """Return this workflow's runs, newest first (Sprint 18.10).
 
     Summaries only — how each run went, when, and for how long. Fetch one run to
-    see its steps and log.
+    see its steps and log. ``skip``/``limit`` are bounded (Sprint 24): ``skip``
+    is non-negative and ``limit`` is capped, so an out-of-range page is a clear
+    422 rather than a database error.
     """
     try:
         rows, total = history.list_for_workflow(
-            current_user, workflow_id, skip=skip, limit=limit
+            current_user, workflow_id, skip=pagination.skip, limit=pagination.limit
         )
     except (WorkflowNotFoundError, WorkflowAccessDeniedError) as exc:
         raise _to_http_exception(exc)

@@ -9,8 +9,13 @@ import logging
 import sys
 
 from app.core.config import settings
+from app.core.request_context import RequestIdLogFilter
 
-_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+# ``%(request_id)s`` is supplied by ``RequestIdLogFilter`` (Sprint 24), so every
+# line carries the correlation id of the request that produced it — ``-`` outside
+# a request. The filter guarantees the attribute exists, so the format never
+# raises for a record logged before any request.
+_LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(request_id)s | %(name)s | %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 _configured = False
@@ -29,6 +34,9 @@ def configure_logging() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter(fmt=_LOG_FORMAT, datefmt=_DATE_FORMAT))
+    # The filter stamps the correlation id onto every record the handler emits,
+    # so ``%(request_id)s`` in the format always resolves.
+    handler.addFilter(RequestIdLogFilter())
 
     root_logger = logging.getLogger()
     root_logger.handlers.clear()

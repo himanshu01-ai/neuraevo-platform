@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.api.pagination import PaginationDep
 from app.api.v1.workflows import execution_response
 from app.core.dependencies import CurrentUserDep, TaskServiceDep
 from app.models.task import Task
@@ -394,18 +395,19 @@ def list_task_executions(
     task_id: uuid.UUID,
     current_user: CurrentUserDep,
     service: TaskServiceDep,
-    skip: int = 0,
-    limit: int = 50,
+    pagination: PaginationDep,
 ) -> TaskExecutionListResponse:
     """Return this task's runs, newest first.
 
     Summaries only, in the workflow domain's own history shape. Fetch one run
     through ``/workflow-executions/{id}`` to see its steps and log — an
     execution is the same record whichever door it is reached through.
+    ``skip``/``limit`` are bounded (Sprint 24): out-of-range paging is a clear
+    422 rather than a database error.
     """
     try:
         rows, total = service.list_executions(
-            current_user, task_id, skip=skip, limit=limit
+            current_user, task_id, skip=pagination.skip, limit=pagination.limit
         )
     except (TaskNotFoundError, TaskAccessDeniedError) as exc:
         raise _to_http_exception(exc)

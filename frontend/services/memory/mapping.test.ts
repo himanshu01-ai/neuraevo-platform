@@ -103,7 +103,7 @@ describe("derived aggregates", () => {
 
   it("rolls every memory into the one collection", () => {
     const [general] = deriveCollections(rows);
-    expect(general.count).toBe(3);
+    expect(general!.count).toBe(3);
   });
 
   it("builds an OWNS graph linking employees to their memories", () => {
@@ -129,8 +129,8 @@ describe("import validation (pure, client-side)", () => {
       ],
       []
     );
-    expect(candidates[0].issues).toHaveLength(0);
-    expect(candidates[1].issues.some((i) => i.level === "error")).toBe(true);
+    expect(candidates[0]!.issues).toHaveLength(0);
+    expect(candidates[1]!.issues.some((i) => i.level === "error")).toBe(true);
 
     const summary = summariseImport(candidates);
     expect(summary.accepted).toBe(1);
