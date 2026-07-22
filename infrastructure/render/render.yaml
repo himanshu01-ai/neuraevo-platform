@@ -16,8 +16,8 @@ databases:
     # Smallest paid Postgres tier — raise for production load. Verify the exact
     # plan slug against current Render plans before launch (they change over time).
     plan: basic-256mb
-    postgresMajorVersion: "16"
-    region: oregon
+    postgresMajorVersion: "18"
+    region: singapore
     # Reachable only from Render services in this account; no public ingress.
     ipAllowList: []
 
@@ -25,7 +25,7 @@ services:
   - type: web
     name: neuraevo-api
     runtime: docker
-    region: oregon
+    region: singapore
     # Always-on (no cold starts), appropriate for an API. Raise as needed.
     plan: starter
     dockerfilePath: ./infrastructure/docker/backend.Dockerfile
