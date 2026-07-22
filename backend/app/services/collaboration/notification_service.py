@@ -98,7 +98,7 @@ class NotificationService:
             include_archived=include_archived,
             limit=self._bounded(limit),
         )
-        return [self._resolve(row) for row in rows]
+        return self._resolve_all(rows)
 
     def get(self, user: User, notification_id: uuid.UUID) -> ResolvedNotification:
         return self._resolve(self._require(user, notification_id))
@@ -148,7 +148,39 @@ class NotificationService:
             raise NotificationNotFoundError(str(notification_id))
         return notification
 
-    def _resolve(self, row: Notification) -> ResolvedNotification:
+    def _resolve_all(
+        self, rows: List[Notification]
+    ) -> List[ResolvedNotification]:
+        """Resolve an inbox page, batch-loading every actor name up front.
+
+        Distinct actors are fetched once per type (two queries at most) rather
+        than one lookup per notification, so a full inbox no longer fans out into
+        N follow-up reads. Output matches the per-row resolve exactly.
+        """
+        user_ids = {
+            r.actor_id
+            for r in rows
+            if r.actor_type == ActivityActorType.USER.value
+            and r.actor_id is not None
+        }
+        employee_ids = {
+            r.actor_id
+            for r in rows
+            if r.actor_type == ActivityActorType.EMPLOYEE.value
+            and r.actor_id is not None
+        }
+        users = self.users.get_by_ids(user_ids)
+        employees = self.employees.get_by_ids(
+            employee_ids, include_deleted=True
+        )
+        return [self._resolve(r, users, employees) for r in rows]
+
+    def _resolve(
+        self,
+        row: Notification,
+        users: Optional[dict] = None,
+        employees: Optional[dict] = None,
+    ) -> ResolvedNotification:
         return ResolvedNotification(
             id=row.id,
             type=NotificationType(row.type),
@@ -162,7 +194,9 @@ class NotificationService:
                 else None
             ),
             actor_id=row.actor_id,
-            actor_name=self._actor_name(row.actor_type, row.actor_id),
+            actor_name=self._actor_name(
+                row.actor_type, row.actor_id, users, employees
+            ),
             priority=EmployeePriority(row.priority),
             read=row.read,
             archived=row.archived,
@@ -174,16 +208,34 @@ class NotificationService:
         )
 
     def _actor_name(
-        self, actor_type: Optional[str], actor_id: Optional[uuid.UUID]
+        self,
+        actor_type: Optional[str],
+        actor_id: Optional[uuid.UUID],
+        users: Optional[dict] = None,
+        employees: Optional[dict] = None,
     ) -> Optional[str]:
+        """Resolve one actor's display name.
+
+        When ``users``/``employees`` maps are supplied (the batched list path)
+        the name is read from them; otherwise it falls back to a single fetch, so
+        single-item callers (:meth:`get`, :meth:`update`) keep working unchanged.
+        """
         if actor_type is None or actor_id is None:
             return None
         if actor_type == ActivityActorType.EMPLOYEE.value:
-            employee = self.employees.get_by_id(actor_id, include_deleted=True)
+            employee = (
+                employees.get(actor_id)
+                if employees is not None
+                else self.employees.get_by_id(actor_id, include_deleted=True)
+            )
             return employee.name if employee is not None else "AI employee"
         if actor_type == ActivityActorType.SYSTEM.value:
             return "System"
-        user = self.users.get_by_id(actor_id)
+        user = (
+            users.get(actor_id)
+            if users is not None
+            else self.users.get_by_id(actor_id)
+        )
         if user is None:
             return "Unknown user"
         return user.full_name or user.email

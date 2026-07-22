@@ -45,11 +45,19 @@ def init_engine() -> Optional[Engine]:
         )
         return None
 
-    _engine = create_engine(
-        settings.DATABASE_URL,
-        pool_pre_ping=True,
-        future=True,
-    )
+    # Pool sizing applies to server-based backends (PostgreSQL). SQLite has its
+    # own pool classes that reject these keywords, so only pass them for a real
+    # networked database; SQLite (tests, local files) keeps SQLAlchemy's default.
+    engine_kwargs: dict = {"pool_pre_ping": True, "future": True}
+    if not settings.DATABASE_URL.startswith("sqlite"):
+        engine_kwargs.update(
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+            pool_timeout=settings.DB_POOL_TIMEOUT_SECONDS,
+            pool_recycle=settings.DB_POOL_RECYCLE_SECONDS,
+        )
+
+    _engine = create_engine(settings.DATABASE_URL, **engine_kwargs)
     _SessionLocal = sessionmaker(
         bind=_engine,
         autoflush=False,

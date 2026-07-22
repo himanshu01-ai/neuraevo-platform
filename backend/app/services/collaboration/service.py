@@ -214,11 +214,33 @@ class CollaborationService:
         ref, _ = self._require(
             user, resource_type, resource_id, CollaborationRole.VIEWER
         )
-        result: List[ResolvedParticipant] = [self._owner_entry(ref)]
-        for row in self.participants.list_for_resource(
+        rows = self.participants.list_for_resource(
             resource_type.value, resource_id
-        ):
-            result.append(self._resolve_row(ref, row))
+        )
+        # Batch-load every name once: the owner plus each participant, keyed by
+        # type. Two queries at most instead of one lookup per row (an N+1) — the
+        # resolved output is identical to resolving each row on its own.
+        user_ids = {ref.owner_user_id} | {
+            row.user_id
+            for row in rows
+            if row.participant_type == ParticipantType.USER.value
+            and row.user_id is not None
+        }
+        employee_ids = {
+            row.employee_id
+            for row in rows
+            if row.participant_type == ParticipantType.EMPLOYEE.value
+            and row.employee_id is not None
+        }
+        users = self.users.get_by_ids(user_ids)
+        employees = self.employees_repo.get_by_ids(
+            employee_ids, include_deleted=True
+        )
+        result: List[ResolvedParticipant] = [
+            self._owner_entry(ref, users)
+        ]
+        for row in rows:
+            result.append(self._resolve_row(ref, row, users, employees))
         return result
 
     # --- Mutations (owner only in this slice) ---------------------------
@@ -469,7 +491,9 @@ class CollaborationService:
             raise ParticipantNotFoundError(str(participant_id))
         return participant
 
-    def _owner_entry(self, ref: ResourceRef) -> ResolvedParticipant:
+    def _owner_entry(
+        self, ref: ResourceRef, users: Optional[dict] = None
+    ) -> ResolvedParticipant:
         return ResolvedParticipant(
             id=None,
             resource_type=ref.resource_type,
@@ -479,18 +503,22 @@ class CollaborationService:
             is_owner=True,
             user_id=ref.owner_user_id,
             employee_id=None,
-            name=self._user_name(ref.owner_user_id),
+            name=self._user_name(ref.owner_user_id, users),
             created_at=None,
         )
 
     def _resolve_row(
-        self, ref: ResourceRef, row: CollaborationParticipant
+        self,
+        ref: ResourceRef,
+        row: CollaborationParticipant,
+        users: Optional[dict] = None,
+        employees: Optional[dict] = None,
     ) -> ResolvedParticipant:
         is_user = row.participant_type == ParticipantType.USER.value
         name = (
-            self._user_name(row.user_id)
+            self._user_name(row.user_id, users)
             if is_user
-            else self._employee_name(row.employee_id)
+            else self._employee_name(row.employee_id, employees)
         )
         return ResolvedParticipant(
             id=row.id,
@@ -505,16 +533,32 @@ class CollaborationService:
             created_at=row.created_at,
         )
 
-    def _user_name(self, user_id: Optional[uuid.UUID]) -> str:
+    def _user_name(
+        self, user_id: Optional[uuid.UUID], users: Optional[dict] = None
+    ) -> str:
+        """A user's display name; reads a prefetched ``users`` map when the
+        batched list path supplies one, else falls back to a single fetch."""
         if user_id is None:
             return "Unknown user"
-        user = self.users.get_by_id(user_id)
+        user = (
+            users.get(user_id)
+            if users is not None
+            else self.users.get_by_id(user_id)
+        )
         if user is None:
             return "Unknown user"
         return user.full_name or user.email
 
-    def _employee_name(self, employee_id: Optional[uuid.UUID]) -> str:
+    def _employee_name(
+        self, employee_id: Optional[uuid.UUID], employees: Optional[dict] = None
+    ) -> str:
+        """An employee's display name; reads a prefetched ``employees`` map when
+        the batched list path supplies one, else falls back to a single fetch."""
         if employee_id is None:
             return "AI employee"
-        employee = self.employees_repo.get_by_id(employee_id, include_deleted=True)
+        employee = (
+            employees.get(employee_id)
+            if employees is not None
+            else self.employees_repo.get_by_id(employee_id, include_deleted=True)
+        )
         return employee.name if employee is not None else "AI employee"

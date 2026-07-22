@@ -43,6 +43,19 @@ class Settings(BaseSettings):
     # boot without a live database (see app.core.database).
     DATABASE_URL: str | None = Field(default=None)
 
+    # Connection-pool sizing for the production engine. Defaults match
+    # SQLAlchemy's own (5 + 10) so behaviour is unchanged unless tuned, but they
+    # are now knobs an operator can raise for production-scale concurrency.
+    # ``POOL_RECYCLE`` refreshes a connection older than this many seconds, which
+    # (with ``pool_pre_ping``) keeps a cloud Postgres from handing back a
+    # server-dropped idle connection; ``-1`` disables recycling. These apply to
+    # PostgreSQL only — SQLite (used in tests) uses its own pooling and ignores
+    # them (see app.core.database).
+    DB_POOL_SIZE: int = Field(default=5)
+    DB_MAX_OVERFLOW: int = Field(default=10)
+    DB_POOL_TIMEOUT_SECONDS: int = Field(default=30)
+    DB_POOL_RECYCLE_SECONDS: int = Field(default=1800)  # 30 minutes
+
     # --- Authentication / JWT -------------------------------------------
     # IMPORTANT: override JWT_SECRET_KEY via the environment in any non-local
     # deployment. The default below is for local development only, and the

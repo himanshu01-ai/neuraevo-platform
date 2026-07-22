@@ -96,7 +96,7 @@ class ActivityService:
         rows = self.events.list_for_resource(
             resource_type.value, resource_id, limit=self._bounded(limit)
         )
-        return [self._resolve(row, user) for row in rows]
+        return self._resolve_all(rows, user)
 
     # --- Per-user feed ---------------------------------------------------
 
@@ -126,9 +126,37 @@ class ActivityService:
 
         events = self._filter_scope(list(merged.values()), user, scope)
         events.sort(key=lambda e: e.created_at, reverse=True)
-        return [self._resolve(e, user) for e in events[:bounded]]
+        return self._resolve_all(events[:bounded], user)
 
     # --- Helpers ---------------------------------------------------------
+
+    def _resolve_all(
+        self, events: List[ActivityEvent], user: User
+    ) -> List[ResolvedActivity]:
+        """Resolve a page of events, batch-loading every actor name up front.
+
+        Names are looked up once per distinct actor across the whole page — two
+        queries at most (users, employees) instead of one per event — so a feed
+        of N events no longer costs N follow-up reads. The resolved output is
+        byte-for-byte what a per-row resolve produced.
+        """
+        user_ids = {
+            e.actor_id
+            for e in events
+            if e.actor_type == ActivityActorType.USER.value
+            and e.actor_id is not None
+        }
+        employee_ids = {
+            e.actor_id
+            for e in events
+            if e.actor_type == ActivityActorType.EMPLOYEE.value
+            and e.actor_id is not None
+        }
+        users = self.users.get_by_ids(user_ids)
+        employees = self.employees.get_by_ids(
+            employee_ids, include_deleted=True
+        )
+        return [self._resolve(e, user, users, employees) for e in events]
 
     def _filter_scope(
         self, events: List[ActivityEvent], user: User, scope: ActivityScope
@@ -144,7 +172,13 @@ class ActivityService:
             return [e for e in events if e.kind == ActivityKind.MENTIONED.value]
         return events
 
-    def _resolve(self, event: ActivityEvent, user: User) -> ResolvedActivity:
+    def _resolve(
+        self,
+        event: ActivityEvent,
+        user: User,
+        users: dict[uuid.UUID, "User"],
+        employees: dict,
+    ) -> ResolvedActivity:
         is_own = (
             event.actor_type == ActivityActorType.USER.value
             and event.actor_id == user.id
@@ -156,21 +190,27 @@ class ActivityService:
             kind=ActivityKind(event.kind),
             actor_type=ActivityActorType(event.actor_type),
             actor_id=event.actor_id,
-            actor_name=self._actor_name(event.actor_type, event.actor_id),
+            actor_name=self._actor_name(
+                event.actor_type, event.actor_id, users, employees
+            ),
             summary=event.summary,
             is_own=is_own,
             created_at=event.created_at,
         )
 
     def _actor_name(
-        self, actor_type: str, actor_id: Optional[uuid.UUID]
+        self,
+        actor_type: str,
+        actor_id: Optional[uuid.UUID],
+        users: dict,
+        employees: dict,
     ) -> str:
         if actor_type == ActivityActorType.SYSTEM.value or actor_id is None:
             return "System"
         if actor_type == ActivityActorType.EMPLOYEE.value:
-            employee = self.employees.get_by_id(actor_id, include_deleted=True)
+            employee = employees.get(actor_id)
             return employee.name if employee is not None else "AI employee"
-        user = self.users.get_by_id(actor_id)
+        user = users.get(actor_id)
         if user is None:
             return "Unknown user"
         return user.full_name or user.email

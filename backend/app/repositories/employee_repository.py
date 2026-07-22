@@ -44,6 +44,27 @@ class EmployeeRepository:
             return None
         return employee
 
+    def get_by_ids(
+        self,
+        employee_ids: Iterable[uuid.UUID],
+        *,
+        include_deleted: bool = False,
+    ) -> dict[uuid.UUID, Employee]:
+        """Resolve many employees in one round-trip, keyed by id.
+
+        The batch counterpart to :meth:`get_by_id` for read surfaces that resolve
+        an employee name per row (an N+1). Honours the same soft-delete filter:
+        with ``include_deleted=False`` a deleted employee is absent, exactly as
+        :meth:`get_by_id` would omit it. ``None`` ids and duplicates are dropped.
+        """
+        ids = [eid for eid in dict.fromkeys(employee_ids) if eid is not None]
+        if not ids:
+            return {}
+        stmt = select(Employee).where(Employee.id.in_(ids))
+        if not include_deleted:
+            stmt = stmt.where(Employee.deleted_at.is_(None))
+        return {emp.id: emp for emp in self.session.scalars(stmt).all()}
+
     def list_by_user(
         self,
         user_id: uuid.UUID,

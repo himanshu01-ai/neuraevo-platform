@@ -8,7 +8,7 @@ the caller; methods ``flush`` so generated values like ``id`` are populated.
 
 import uuid
 from datetime import datetime
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +24,22 @@ class UserRepository:
 
     def get_by_id(self, user_id: uuid.UUID) -> Optional[User]:
         return self.session.get(User, user_id)
+
+    def get_by_ids(
+        self, user_ids: Iterable[uuid.UUID]
+    ) -> dict[uuid.UUID, User]:
+        """Resolve many users in one round-trip, keyed by id.
+
+        The batch counterpart to :meth:`get_by_id`, for read surfaces that would
+        otherwise resolve a name per row (an N+1). ``None`` ids and duplicates are
+        dropped; ids with no matching row are simply absent from the result, so a
+        caller reads a miss the same way it would from :meth:`get_by_id`.
+        """
+        ids = [uid for uid in dict.fromkeys(user_ids) if uid is not None]
+        if not ids:
+            return {}
+        stmt = select(User).where(User.id.in_(ids))
+        return {user.id: user for user in self.session.scalars(stmt).all()}
 
     def get_by_email(self, email: str) -> Optional[User]:
         stmt = select(User).where(User.email == email)
