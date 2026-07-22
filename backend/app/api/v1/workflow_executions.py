@@ -69,7 +69,7 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, WorkflowValidationError):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     raise exc
 
@@ -138,7 +138,7 @@ def get_execution(
         status.HTTP_409_CONFLICT: {
             "description": "The workflow is no longer published, so cannot be run."
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "The workflow's graph can no longer be run as authored."
         },
     },

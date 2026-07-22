@@ -64,7 +64,7 @@ _EXECUTE_RESPONSES = {
             "or archived, so cannot be run."
         )
     },
-    status.HTTP_422_UNPROCESSABLE_ENTITY: {
+    status.HTTP_422_UNPROCESSABLE_CONTENT: {
         "description": (
             "The task has no workflow attached, or the workflow's graph "
             "cannot be translated into runnable steps."
@@ -93,7 +93,7 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, (TaskValidationError, WorkflowValidationError)):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     if isinstance(exc, WorkflowNotFoundError):
         return HTTPException(
@@ -182,7 +182,7 @@ def list_tasks(
     status_code=status.HTTP_201_CREATED,
     summary="Create a task for the authenticated user",
     responses={
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "The name is empty, or a referenced workflow or employee isn't yours."
         }
     },
@@ -282,7 +282,7 @@ def duplicate_task(
         status.HTTP_409_CONFLICT: {
             "description": "The task's current status does not accept this command."
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "The command is not one the platform knows."
         },
     },

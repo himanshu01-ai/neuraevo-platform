@@ -67,7 +67,7 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, WorkflowValidationError):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     raise exc
 
@@ -339,7 +339,7 @@ def duplicate_workflow(
         status.HTTP_409_CONFLICT: {
             "description": "The workflow is a draft or archived, so cannot be run."
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "The workflow's graph cannot be translated into runnable steps."
         },
     },

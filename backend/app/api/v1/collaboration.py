@@ -105,7 +105,7 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, CollaborationValidationError):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     raise exc
 
@@ -206,7 +206,7 @@ def list_participants(
         status.HTTP_409_CONFLICT: {
             "description": "That user or employee is already a participant."
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "description": "The payload references an unknown user or an employee that isn't yours."
         },
     },

@@ -57,7 +57,7 @@ def _to_http_exception(exc: Exception) -> HTTPException:
         )
     if isinstance(exc, EmployeeValidationError):
         return HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         )
     raise exc
 
