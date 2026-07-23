@@ -184,6 +184,7 @@ offline **mock** adapter via a `NEXT_PUBLIC_*_ADAPTER=mock` switch — see
 - [`docs/environment.md`](docs/environment.md) — environment configuration: variable ownership, secrets, per-platform setup, troubleshooting
 - [`docs/dns-plan.md`](docs/dns-plan.md) — production DNS plan: domains, records, TLS, email authentication (SPF/DKIM/DMARC)
 - [`docs/cloudflare-plan.md`](docs/cloudflare-plan.md) — Cloudflare edge plan: proxy strategy, SSL/TLS, security, caching, headers, performance
+- [`docs/cors-origin-plan.md`](docs/cors-origin-plan.md) — CORS & origin plan: production origins, CORS policy, env mapping, verification
 - [`docs/architecture/`](docs/architecture/) and [`docs/adr/`](docs/adr/) — architecture & decision records
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — roadmap
 - [`frontend/docs/`](frontend/docs/) — frontend design system, accessibility, state & API guides

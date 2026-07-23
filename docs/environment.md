@@ -7,7 +7,8 @@ deployment docs rather than repeating them.
 
 **Documentation set:**
 [deployment guide](deployment.md) · [DNS plan](dns-plan.md) ·
-[Cloudflare plan](cloudflare-plan.md) · [launch checklist](launch-checklist.md) ·
+[Cloudflare plan](cloudflare-plan.md) · [CORS & origin plan](cors-origin-plan.md) ·
+[launch checklist](launch-checklist.md) ·
 [operations runbook](operations-runbook.md) · **environment configuration** (this doc).
 
 Sources of truth this document is derived from:

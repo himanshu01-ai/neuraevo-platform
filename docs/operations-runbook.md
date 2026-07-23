@@ -16,6 +16,8 @@ repository actually provides — no tooling the project does not use.
   authentication.
 - [`cloudflare-plan.md`](cloudflare-plan.md) — **Cloudflare plan**: edge proxy,
   TLS, security, and caching.
+- [`cors-origin-plan.md`](cors-origin-plan.md) — **CORS & origin plan**: the
+  authoritative origin policy.
 - **`operations-runbook.md`** (this doc) — **run it in production**: routine ops
   and incident response.
 

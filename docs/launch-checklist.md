@@ -16,8 +16,9 @@ Legend: `[ ]` to do · items marked **(blocker)** should pass before taking real
 architecture and how a deploy works; the [environment configuration](environment.md)
 reference covers every variable and who owns it; the [DNS plan](dns-plan.md)
 covers domains, TLS, and email DNS; the [Cloudflare plan](cloudflare-plan.md)
-covers the edge (proxy, TLS, security, caching); this checklist is the one-time
-go-live gate;
+covers the edge (proxy, TLS, security, caching); the
+[CORS & origin plan](cors-origin-plan.md) covers the origin policy; this
+checklist is the one-time go-live gate;
 the [operations runbook](operations-runbook.md) covers day-2 operations and
 incident response once you are live.
 

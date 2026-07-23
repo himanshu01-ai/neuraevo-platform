@@ -238,7 +238,8 @@ together, and how to deploy, configure, and roll them back.
 [environment configuration](environment.md) reference covers every variable and
 who owns it; the [DNS plan](dns-plan.md) covers domains, TLS, and email DNS; and
 the [Cloudflare plan](cloudflare-plan.md) covers the edge (proxy, TLS, security,
-caching). Before go-live, work through the
+caching); and the [CORS & origin plan](cors-origin-plan.md) covers the origin
+policy. Before go-live, work through the
 [production launch checklist](launch-checklist.md); once you are live, the
 [operations runbook](operations-runbook.md) covers routine operations and
 incident response.
