@@ -18,6 +18,8 @@ repository actually provides — no tooling the project does not use.
   TLS, security, and caching.
 - [`cors-origin-plan.md`](cors-origin-plan.md) — **CORS & origin plan**: the
   authoritative origin policy.
+- [`production-deployment-runbook.md`](production-deployment-runbook.md) —
+  **deployment runbook**: the ordered cutover execution guide.
 - **`operations-runbook.md`** (this doc) — **run it in production**: routine ops
   and incident response.
 

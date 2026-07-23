@@ -18,9 +18,10 @@ reference covers every variable and who owns it; the [DNS plan](dns-plan.md)
 covers domains, TLS, and email DNS; the [Cloudflare plan](cloudflare-plan.md)
 covers the edge (proxy, TLS, security, caching); the
 [CORS & origin plan](cors-origin-plan.md) covers the origin policy; this
-checklist is the one-time go-live gate;
-the [operations runbook](operations-runbook.md) covers day-2 operations and
-incident response once you are live.
+checklist is the one-time go-live gate; the
+[deployment runbook](production-deployment-runbook.md) is the step-by-step
+execution guide; and the [operations runbook](operations-runbook.md) covers
+day-2 operations and incident response once you are live.
 
 ---
 

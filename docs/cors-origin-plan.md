@@ -9,7 +9,7 @@ it records the policy the existing implementation enforces.
 [deployment guide](deployment.md) · [environment configuration](environment.md) ·
 [DNS plan](dns-plan.md) · [Cloudflare plan](cloudflare-plan.md) ·
 [launch checklist](launch-checklist.md) · [operations runbook](operations-runbook.md) ·
-**CORS & origin plan** (this doc).
+[deployment runbook](production-deployment-runbook.md) · **CORS & origin plan** (this doc).
 
 ---
 

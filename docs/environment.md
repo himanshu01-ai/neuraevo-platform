@@ -9,7 +9,8 @@ deployment docs rather than repeating them.
 [deployment guide](deployment.md) · [DNS plan](dns-plan.md) ·
 [Cloudflare plan](cloudflare-plan.md) · [CORS & origin plan](cors-origin-plan.md) ·
 [launch checklist](launch-checklist.md) ·
-[operations runbook](operations-runbook.md) · **environment configuration** (this doc).
+[operations runbook](operations-runbook.md) ·
+[deployment runbook](production-deployment-runbook.md) · **environment configuration** (this doc).
 
 Sources of truth this document is derived from:
 - Backend settings — [`backend/app/core/config.py`](../backend/app/core/config.py) (`Settings`, pydantic-settings), documented in [`backend/.env.example`](../backend/.env.example).

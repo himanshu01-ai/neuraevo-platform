@@ -11,7 +11,8 @@ Provider-generated values are shown as `<placeholders>`.
 [deployment guide](deployment.md) · [environment configuration](environment.md) ·
 [DNS plan](dns-plan.md) · [CORS & origin plan](cors-origin-plan.md) ·
 [launch checklist](launch-checklist.md) ·
-[operations runbook](operations-runbook.md) · **Cloudflare plan** (this doc).
+[operations runbook](operations-runbook.md) ·
+[deployment runbook](production-deployment-runbook.md) · **Cloudflare plan** (this doc).
 
 ---
 
