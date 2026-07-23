@@ -183,6 +183,7 @@ offline **mock** adapter via a `NEXT_PUBLIC_*_ADAPTER=mock` switch — see
 - [`docs/operations-runbook.md`](docs/operations-runbook.md) — day-2 operations: deploy, roll back, migrate, observe, incident response
 - [`docs/environment.md`](docs/environment.md) — environment configuration: variable ownership, secrets, per-platform setup, troubleshooting
 - [`docs/dns-plan.md`](docs/dns-plan.md) — production DNS plan: domains, records, TLS, email authentication (SPF/DKIM/DMARC)
+- [`docs/cloudflare-plan.md`](docs/cloudflare-plan.md) — Cloudflare edge plan: proxy strategy, SSL/TLS, security, caching, headers, performance
 - [`docs/architecture/`](docs/architecture/) and [`docs/adr/`](docs/adr/) — architecture & decision records
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — roadmap
 - [`frontend/docs/`](frontend/docs/) — frontend design system, accessibility, state & API guides

@@ -14,6 +14,8 @@ repository actually provides — no tooling the project does not use.
   ownership, secrets, and per-platform setup.
 - [`dns-plan.md`](dns-plan.md) — **DNS plan**: domains, records, TLS, and email
   authentication.
+- [`cloudflare-plan.md`](cloudflare-plan.md) — **Cloudflare plan**: edge proxy,
+  TLS, security, and caching.
 - **`operations-runbook.md`** (this doc) — **run it in production**: routine ops
   and incident response.
 

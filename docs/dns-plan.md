@@ -7,8 +7,8 @@ shown as `<placeholders>`; fill them from the platform dashboard at deploy time.
 
 **Documentation set:**
 [deployment guide](deployment.md) · [environment configuration](environment.md) ·
-[launch checklist](launch-checklist.md) · [operations runbook](operations-runbook.md) ·
-**DNS plan** (this doc).
+[Cloudflare plan](cloudflare-plan.md) · [launch checklist](launch-checklist.md) ·
+[operations runbook](operations-runbook.md) · **DNS plan** (this doc).
 
 ---
 
