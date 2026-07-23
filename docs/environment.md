@@ -26,6 +26,15 @@ locally, without reading the source.
 
 ## 2. Environment architecture
 
+**Canonical production domains** (approved Sprint 1.2):
+
+| Element | URL |
+|---|---|
+| Frontend (Vercel) | `https://neuraevo.dev` |
+| Backend API (Render) | `https://api.neuraevo.dev` |
+| API base URL | `https://api.neuraevo.dev/api/v1` |
+| Email sender | `no-reply@neuraevo.dev` |
+
 Configuration is owned by the platform closest to where the value is used. NeuraEvo
 is a split deployment (see [deployment.md → Architecture](deployment.md#architecture)):
 
@@ -75,14 +84,14 @@ that does not normally need overriding.
 | Variable | Required | Secret | Platform | Source | Notes |
 |---|---|---|---|---|---|
 | `ANTHROPIC_API_KEY` | Yes (AI non-functional without it) | Yes | Render | Anthropic Console | `sync:false` in `render.yaml`. |
-| `CORS_ORIGINS` | Yes (prod **refuses to boot** with `*`) | No | Render | Domain / manual | Comma-separated exact frontend origin(s). |
-| `FRONTEND_BASE_URL` | Yes (email links) | No | Render | Domain / manual | Public frontend URL used in verification/reset mail. |
-| `NEXT_PUBLIC_API_BASE_URL` | Yes (frontend → backend) | No (public) | Vercel | Backend origin | **Build-time inlined**; a change requires a frontend rebuild. Value = backend origin + `/api/v1`. |
+| `CORS_ORIGINS` | Yes (prod **refuses to boot** with `*`) | No | Render | Domain / manual | Comma-separated exact frontend origin(s), e.g. `https://neuraevo.dev`. |
+| `FRONTEND_BASE_URL` | Yes (email links) | No | Render | Domain / manual | Public frontend URL (`https://neuraevo.dev`) used in verification/reset mail. |
+| `NEXT_PUBLIC_API_BASE_URL` | Yes (frontend → backend) | No (public) | Vercel | Backend origin | **Build-time inlined**; a change requires a frontend rebuild. Value = backend origin + `/api/v1`, i.e. `https://api.neuraevo.dev/api/v1`. |
 | `EMAIL_PROVIDER` | Conditional (email delivery) | No | Render | Manual | Default `console` sends nothing; set `smtp` to deliver. |
 | `SMTP_HOST` | Conditional (`smtp`) | No | SMTP provider | SMTP provider | — |
 | `SMTP_USERNAME` | Conditional (`smtp`) | Yes | SMTP provider | SMTP provider | Credential. |
 | `SMTP_PASSWORD` | Conditional (`smtp`) | Yes | SMTP provider | SMTP provider | Credential. |
-| `EMAIL_FROM_ADDRESS` | Recommended (if email) | No | Render | Manual | Override the `no-reply@neuraevo.com` default for your domain. |
+| `EMAIL_FROM_ADDRESS` | Recommended (if email) | No | Render | Manual | Override the `no-reply@neuraevo.dev` default for your domain. |
 
 Optional tuning only if the provider deviates from defaults: `SMTP_PORT` (587),
 `EMAIL_FROM_NAME` (`NeuraEvo`). The 8 `NEXT_PUBLIC_*_ADAPTER` switches stay at

@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     # ``smtp`` delivers via the configured server. Authentication never talks
     # to SMTP directly — it depends on the EmailService abstraction.
     EMAIL_PROVIDER: str = Field(default="console")
-    EMAIL_FROM_ADDRESS: str = Field(default="no-reply@neuraevo.com")
+    EMAIL_FROM_ADDRESS: str = Field(default="no-reply@neuraevo.dev")
     EMAIL_FROM_NAME: str = Field(default="NeuraEvo")
     # Public base URL of the frontend, used to build links in emails.
     FRONTEND_BASE_URL: str = Field(default="http://localhost:3000")
@@ -158,7 +158,7 @@ class Settings(BaseSettings):
 
     # --- CORS ------------------------------------------------------------
     # Comma-separated list of allowed origins, e.g.
-    # "http://localhost:3000,https://app.neuraevo.com"
+    # "http://localhost:3000,https://neuraevo.dev"
     CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["*"])
 
     @field_validator("CORS_ORIGINS", mode="before")

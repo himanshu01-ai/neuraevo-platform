@@ -314,7 +314,7 @@ the build-time public env var trivial:
 
 1. Import the repo into Vercel; set the project root to `frontend/`.
 2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL, e.g.
-   `https://neuraevo-api.onrender.com/api/v1`. (`NEXT_PUBLIC_*` values are inlined
+   `https://api.neuraevo.dev/api/v1`. (`NEXT_PUBLIC_*` values are inlined
    at build time, so this must be set before the build.)
 3. Deploy. Optionally set the other `NEXT_PUBLIC_*_ADAPTER` switches from
    `frontend/.env.example` — all default to `backend`.
