@@ -13,9 +13,10 @@ design (in-process rate limiter and workflow runtime state).
 Legend: `[ ]` to do · items marked **(blocker)** should pass before taking real traffic.
 
 **Documentation set:** the [deployment guide](deployment.md) explains the
-architecture and how a deploy works; this checklist is the one-time go-live gate;
-the [operations runbook](operations-runbook.md) covers day-2 operations and
-incident response once you are live.
+architecture and how a deploy works; the [environment configuration](environment.md)
+reference covers every variable and who owns it; this checklist is the one-time
+go-live gate; the [operations runbook](operations-runbook.md) covers day-2
+operations and incident response once you are live.
 
 ---
 

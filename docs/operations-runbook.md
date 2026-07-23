@@ -10,6 +10,8 @@ repository actually provides — no tooling the project does not use.
   services, environment variables, and how a deploy works. Read this first.
 - [`launch-checklist.md`](launch-checklist.md) — **launch checklist**: the
   one-time go-live gate.
+- [`environment.md`](environment.md) — **environment configuration**: variable
+  ownership, secrets, and per-platform setup.
 - **`operations-runbook.md`** (this doc) — **run it in production**: routine ops
   and incident response.
 
