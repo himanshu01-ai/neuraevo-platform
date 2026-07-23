@@ -32,6 +32,9 @@ export type WorkflowStep = { step: string; title: string; description: string; i
 export const siteConfig = {
   name: "NeuraEvo",
   tagline: "The AI Employee platform",
+  // Canonical production origin (matches `metadataBase` in app/layout.tsx and the
+  // deployment docs). The single source for robots.ts / sitemap.ts.
+  url: "https://neuraevo.dev",
   description:
     "NeuraEvo is a voice-first AI employee that plans, executes across real tools, and asks for approval — so you can delegate complete work, not just chat.",
   nav: [

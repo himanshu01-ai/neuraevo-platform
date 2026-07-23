@@ -48,7 +48,22 @@ export interface RequestOptions {
   auth?: boolean;
   /** Internal: suppresses the refresh/retry cycle (used by refresh itself). */
   skipRefresh?: boolean;
+  /**
+   * Per-request timeout in milliseconds. Defaults to
+   * {@link DEFAULT_REQUEST_TIMEOUT_MS}; pass `0` to disable for a call that is
+   * legitimately long-running.
+   */
+  timeoutMs?: number;
 }
+
+/**
+ * Requests that don't resolve within this budget are aborted, so a hung or
+ * black-holed backend surfaces as a clear error instead of an endless spinner.
+ * Deliberately generous — comfortably longer than the backend's own upstream
+ * timeouts (e.g. the 30s Anthropic cap) so a legitimately slow response, such as
+ * an AI generation, is never cut off.
+ */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
 // --- Session-expiry subscribers -----------------------------------------
 
@@ -195,21 +210,47 @@ async function send(path: string, options: RequestOptions, token: string | null)
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  // Bound every request with a timeout while still honoring a caller-supplied
+  // signal (e.g. a cancelled query). A dedicated controller lets us tell a
+  // timeout apart from a genuine caller cancellation when reporting the error.
+  const controller = new AbortController();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+  const onCallerAbort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener("abort", onCallerAbort, { once: true });
+  }
+
   try {
     return await fetch(`${apiBaseUrl}${path}`, {
       method: options.method ?? "GET",
       headers,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
-      signal: options.signal,
+      signal: controller.signal,
     });
   } catch (cause) {
-    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    // A genuine caller cancellation propagates as AbortError, unchanged, so
+    // React Query and unmount handling keep working. A timeout (the caller did
+    // not cancel) becomes a readable, network-style error instead.
+    if (options.signal?.aborted) throw cause;
+    if (controller.signal.aborted) {
+      throw new ApiError({
+        status: 0,
+        code: "timeout",
+        message: "The server took too long to respond. Please try again.",
+        details: cause,
+      });
+    }
     throw new ApiError({
       status: 0,
       code: "network_error",
       message: "We couldn't reach the server. Check your connection and try again.",
       details: cause,
     });
+  } finally {
+    if (timer) clearTimeout(timer);
+    options.signal?.removeEventListener("abort", onCallerAbort);
   }
 }
 
