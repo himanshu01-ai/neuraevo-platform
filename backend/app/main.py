@@ -81,6 +81,11 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     """Application factory: build and configure the FastAPI instance."""
+    # The interactive API docs (Swagger UI, ReDoc) and the raw OpenAPI schema are
+    # useful in development but needless attack surface in production — they
+    # publish every endpoint's shape to anonymous callers. Disable all three in
+    # any non-development environment; development and test keep them (Sprint 1.3).
+    docs_disabled = settings.is_production
     app = FastAPI(
         title=settings.PROJECT_NAME,
         version=settings.API_VERSION,
@@ -89,6 +94,9 @@ def create_app() -> FastAPI:
         openapi_tags=_OPENAPI_TAGS,
         debug=settings.DEBUG,
         lifespan=lifespan,
+        docs_url=None if docs_disabled else "/docs",
+        redoc_url=None if docs_disabled else "/redoc",
+        openapi_url=None if docs_disabled else "/openapi.json",
     )
 
     # Every failure returns the one `{"detail": ...}` JSON contract (Sprint 24).
