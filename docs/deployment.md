@@ -236,7 +236,8 @@ together, and how to deploy, configure, and roll them back.
 
 **Documentation set:** this is the deployment guide. The
 [environment configuration](environment.md) reference covers every variable and
-who owns it. Before go-live, work through the
+who owns it, and the [DNS plan](dns-plan.md) covers domains, TLS, and email DNS.
+Before go-live, work through the
 [production launch checklist](launch-checklist.md); once you are live, the
 [operations runbook](operations-runbook.md) covers routine operations and
 incident response.

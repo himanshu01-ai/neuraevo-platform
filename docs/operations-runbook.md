@@ -12,6 +12,8 @@ repository actually provides — no tooling the project does not use.
   one-time go-live gate.
 - [`environment.md`](environment.md) — **environment configuration**: variable
   ownership, secrets, and per-platform setup.
+- [`dns-plan.md`](dns-plan.md) — **DNS plan**: domains, records, TLS, and email
+  authentication.
 - **`operations-runbook.md`** (this doc) — **run it in production**: routine ops
   and incident response.
 
