@@ -7,7 +7,9 @@ completed Sprint 3A blueprint CRUD endpoints are not modified.
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.api.rate_limit import enforce_ai_rate_limit
 
 from app.core.dependencies import (
     BlueprintApplyServiceDep,
@@ -79,6 +81,7 @@ def _to_http_exception(exc: EmployeeError | BlueprintError) -> HTTPException:
     "/preview",
     response_model=BlueprintGenerationPreviewResponse,
     summary="Preview blueprint generation from interview data (no persistence)",
+    dependencies=[Depends(enforce_ai_rate_limit)],
     responses=_RESPONSES,
 )
 def preview_blueprint_generation(
@@ -113,6 +116,7 @@ def preview_blueprint_generation(
     "/apply",
     response_model=BlueprintResponse,
     summary="Generate a blueprint and persist it to the employee's blueprint",
+    dependencies=[Depends(enforce_ai_rate_limit)],
     responses=_RESPONSES,
 )
 def apply_blueprint_generation(

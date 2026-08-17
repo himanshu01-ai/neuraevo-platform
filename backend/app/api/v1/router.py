@@ -13,8 +13,10 @@ from app.api.v1 import (
     blueprint_generation,
     blueprint_versions,
     blueprints,
+    collaboration,
     conversation_context,
     conversation_generation,
+    conversation_hub,
     conversation_runtime,
     conversations,
     employees,
@@ -25,7 +27,11 @@ from app.api.v1 import (
     interview_sessions,
     memory,
     memory_context,
+    memory_links,
     messages,
+    tasks,
+    workflow_executions,
+    workflows,
 )
 
 api_router = APIRouter()
@@ -33,9 +39,15 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(employees.router)
+api_router.include_router(workflows.router)
+api_router.include_router(workflow_executions.router)
+api_router.include_router(tasks.router)
+api_router.include_router(collaboration.router)
 api_router.include_router(memory.router)
 api_router.include_router(memory_context.router)
+api_router.include_router(memory_links.router)
 api_router.include_router(conversations.router)
+api_router.include_router(conversation_hub.router)
 api_router.include_router(messages.router)
 api_router.include_router(conversation_context.router)
 api_router.include_router(conversation_generation.router)

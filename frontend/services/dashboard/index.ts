@@ -1,0 +1,26 @@
+export { dashboardService, type DashboardService } from "./dashboard-service";
+export { dashboardKeys } from "./keys";
+export {
+  DashboardError,
+  HEALTH_SUBSYSTEMS,
+  OVERVIEW_METRIC_IDS,
+  type ApprovalSummary,
+  type DashboardAdapter,
+  type DashboardErrorCode,
+  type EmployeeSummary,
+  type HealthSubsystem,
+  type HealthSummary,
+  type MemoryCategoryCount,
+  type MemorySummary,
+  type MetricStatus,
+  type NotificationSummary,
+  type OverviewMetric,
+  type OverviewMetricId,
+  type Sequence,
+  type SubsystemHealth,
+  type TaskSummary,
+  type Trend,
+  type TrendDirection,
+  type WorkflowSummary,
+  type WorkspaceSignals,
+} from "./types";

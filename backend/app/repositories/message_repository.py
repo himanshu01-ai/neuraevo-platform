@@ -29,6 +29,7 @@ class MessageRepository:
             conversation_id=conversation_id,
             role=data.role.value,
             content=data.content,
+            channel=data.channel.value,
         )
         self.session.add(message)
         self.session.flush()

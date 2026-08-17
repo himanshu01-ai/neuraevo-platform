@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * NeuraEvo — Global theme contract.
+ * These CSS variables are the RUNTIME source of truth for color theming.
+ * They mirror `design-system/tokens/color.ts` (themeVars). Keep them in sync.
+ * Light is the default (:root); `.dark` on <html> flips the whole app.
+ */
+
+@layer base {
+  :root {
+    --background: 210 20% 99%;
+    --foreground: 222 24% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 24% 11%;
+
+    --primary: 246 85% 65%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 214 16% 96%;
+    --secondary-foreground: 222 20% 20%;
+
+    --muted: 214 16% 96%;
+    --muted-foreground: 220 9% 46%;
+
+    --accent: 214 16% 96%;
+    --accent-foreground: 222 20% 20%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 84% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 40 90% 8%;
+
+    --info: 217 91% 60%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 216 16% 90%;
+    --input: 216 16% 90%;
+    --ring: 246 85% 65%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 22% 6%;
+    --foreground: 210 20% 96%;
+
+    --card: 222 20% 8%;
+    --card-foreground: 210 20% 96%;
+
+    --popover: 222 22% 7%;
+    --popover-foreground: 210 20% 96%;
+
+    --primary: 246 85% 65%;
+    --primary-foreground: 222 40% 8%;
+
+    --secondary: 220 15% 14%;
+    --secondary-foreground: 210 16% 90%;
+
+    --muted: 220 14% 13%;
+    --muted-foreground: 218 11% 60%;
+
+    --accent: 220 15% 16%;
+    --accent-foreground: 210 16% 92%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 160 70% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 55%;
+    --warning-foreground: 40 90% 8%;
+
+    --info: 217 91% 66%;
+    --info-foreground: 222 40% 8%;
+
+    --border: 220 14% 16%;
+    --input: 220 14% 18%;
+    --ring: 246 85% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+    font-variation-settings: normal;
+  }
+
+  /* Visible, brand-tinted focus ring for keyboard users only. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Consistent, quiet scrollbars. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border));
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
+
+/* Honor the OS-level reduced-motion preference globally. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  /* Frosted-glass surface for the app header / command palette. */
+  .surface-glass {
+    background-color: hsl(var(--background) / 0.72);
+    backdrop-filter: saturate(180%) blur(12px);
+  }
+
+  /* Subtle top-lit gradient border for premium cards. */
+  .ring-hairline {
+    box-shadow: inset 0 0 0 1px hsl(var(--border));
+  }
+}

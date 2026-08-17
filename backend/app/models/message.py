@@ -14,6 +14,7 @@ from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.utils.constants import MessageChannel
 
 if TYPE_CHECKING:
     from app.models.conversation import Conversation
@@ -35,6 +36,17 @@ class Message(Base):
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # The channel the message happened on. Stored as a plain string; allowed
+    # values are ``app.utils.constants.MessageChannel`` and validated at the
+    # schema layer. Server-defaults to ``text`` so every message written before
+    # voice existed reads as typed, keeping the column backwards compatible.
+    channel: Mapped[str] = mapped_column(
+        String(50),
+        default=MessageChannel.TEXT.value,
+        server_default=MessageChannel.TEXT.value,
+        nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

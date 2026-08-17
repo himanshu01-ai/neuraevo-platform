@@ -1,0 +1,27 @@
+# Keep the backend build context minimal and reproducible.
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Secrets and local-only config — never bake into an image.
+.env
+.env.*
+!.env.example
+
+# Tests are not needed in the runtime image.
+tests/
+
+# VCS / editor / OS noise.
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

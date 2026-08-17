@@ -7,7 +7,9 @@ conversation/message endpoints are not modified.
 
 import uuid
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.api.rate_limit import enforce_ai_rate_limit
 
 from app.core.dependencies import (
     ConversationGenerationServiceDep,
@@ -90,6 +92,7 @@ def _to_http_exception(
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generate the next assistant reply and store it as a message",
+    dependencies=[Depends(enforce_ai_rate_limit)],
     responses=_RESPONSES,
 )
 def generate_conversation_reply(

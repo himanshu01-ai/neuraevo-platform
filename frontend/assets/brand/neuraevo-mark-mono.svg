@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="240" height="240" fill="none" role="img" aria-label="NeuraEvo">
+  <!-- Single-ink, currentColor variant of the official mark (identical geometry).
+       Inherits the surrounding text color so it adapts to any theme/surface. -->
+  <line x1="28" y1="26" x2="28" y2="74" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+  <line x1="72" y1="26" x2="72" y2="74" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></line>
+  <circle cx="72" cy="26" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+  <circle cx="28" cy="74" r="4" fill="none" stroke="currentColor" stroke-width="2"></circle>
+  <line x1="28" y1="26" x2="72" y2="74" stroke="currentColor" stroke-width="7" stroke-linecap="round" opacity="0.14"></line>
+  <line x1="28" y1="26" x2="72" y2="74" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity="0.55"></line>
+  <circle cx="28" cy="26" r="2.6" fill="currentColor"></circle>
+  <circle cx="39" cy="38" r="3.7" fill="currentColor"></circle>
+  <circle cx="50" cy="50" r="5" fill="currentColor"></circle>
+  <circle cx="61" cy="62" r="6.4" fill="currentColor"></circle>
+  <circle cx="72" cy="74" r="13" fill="currentColor" opacity="0.16"></circle>
+  <circle cx="72" cy="74" r="8.4" fill="currentColor"></circle>
+</svg>
