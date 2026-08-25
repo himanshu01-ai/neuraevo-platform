@@ -9,6 +9,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
+import { useEmployeeList } from "@/features/employees/hooks/use-employees";
 import {
   useConversationDetail,
   useConversationList,
@@ -29,6 +30,7 @@ import {
   ConversationListLoading,
   ThreadLoading,
 } from "./conversation-loading";
+import { env } from "@/lib/env";
 import { cn } from "@/lib/utils";
 
 /**
@@ -53,6 +55,7 @@ const ContextPanel = dynamic(() => import("./context-panel").then((m) => m.Conte
 
 export function ConversationWorkspace({ initialConversationId }: { initialConversationId?: string }) {
   const list = useConversationList();
+  const employees = useEmployeeList();
   const selectedId = useConversationStore((s) => s.selectedConversationId);
   const selectConversation = useConversationStore((s) => s.selectConversation);
   const contextPanelOpen = useConversationStore((s) => s.contextPanelOpen);
@@ -66,6 +69,16 @@ export function ConversationWorkspace({ initialConversationId }: { initialConver
   const setShared = useSetShared();
   const setStatus = useSetConversationStatus();
   const markRead = useMarkRead();
+
+  const availableEmployees = (employees.data ?? []).filter((employee) => !employee.isArchived);
+  const incompatibleEmployeeSource =
+    env.NEXT_PUBLIC_EMPLOYEES_ADAPTER === "mock" &&
+    env.NEXT_PUBLIC_CONVERSATIONS_ADAPTER === "backend";
+  const isCreateDisabled =
+    employees.isPending ||
+    employees.isError ||
+    incompatibleEmployeeSource ||
+    availableEmployees.length === 0;
 
   // The context panel floats as a drawer below xl: Escape closes it and body
   // scroll locks while it's open, matching the notification inspector.
@@ -122,6 +135,7 @@ export function ConversationWorkspace({ initialConversationId }: { initialConver
     <div className="flex h-full min-h-0 flex-col gap-3 p-3 sm:p-4">
       <ConversationToolbar
         conversation={detail.data ?? null}
+        employees={availableEmployees}
         onCreate={handleCreate}
         onTogglePinned={() => selectedId && togglePinned.mutate(selectedId)}
         onToggleShared={() =>
@@ -135,7 +149,23 @@ export function ConversationWorkspace({ initialConversationId }: { initialConver
           })
         }
         isBusy={isBusy}
+        isCreateDisabled={isCreateDisabled}
       />
+
+      {employees.isError ? (
+        <Alert variant="error">
+          Couldn't load employees. Try again in a moment.
+          <Button variant="outline" size="sm" onClick={() => void employees.refetch()} className="ml-3">
+            Retry
+          </Button>
+        </Alert>
+      ) : incompatibleEmployeeSource ? (
+        <Alert variant="error">
+          Offline employee data can't start a server-backed conversation.
+        </Alert>
+      ) : !employees.isPending && availableEmployees.length === 0 ? (
+        <Alert>Create an AI employee before starting a conversation.</Alert>
+      ) : null}
 
       {create.isError ? (
         <Alert variant="error">

@@ -16,22 +16,26 @@ import {
   Users,
 } from "lucide-react";
 import type { ConversationDetail } from "@/services/conversations";
-import { CONVERSATION_STATUS_LABEL, CONVERSATION_STATUS_TONE, EMPLOYEE_LIST } from "@/services/conversations";
+import { CONVERSATION_STATUS_LABEL, CONVERSATION_STATUS_TONE } from "@/services/conversations";
+import type { EmployeeSummary } from "@/services/employees";
 import { useConversationStore } from "@/store/conversations";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { TONE_VARIANT } from "@/components/ui/status-badge";
+import { roleLabel } from "@/features/employees/models/employee-roles";
 import { cn } from "@/lib/utils";
 
 export interface ConversationToolbarProps {
   conversation: ConversationDetail | null;
+  employees: readonly EmployeeSummary[];
   onCreate: (employeeId: string) => void;
   onTogglePinned: () => void;
   onToggleShared: () => void;
   onToggleArchived: () => void;
   isBusy: boolean;
+  isCreateDisabled: boolean;
   className?: string;
 }
 
@@ -44,11 +48,13 @@ export interface ConversationToolbarProps {
  */
 export function ConversationToolbar({
   conversation,
+  employees,
   onCreate,
   onTogglePinned,
   onToggleShared,
   onToggleArchived,
   isBusy,
+  isCreateDisabled,
   className,
 }: ConversationToolbarProps) {
   const contextPanelOpen = useConversationStore((s) => s.contextPanelOpen);
@@ -108,13 +114,13 @@ export function ConversationToolbar({
         <DropdownMenu
           menuLabel="New conversation"
           align="end"
-          items={EMPLOYEE_LIST.map((employee) => ({
-            key: employee.employeeId,
-            label: `${employee.employeeName} — ${employee.roleTitle}`,
-            onSelect: () => onCreate(employee.employeeId),
+          items={employees.map((employee) => ({
+            key: employee.id,
+            label: `${employee.name} — ${roleLabel(employee.role, employee.customRole)}`,
+            onSelect: () => onCreate(employee.id),
           }))}
           renderTrigger={(props) => (
-            <Button {...props} size="sm" disabled={isBusy}>
+            <Button {...props} size="sm" disabled={isBusy || isCreateDisabled}>
               <Plus className="size-4" aria-hidden="true" />
               <span className="hidden sm:inline">New conversation</span>
               <span className="sr-only sm:hidden">New conversation</span>
