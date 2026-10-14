@@ -4,11 +4,12 @@ Wires the database session into the service layer and exposes
 ``get_current_user`` for protecting routes with JWT bearer authentication.
 """
 
+import os
 import uuid
 from typing import Annotated, Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -53,7 +54,23 @@ from app.services.message_service import MessageService
 from app.services.prompt_builder_service import PromptBuilderService
 from app.services.prompt import RuntimePromptBuilderService
 from app.services.orchestrator import AIOrchestratorService
-from app.services.runtime import ConversationRuntimeService
+from app.services.runtime import ConversationRuntime, ConversationRuntimeService
+from app.services.multimodal_ai import MultimodalAIService
+from app.services.multimodal_ai.adapters import (
+    GeminiAdapter,
+    GenAIClientProtocol,
+    MultimodalAIAdapter,
+    create_genai_client,
+)
+from app.services.multimodal_ai.providers import (
+    GeminiProvider,
+    MultimodalAIProvider,
+    ProviderConfig,
+)
+from app.services.session import SessionProvider, SessionService
+from app.services.session.providers.gemini_live_provider import (
+    GeminiLiveSessionProvider,
+)
 from app.services.runtime.execution_runtime import ExecutionRuntime
 from app.services.runtime.task_dispatcher import TaskDispatcher
 from app.services.runtime.execution_capability import ExecutionCapability
@@ -233,6 +250,155 @@ from app.services.workflow_execution_service import WorkflowExecutionService
 _bearer_scheme = HTTPBearer(auto_error=True)
 
 SessionDep = Annotated[Session, Depends(get_db)]
+
+
+# Gemini/multimodal and live-session composition root.
+# These providers are available to callers that explicitly opt into those
+# capabilities; they do not change the standard Claude-backed /turn path.
+def get_provider_config() -> ProviderConfig:
+    """Build provider configuration from environment without reading secrets."""
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash").strip()
+    if not model:
+        raise ValueError("GEMINI_MODEL must not be blank.")
+    return ProviderConfig(provider_name="gemini", default_model=model)
+
+
+ProviderConfigDep = Annotated[ProviderConfig, Depends(get_provider_config)]
+
+
+def get_genai_client() -> GenAIClientProtocol:
+    """Build the GenAI SDK client only when an explicit API key is configured."""
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not set.")
+    return create_genai_client(api_key)
+
+
+GenAIClientDep = Annotated[GenAIClientProtocol, Depends(get_genai_client)]
+
+
+def get_gemini_adapter(client: GenAIClientDep) -> GeminiAdapter:
+    """Provide the concrete Gemini adapter around an injected SDK client."""
+    return GeminiAdapter(client)
+
+
+GeminiAdapterDep = Annotated[GeminiAdapter, Depends(get_gemini_adapter)]
+
+
+def get_multimodal_ai_adapter(
+    adapter: GeminiAdapterDep,
+) -> MultimodalAIAdapter:
+    """Expose the selected provider-independent multimodal adapter seam."""
+    return adapter
+
+
+MultimodalAIAdapterDep = Annotated[
+    MultimodalAIAdapter, Depends(get_multimodal_ai_adapter)
+]
+
+
+def get_gemini_provider(
+    adapter: MultimodalAIAdapterDep,
+    config: ProviderConfigDep,
+) -> GeminiProvider:
+    """Compose Gemini's business provider from its injected adapter and config."""
+    return GeminiProvider(adapter, config)
+
+
+GeminiProviderDep = Annotated[GeminiProvider, Depends(get_gemini_provider)]
+
+
+def get_multimodal_ai_provider() -> MultimodalAIProvider:
+    """Unimplemented generic provider seam; a concrete selection is not automatic."""
+    raise NotImplementedError(
+        "No generic multimodal AI provider is selected; use an explicitly "
+        "configured concrete provider."
+    )
+
+
+MultimodalAIProviderDep = Annotated[
+    MultimodalAIProvider, Depends(get_multimodal_ai_provider)
+]
+
+
+def get_multimodal_ai_service(
+    provider: MultimodalAIProviderDep,
+) -> MultimodalAIService:
+    """Provide the provider-agnostic multimodal service through injection."""
+    return MultimodalAIService(provider)
+
+
+MultimodalAIServiceDep = Annotated[
+    MultimodalAIService, Depends(get_multimodal_ai_service)
+]
+
+
+def get_session_provider() -> SessionProvider:
+    """Unimplemented generic session seam; live-session use is explicit."""
+    raise NotImplementedError(
+        "No generic session provider is selected; configure a concrete session "
+        "provider explicitly."
+    )
+
+
+SessionProviderDep = Annotated[SessionProvider, Depends(get_session_provider)]
+
+
+def get_session_service(provider: SessionProviderDep) -> SessionService:
+    """Provide the provider-agnostic session lifecycle service."""
+    return SessionService(provider)
+
+
+SessionServiceDep = Annotated[SessionService, Depends(get_session_service)]
+
+
+def get_gemini_live_session_provider(
+    client: GenAIClientDep,
+    config: ProviderConfigDep,
+) -> GeminiLiveSessionProvider:
+    """Compose Gemini Live around an injected client and provider configuration."""
+    return GeminiLiveSessionProvider(client, config)
+
+
+GeminiLiveSessionProviderDep = Annotated[
+    GeminiLiveSessionProvider, Depends(get_gemini_live_session_provider)
+]
+
+
+def build_app_session_provider() -> Optional[GeminiLiveSessionProvider]:
+    """Build the optional app-scoped Live provider, degrading when unconfigured."""
+    try:
+        client = get_genai_client()
+    except (ValueError, RuntimeError):
+        # Gemini Live is optional. Missing credentials/SDK must not prevent the
+        # standard application and its Claude-backed text conversation from booting.
+        return None
+    return get_gemini_live_session_provider(client, get_provider_config())
+
+
+def get_app_session_provider(request: Request) -> GeminiLiveSessionProvider:
+    """Return the single Live provider owned by the app lifespan or raise 503."""
+    provider = getattr(request.app.state, "session_provider", None)
+    if provider is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Live session provider is not configured.",
+        )
+    return provider
+
+
+def get_conversation_runtime(
+    provider: SessionProvider,
+    memory_retrieval: Optional[MemoryRetrievalService] = None,
+    memory_persistence: Optional[MemoryPersistenceService] = None,
+) -> ConversationRuntime:
+    """Build a request-scoped runtime around one shared session/live provider."""
+    return ConversationRuntime(
+        session_service=SessionService(provider),
+        live_messaging=provider,
+        memory_retrieval=memory_retrieval,
+        memory_persistence=memory_persistence,
+    )
 
 
 def get_email_provider() -> EmailProvider:

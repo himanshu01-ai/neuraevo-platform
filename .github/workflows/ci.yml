@@ -23,6 +23,20 @@ jobs:
   backend-tests:
     name: Backend tests (Python 3.12)
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: neuraevo_test
+          POSTGRES_USER: neuraevo_test
+          POSTGRES_PASSWORD: neuraevo_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U neuraevo_test -d neuraevo_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: backend
@@ -41,6 +55,17 @@ jobs:
         env:
           PYTHONPATH: .
         run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Apply migrations for isolated PostgreSQL integration tests
+        env:
+          DATABASE_URL: postgresql+psycopg://neuraevo_test:neuraevo_test@127.0.0.1:5432/neuraevo_test
+          PYTHONPATH: .
+        run: python -m alembic upgrade head
+      - name: Verify persisted conversation turn against PostgreSQL
+        env:
+          DATABASE_URL: postgresql+psycopg://neuraevo_test:neuraevo_test@127.0.0.1:5432/neuraevo_test
+          NEURAEVO_POSTGRES_INTEGRATION: "1"
+          PYTHONPATH: .
+        run: python -m unittest tests.test_conversation_postgres_integration
 
   frontend-checks:
     name: Frontend typecheck, lint, test, build (Node 22)
