@@ -9,6 +9,7 @@ OpenAPI document is complete, and token responses are non-cacheable.
 """
 
 import unittest
+from unittest.mock import MagicMock
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 from app.api.cache import no_store
 from app.api.pagination import DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, PaginationDep
 from app.core.request_context import REQUEST_ID_HEADER
+from app.core.database import get_db
 from app.main import app, create_app
 
 
@@ -23,9 +25,25 @@ class ErrorContractTests(unittest.TestCase):
     """Every failure path returns the one JSON contract with a correlation id."""
 
     def setUp(self):
+        # These tests assert HTTP contracts, not database behavior. Override the
+        # session dependency so validation/error responses remain testable when
+        # DATABASE_URL is intentionally absent from the unit-test environment.
+        self._had_db_override = get_db in app.dependency_overrides
+        self._previous_db_override = app.dependency_overrides.get(get_db)
+
+        def unused_test_session():
+            yield MagicMock(name="unused_validation_test_session")
+
+        app.dependency_overrides[get_db] = unused_test_session
         # raise_server_exceptions=False so a 500 is returned (as in production)
         # rather than re-raised into the test.
         self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        if self._had_db_override:
+            app.dependency_overrides[get_db] = self._previous_db_override
+        else:
+            app.dependency_overrides.pop(get_db, None)
 
     def test_404_is_json_detail_with_request_id(self):
         r = self.client.get("/api/v1/this-route-does-not-exist")
