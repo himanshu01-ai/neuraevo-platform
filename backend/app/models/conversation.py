@@ -9,7 +9,7 @@ and service layers.
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,6 +20,7 @@ from app.utils.constants import ConversationStatus
 if TYPE_CHECKING:
     from app.models.employee import Employee
     from app.models.message import Message
+    from app.models.project import Project
 
 
 class Conversation(Base):
@@ -35,6 +36,14 @@ class Conversation(Base):
         ForeignKey("employees.id", ondelete="CASCADE"),
         index=True,
         nullable=False,
+    )
+    # Optional for backward compatibility. Project association is immutable
+    # after conversation creation and is not accepted by the turn payload.
+    project_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        Uuid,
+        ForeignKey("projects.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(
@@ -53,6 +62,9 @@ class Conversation(Base):
 
     # Each conversation belongs to exactly one employee.
     employee: Mapped["Employee"] = relationship(
+        back_populates="conversations"
+    )
+    project: Mapped[Optional["Project"]] = relationship(
         back_populates="conversations"
     )
 

@@ -8,7 +8,7 @@ on:
   push:
     branches: ["**"]
   pull_request:
-    branches: [main]
+    branches: [main, release/v1.0.0]
 
 # One in-flight run per ref; a new push cancels the previous run.
 concurrency:
@@ -60,12 +60,15 @@ jobs:
           DATABASE_URL: postgresql+psycopg://neuraevo_test:neuraevo_test@127.0.0.1:5432/neuraevo_test
           PYTHONPATH: .
         run: python -m alembic upgrade head
-      - name: Verify persisted conversation turn against PostgreSQL
+      - name: Verify PostgreSQL-backed integrations
         env:
           DATABASE_URL: postgresql+psycopg://neuraevo_test:neuraevo_test@127.0.0.1:5432/neuraevo_test
           NEURAEVO_POSTGRES_INTEGRATION: "1"
           PYTHONPATH: .
-        run: python -m unittest tests.test_conversation_postgres_integration
+        run: >-
+          python -m unittest
+          tests.test_conversation_postgres_integration
+          tests.test_project_postgres_integration
 
   frontend-checks:
     name: Frontend typecheck, lint, test, build (Node 22)
