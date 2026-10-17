@@ -23,6 +23,7 @@ from app.models.memory import Memory
 from app.models.memory_link import TaskMemoryLink, WorkflowMemoryLink
 from app.models.message import Message
 from app.models.notification import Notification
+from app.models.project import Project, ProjectCheckpoint
 from app.models.task import Task, TaskWorkflowExecution
 from app.models.user import User
 from app.models.workflow import Workflow
@@ -48,6 +49,8 @@ __all__ = [
     "EmployeePermissionGrant",
     "Memory",
     "Notification",
+    "Project",
+    "ProjectCheckpoint",
     "TaskMemoryLink",
     "WorkflowMemoryLink",
     "Blueprint",
